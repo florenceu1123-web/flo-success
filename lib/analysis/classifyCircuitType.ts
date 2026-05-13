@@ -325,9 +325,28 @@ function decideType(args: DecideArgs): DecideResult {
     return { type: "dc_nodal", confidence: "low", reasoning: "dc_resistive 단순회로 → dc_nodal fallback" };
   }
 
+  // ★ 회로이론 fallback — system.ts의 "GPT 회로 생성 금지" contract 보호.
+  //   classify가 unsupported로 분류하면 GPT free generation으로 가서 회로를 GPT가 만듦.
+  //   회로이론(R/V/I만 있는 케이스)이면 무조건 결정론 generator(dc_mesh)로 보내 contract 유지.
+  //   R/V/I 조차 없으면 그제야 unsupported.
+  if (counts.R > 0 || counts.V > 0 || counts.I > 0) {
+    // 등가회로 표현이 본문에 살짝이라도 있으면 thevenin
+    if (matchesKeyword(text, EQUIVALENT_KEYWORDS) || matchesKeyword(text, LOAD_PLACEHOLDER_KEYWORDS)) {
+      if (matchesKeyword(text, MAX_POWER_KEYWORDS)) {
+        return { type: "max_power_transfer", confidence: "low", reasoning: "fallback: 등가회로 키워드 약매치 + 최대전력" };
+      }
+      return { type: "thevenin", confidence: "low", reasoning: "fallback: 등가회로 키워드 약매치 → thevenin 결정론 path" };
+    }
+    return {
+      type: "dc_mesh",
+      confidence: "low",
+      reasoning: "fallback: R/V/I 있는 회로이론 → dc_mesh 결정론 path (GPT 자유 회로 생성 금지)",
+    };
+  }
+
   return {
     type: "unsupported",
     confidence: "low",
-    reasoning: `분류 실패: topicKey=${topicKey}`,
+    reasoning: `분류 실패: topicKey=${topicKey} (R/V/I 모두 없음)`,
   };
 }
