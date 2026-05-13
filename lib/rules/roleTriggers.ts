@@ -23,12 +23,6 @@ const EQUIVALENT_TOPICS = new Set([
   "impedance_equivalent",
 ]);
 
-/** supermesh/supernode는 일반적으로 switch open/closed 두 회로 비교라서 state pair 자동 */
-const ALWAYS_STATE_TOPICS = new Set([
-  "supermesh",
-  "supernode",
-]);
-
 function hasAny(text: string, words: string[]): boolean {
   return words.some((w) => text.includes(w));
 }
@@ -38,19 +32,16 @@ function hasAny(text: string, words: string[]): boolean {
  *
  * 트리거 조건 (어느 하나):
  *   1. semantic.hasStateTransition === true (analyze가 명시적으로 판정)
- *   2. ALWAYS_STATE_TOPICS (supermesh/supernode) — 거의 항상 switch pair 동반
- *   3. 본문에 (스위치/SW/switch 키워드) AND (열려/닫혀/open/closed/t<0/t>0 등 상태어) 함께
+ *   2. 본문에 (스위치/SW/switch 키워드) AND (열려/닫혀/open/closed/t<0/t>0 등 상태어) 함께
  *
  * 다음 단독으론 트리거 안 함:
  *   - "(가)/(나)" 만 — RC 응답 문제(파형+회로)에도 흔히 등장
  *   - transient_rc/transient_rl — 파형 측정 문제일 수도, 스위치 문제일 수도
  *   - 스위치 키워드 단독 — "스위치 회로" 일반 언급일 수도
  *   - 상태어 단독 — "정상상태에서 …" 일반 언급일 수도
+ *   - supermesh/supernode topic 단독 — 기본 형태는 단일 DC 회로 (switch 동반 아님)
  */
 function isStateTransitionProblem(args: ResolveFigureRolesArgs): boolean {
-  // 명시적 supermesh/supernode topic — 거의 항상 switch open/closed pair
-  if (ALWAYS_STATE_TOPICS.has(args.topicKey ?? "")) return true;
-
   // digital_logic — semantic.hasStateTransition (FSM/플립플롭) 신뢰
   if (args.subjectKey === "digital_logic" && args.semantic.hasStateTransition === true) {
     return true;
