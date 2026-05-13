@@ -4,6 +4,7 @@ import { generateVariant } from "@/lib/generation";
 import { generateSimilar } from "@/lib/mutation";
 import { resolveRules } from "@/lib/rules";
 import { validateProblem, validateFigures, type ValidationResult } from "@/lib/validators";
+import { validateAnswerSolution } from "@/lib/validators/validateAnswerSolution";
 import { createLogger } from "@/lib/logger";
 import { runTheveninPipeline } from "@/lib/pipeline/runTheveninPipeline";
 import { runNortonPipeline } from "@/lib/pipeline/runNortonPipeline";
@@ -253,25 +254,36 @@ export async function POST(req: NextRequest) {
     }
 
     // 검증 (Pipeline 6단계)
-    const validations: Array<{ problemId: string; problem: ValidationResult; figures: ValidationResult }> = [];
+    // answer/solution 일관성 issue는 별도 "solutionIssues"로 보고 — totalIssues에 합산하지만
+    // critical은 아님 (이미 솔버가 정답 강제, 풀이 텍스트 품질 경고).
+    const validations: Array<{
+      problemId: string;
+      problem: ValidationResult;
+      figures: ValidationResult;
+      solution?: { ok: boolean; issues: Array<{ rule: string; message: string }> };
+    }> = [];
     let totalIssues = 0;
+    let solutionWarnings = 0;
     for (const p of problems) {
       const pv = validateProblem({
         problem: p,
         expected: { subject: subjectKey, topicKey: expectedTopicKey, ruleSet },
       });
       const fv = validateFigures(p.figureVariants ?? []);
-      validations.push({ problemId: p.id, problem: pv, figures: fv });
+      const sv = validateAnswerSolution({ answer: p.answer, solution: p.solution });
+      const solutionResult = { ok: sv.length === 0, issues: sv };
+      validations.push({ problemId: p.id, problem: pv, figures: fv, solution: solutionResult });
       totalIssues += pv.issues.length + fv.issues.length;
+      solutionWarnings += sv.length;
     }
-    log.info("validation", { mode, returned: problems.length, totalIssues });
+    log.info("validation", { mode, returned: problems.length, totalIssues, solutionWarnings });
 
     return NextResponse.json({
       problems,
       mode,
       ruleSet,
       validations,
-      summary: { problems: problems.length, totalIssues },
+      summary: { problems: problems.length, totalIssues, solutionWarnings },
     });
   } catch (e) {
     if (e instanceof GenerateError) {
