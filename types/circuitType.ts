@@ -34,6 +34,7 @@ export type CircuitType =
   // ── 디지털논리 ───────────────────────────────
   | "kmap_sop"              // K-map → 최소 SOP → 구현 회로 (AND-OR)
   | "kmap_pos"              // K-map → 최소 POS → 구현 회로 (OR-AND, SOP dual)
+  | "flipflop_counter"      // 2비트 D-FF 카운터 (상태 순서 → D 입력 K-map)
   // ── fallback ─────────────────────────────────
   | "unsupported";          // electronics / digital_logic / 분류 실패
 

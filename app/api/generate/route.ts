@@ -19,6 +19,7 @@ import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitP
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
 import { runKmapSopPipeline } from "@/lib/pipeline/runKmapSopPipeline";
 import { runKmapPosPipeline } from "@/lib/pipeline/runKmapPosPipeline";
+import { runFlipflopCounterPipeline } from "@/lib/pipeline/runFlipflopCounterPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -181,6 +182,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "kmap_pos" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "kmap_pos_pipeline", count: n, mode });
       problems = await runKmapPosPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "flipflop_counter" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "flipflop_counter_pipeline", count: n, mode });
+      problems = await runFlipflopCounterPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

@@ -13,6 +13,9 @@ export function resolveDigitalRules(args: {
   if (args.topicKey === "kmap_sop" || args.topicKey === "kmap_pos") {
     required.push("kmap", "implementation_circuit");
   }
+  if (args.topicKey === "flipflop_counter") {
+    required.push("kmap", "implementation_circuit");
+  }
   if (args.topicKey === "waveform_analysis" || args.semantic.hasWaveformEvolution) {
     required.push("waveform");
   }

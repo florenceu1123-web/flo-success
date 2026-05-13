@@ -134,6 +134,97 @@ export function buildLogicNetwork(args: {
 }
 
 /**
+ * 다중 출력 SOP → 단일 LogicNetworkDiagram (NOT 게이트 공유).
+ *
+ *  여러 함수 D1, D0가 같은 입력 변수(Q1, Q0)를 쓸 때 통합 회로로 합성.
+ *  NOT 게이트는 공유 (한 번만 생성).
+ */
+export function buildLogicNetworkMulti(args: {
+  sops: Array<{ sop: SopTerm[]; outputName: string }>;
+  varNames: string[];
+}): LogicNetworkDiagram {
+  const { sops, varNames } = args;
+  const gates: LogicGate[] = [];
+
+  // NOT 게이트가 필요한 변수 추출 (모든 SOP 통틀어서)
+  const needsNot = new Set<string>();
+  for (const { sop } of sops) {
+    for (const term of sop) {
+      for (let i = 0; i < term.pattern.length; i++) {
+        if (term.pattern[i] === "0") needsNot.add(varNames[i]);
+      }
+    }
+  }
+  let gateIdx = 1;
+  const notSignal = new Map<string, string>();
+  for (const v of varNames) {
+    if (needsNot.has(v)) {
+      const notOut = `${v}_n`;
+      gates.push({ id: `G_not_${v}`, type: "NOT", inputs: [v], output: notOut });
+      notSignal.set(v, notOut);
+    }
+  }
+
+  const outputs: string[] = [];
+
+  for (const { sop, outputName } of sops) {
+    outputs.push(outputName);
+
+    if (sop.length === 0) {
+      // F = 0: 어떤 게이트도 outputName으로 가지 않음. 그냥 outputs에만 등록.
+      continue;
+    }
+
+    // 각 SOP term → AND 게이트
+    const termOutputs: string[] = [];
+    for (const term of sop) {
+      const literalSignals: string[] = [];
+      for (let i = 0; i < term.pattern.length; i++) {
+        if (term.pattern[i] === "X") continue;
+        if (term.pattern[i] === "1") literalSignals.push(varNames[i]);
+        else literalSignals.push(notSignal.get(varNames[i])!);
+      }
+      if (literalSignals.length === 0) {
+        // tautology — 이 SOP는 1.
+        // outputName으로 가는 buffer는 없지만 LogicNetwork 구조상 표현 어려움. 일단 skip.
+        continue;
+      }
+      if (literalSignals.length === 1) {
+        termOutputs.push(literalSignals[0]);
+      } else {
+        const out = `and_${outputName}_${gateIdx++}`;
+        gates.push({ id: `G_and_${outputName}_${gateIdx}`, type: "AND", inputs: literalSignals, output: out });
+        termOutputs.push(out);
+      }
+    }
+
+    if (termOutputs.length === 1) {
+      // 단일 literal output — buffer 역할 1-input OR 게이트로 노출. NOT 게이트 rename 금지
+      // (공유될 수 있음). 1-input OR은 logical identity = pass-through.
+      gates.push({
+        id: `G_buf_${outputName}`,
+        type: "OR",
+        inputs: [termOutputs[0]],
+        output: outputName,
+      });
+    } else if (termOutputs.length > 1) {
+      gates.push({
+        id: `G_or_${outputName}_${gateIdx++}`,
+        type: "OR",
+        inputs: termOutputs,
+        output: outputName,
+      });
+    }
+  }
+
+  return {
+    inputs: [...varNames],
+    outputs,
+    gates,
+  };
+}
+
+/**
  * POS → LogicNetworkDiagram 변환. OR-AND 구조 (SOP의 AND-OR dual).
  *
  *  각 POS term을 OR 게이트로 합성, 모든 term을 AND 게이트로 묶어 출력.
