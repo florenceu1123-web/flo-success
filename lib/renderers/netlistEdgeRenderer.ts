@@ -1,4 +1,5 @@
 import type { CircuitComponent, CircuitNetlist } from "@/types";
+import { CONNECTION_LAYOUT_RULES } from "@/lib/generation/branchTemplate";
 
 type Point = { x: number; y: number };
 type Orientation = "horizontal" | "vertical";
@@ -254,6 +255,10 @@ function buildRenderEdges(
   const groundLabels = new Set<string>([...GROUND_LABELS, ...(netlist.ground ? [netlist.ground] : [])]);
   const edges: RenderEdge[] = [];
   const localGndPoints: GroundMark[] = [];
+  // Rule-3 lane 분리: 같은 (a,b) node pair에 여러 component(parallel)가 있으면
+  // y/x offset으로 분산 — laneOffsetMinPx 간격으로 stack 인덱스 부여.
+  const pairCount = new Map<string, number>();
+  const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
   for (const c of netlist.components) {
     if (c.type === "GND") continue;
     if (!c.pins || c.pins.length < 2) continue;
@@ -275,6 +280,25 @@ function buildRenderEdges(
       const localGnd: GroundMark = { x: start.x, y: start.y + 100 };
       localGndPoints.push(localGnd);
       end = localGnd;
+    }
+
+    // Rule-3 — same node-pair multi-component lane offset
+    const key = pairKey(p1.node, p2.node);
+    const stackIdx = pairCount.get(key) ?? 0;
+    pairCount.set(key, stackIdx + 1);
+    if (stackIdx > 0) {
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const isHorizontal = Math.abs(dx) > Math.abs(dy);
+      const off = CONNECTION_LAYOUT_RULES.laneOffsetMinPx * 2 * stackIdx;
+      // horizontal pair는 y 분산, vertical pair는 x 분산
+      if (isHorizontal) {
+        start = { x: start.x, y: start.y + off };
+        end = { x: end.x, y: end.y + off };
+      } else {
+        start = { x: start.x + off, y: start.y };
+        end = { x: end.x + off, y: end.y };
+      }
     }
 
     edges.push({
@@ -497,7 +521,7 @@ function wire(a: Point, b: Point): string {
 // =====================================================================
 /**
  * Junction dot 렌더 — CONNECTION_LAYOUT_RULES.Rule-7 구현.
- *   - degree ≥ 3 node: T-junction/fan-out → dot 표시 (같은 net임을 의미)
+ *   - degree ≥ junctionDotOnDegreeAtLeast (=3): T-junction/fan-out → dot 표시 (같은 net임을 의미)
  *   - degree = 2 node: 단순 corner 또는 wire 통과 → dot 안 찍음
  *   - cross-over (별개 net의 교차)는 wire 끊김으로 표현되어 자동으로 dot 없음.
  */
@@ -510,7 +534,7 @@ function renderJunctions(netlist: CircuitNetlist, nodePos: Map<string, Point>): 
   }
   let svg = "";
   for (const [node, d] of degree) {
-    if (d >= 3) {
+    if (d >= CONNECTION_LAYOUT_RULES.junctionDotOnDegreeAtLeast) {
       const pos = nodePos.get(node);
       if (pos) svg += `<circle cx="${pos.x}" cy="${pos.y}" r="3.5" fill="black"/>`;
     }

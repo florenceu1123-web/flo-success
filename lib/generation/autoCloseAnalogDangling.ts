@@ -1,4 +1,5 @@
 import type { CircuitComponent, CircuitNetlist, GeneratedProblem } from "@/types";
+import { CONNECTION_LAYOUT_RULES } from "@/lib/generation/branchTemplate";
 
 const GROUND_LABELS = new Set(["GND", "gnd", "Gnd", "0", "ground", "Ground"]);
 
@@ -55,7 +56,8 @@ function closeDangling(netlist: CircuitNetlist): void {
   }
 
   for (const [node, d] of degree) {
-    if (d >= 2) continue;
+    // CONNECTION_LAYOUT_RULES.minNodeDegree (=2) — degree 미만이면 자동 닫음 트리거
+    if (d >= CONNECTION_LAYOUT_RULES.minNodeDegree) continue;
     if (groundIds.has(node)) continue;
 
     const wire: CircuitComponent = {

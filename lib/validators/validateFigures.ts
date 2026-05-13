@@ -8,6 +8,7 @@ import type {
 import { validateNetlistRenderable } from "@/lib/renderers/netlist/validate";
 import { validateKmap } from "@/lib/renderers/kmapRenderer";
 import { validateLogicNetwork } from "@/lib/renderers/logicNetworkRenderer";
+import { CONNECTION_LAYOUT_RULES } from "@/lib/generation/branchTemplate";
 import type { ValidationResult, ValidationIssue } from "./validateProblem";
 
 /**
@@ -35,8 +36,9 @@ export function validateFigures(figures: FigureVariant[]): ValidationResult {
         }
       }
       for (const [node, deg] of degree) {
-        if (deg < 2) {
-          issues.push({ rule: "netlist_dangling_node", message: `${f.id}: node "${node}" — degree ${deg} (≥2 필요)` });
+        // CONNECTION_LAYOUT_RULES.minNodeDegree = 2 (Rule-1: 회로 완결성)
+        if (deg < CONNECTION_LAYOUT_RULES.minNodeDegree) {
+          issues.push({ rule: "netlist_dangling_node", message: `${f.id}: node "${node}" — degree ${deg} (≥${CONNECTION_LAYOUT_RULES.minNodeDegree} 필요)` });
         }
       }
     } else if (f.diagramType === "logic_network") {
