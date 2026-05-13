@@ -174,7 +174,11 @@ function buildPrompt(subject: SubjectKey): string {
 
 ★ 헷갈리기 쉬운 case ★
   - Vertical에 SW만 보고 "switching_leg" components=[SW] 라고 하면 안 됨. 그 SW와 ground 사이에 다른 component가 있는지 (R, I 등) 반드시 트레이스해서 직렬 chain 전체를 한 branch로 묶을 것.
-  - V_source가 vertical인지 horizontal인지: top rail 안에 끼어 있으면 horizontal (드뭄). top node와 GND를 잇는 별도 leg면 vertical (대부분).
+  - ★ V_source가 vertical인지 horizontal인지 신중히 판별 (Thevenin/dc_resistive 문제에선 horizontal V가 흔함):
+    · **horizontal V (top rail series)**: V 기호가 두 R 사이 또는 두 top node 사이의 **가로 wire** 안에 끼어 있고, +/- 마크가 좌우(left/right)에 표시. 예: ─[R]─⊕V─[R]─. 이 V는 role="mesh_only_branch"로 분류하고 components=[{type:"V", value:"7V"}].
+    · **vertical V (leg)**: V 기호가 top node와 GND를 잇는 **세로 wire** 안에 있고, +/- 마크가 상하(top/bottom)에 표시. role="voltage_source_leg".
+    · Thevenin 문제(테브난 등가회로)는 보통 top rail에 V가 하나 끼어 있고 + vertical legs로 V/I 추가가 일반적 패턴. "horizontal V는 드물다"고 가정하지 말 것.
+    · 판별 핵심: V 원 모양(○+-)이 가로 wire(─○─)에 있는지, 세로 wire(│○│)에 있는지 회로 그림 wire 방향으로 확인.
   - dependent source(VCVS/VCCS 등)도 V/I와 같은 방식으로 leg/branch 분류.
 
 【few-shot — supermesh 8번 패턴 예시】

@@ -216,6 +216,12 @@ export type AnalysisResult = {
    * exam_variant 모드에서 범위 안에서 자유 변형 허용 (validateStructuralEnvelope).
    */
   structuralEnvelope?: StructuralEnvelope;
+  /**
+   * 별도 vision 호출로 추출한 component inventory (analyze branches와 독립적 source of truth).
+   * type별 개수 floor를 generate에 강제 — analyze branches가 일부 component를 놓쳐도
+   * inventory가 잡은 개수만큼은 반드시 생성되도록.
+   */
+  componentInventory?: Array<{ id: string; type: string; value?: string }>;
 };
 
 export type FillInTheBlank = {

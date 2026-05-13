@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImage, AnalyzeError } from "@/lib/analysis/analyzeImage";
+import { extractComponentInventory } from "@/lib/analysis/extractComponentInventory";
 import { compactAnalysis } from "@/lib/analysis/compactAnalysis";
 import { createLogger } from "@/lib/logger";
 import { SUBJECT_KEYS, type SubjectKey } from "@/types";
@@ -18,9 +19,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `subject는 ${SUBJECT_KEYS.join("/")} 중 하나여야 합니다.` }, { status: 400 });
     }
 
-    const analysis = await analyzeImage({ image, subject: subject as SubjectKey });
+    // analyzeImage(전체) + extractComponentInventory(독립 vision 호출) 병렬 수행.
+    // inventory가 잡은 type별 개수가 floor로 generate에 강제됨 — analyze branches가 일부 component 놓쳐도 보강.
+    const [analysis, inventory] = await Promise.all([
+      analyzeImage({ image, subject: subject as SubjectKey }),
+      extractComponentInventory({ image }).catch((e) => {
+        log.warn("inventory_extraction_failed", { message: (e as Error).message });
+        return [] as Awaited<ReturnType<typeof extractComponentInventory>>;
+      }),
+    ]);
+
     const compact = compactAnalysis(analysis);
-    return NextResponse.json(compact);
+    const result = inventory.length > 0
+      ? { ...compact, componentInventory: inventory }
+      : compact;
+    return NextResponse.json(result);
   } catch (e) {
     if (e instanceof AnalyzeError) {
       log.error("AnalyzeError", { message: e.message });

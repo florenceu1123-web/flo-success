@@ -121,6 +121,23 @@ function buildUserPrompt(args: {
     }${r.label ? `, label="${r.label}"` : ""}${r.required ? "" : ", required=false"}`)
     .join("\n");
 
+  // ★ 별도 vision 호출로 추출한 component inventory — type별 개수 floor를 강제
+  const inventory = analysis?.componentInventory;
+  const inventoryBlock = inventory && inventory.length > 0
+    ? (() => {
+        const counts: Record<string, number> = {};
+        for (const c of inventory) {
+          const t = (c.type ?? "").toUpperCase();
+          counts[t] = (counts[t] ?? 0) + 1;
+        }
+        return `[★ ORIGINAL_COMPONENT_INVENTORY — vision 추출. 다음 type별 count 이상으로 반드시 포함]\n` +
+          `  ${JSON.stringify(counts)}\n` +
+          `  · 각 type별 개수 floor — 부족하면 critical fail.\n` +
+          `  · 예: R:3, V:2, I:2 → 생성 회로에 R 3개·V 2개·I 2개 이상.\n` +
+          `  · 원본 inventory: ${JSON.stringify(inventory.map((c) => c.value ? `${c.id}(${c.type},${c.value})` : `${c.id}(${c.type})`))}\n`;
+      })()
+    : "";
+
   const ssig = analysis?.structureSignature;
   const ssigBlock = ssig
     ? `[원본 구조 시그니처 — STRUCTURE_PRESERVATION_CONTRACT (${policy.mode === "exam_similar" ? "정확 일치" : "±1 허용"})]\n` +
@@ -159,7 +176,11 @@ function buildUserPrompt(args: {
 - branches (총 ${ts.branches.length}개):
 ${branchLines}
 ※ 위 branch 목록과 동일한 구성·role·개수로 생성. 값(value)만 새로 설정.
-※ vertical leg(voltage_source_leg/dependent_source_leg/current_source_leg/switching_leg/load_leg)을 horizontal로 미끄러뜨리거나 series chain으로 평탄화 금지.
+※ **각 branch의 role을 정확히 보존** — 원본 목록의 role을 그대로 유지. role을 바꿔서 위치를 옮기지 마라:
+   · voltage_source_leg, current_source_leg, dependent_source_leg, switching_leg, load_leg → vertical (top↔ground). horizontal로 옮기지 마라.
+   · top_rail_resistor → top rail (두 top node 사이). vertical leg로 옮기지 마라.
+   · mesh_only_branch → top rail에 있는 V/I (두 non-ground node 사이의 horizontal source). vertical leg로 옮기지 마라.
+※ 즉 원본의 role이 vertical 종류면 vertical로, horizontal 종류면 horizontal로 그대로 두라. 둘 사이 변환 금지.
 
 [★ branch → netlist pin/node 변환 규칙 — dangling 방지]
 - 각 branch의 components는 직렬 chain. chain의 양 끝 단자는 반드시 다른 branch와 공유되는 node에 연결.
@@ -207,7 +228,7 @@ ${env.forbiddenSimplifications.map((s) => `    - ${s}`).join("\n")}
         analysis.signals
           ? `[원본 신호 — 절대 보존]\n  inputs:  ${JSON.stringify(analysis.signals.inputs)}\n  outputs: ${JSON.stringify(analysis.signals.outputs)}\n`
           : ""
-      }${topoBlock}${ssigBlock}${
+      }${inventoryBlock}${topoBlock}${ssigBlock}${
         expandedReqs.length > 0
           ? `[필수 figure 목록 — 모두 생성 (FIGURE_REQUIREMENT_CONTRACT)]\n${reqLines}\n  · 위 목록의 각 항목당 figureVariants에 figure 1개씩 생성.\n  · target이 명시된 경우 figure.label에 target 변수명 포함하거나 fig.diagram.output로 연관.\n  · scope="per_output"을 단일 figure로 축소 금지. scope="combined"를 단일 출력으로 축소 금지.\n`
           : ""

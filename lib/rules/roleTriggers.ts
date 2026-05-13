@@ -116,7 +116,8 @@ export function resolveRequiredFigureRoles(args: ResolveFigureRolesArgs): Figure
     // state 문제 — main_circuit 대신 state_before/after
     roles.add("state_before");
     roles.add("state_after");
-  } else {
+  } else if (args.subjectKey !== "digital_logic") {
+    // digital_logic은 kmap/implementation_circuit 등 자체 figure role 사용 — main_circuit 불필요
     roles.add("main_circuit");
   }
 
