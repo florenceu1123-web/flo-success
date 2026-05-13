@@ -22,6 +22,7 @@ import { runKmapPosPipeline } from "@/lib/pipeline/runKmapPosPipeline";
 import { runFlipflopCounterPipeline } from "@/lib/pipeline/runFlipflopCounterPipeline";
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
+import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -208,6 +209,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "fsm" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "fsm_pipeline", count: n, mode });
       problems = await runFsmPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "waveform_analysis" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "waveform_analysis_pipeline", count: n, mode });
+      problems = await runWaveformAnalysisPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

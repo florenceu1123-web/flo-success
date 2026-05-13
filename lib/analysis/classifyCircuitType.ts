@@ -48,6 +48,14 @@ export function classifyCircuitType(
   // digital_logic: kmap_sop / kmap_pos / flipflop_counter, 나머지(FSM 등)는 후속
   if (subject === "digital_logic") {
     const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    if (analysis.topicKey === "waveform_analysis" || matchesKeyword(text, ["입력 파형", "출력 파형", "타이밍도", "timing diagram", "사각파", "파형 분석"])) {
+      return {
+        type: "waveform_analysis",
+        params: {},
+        confidence: "high",
+        reasoning: "digital_logic + 파형 분석 키워드/topic",
+      };
+    }
     if (analysis.topicKey === "fsm" || matchesKeyword(text, ["FSM", "유한 상태", "유한상태", "Mealy", "Moore", "상태 기계", "상태 머신", "상태 전이도", "상태천이도"])) {
       return {
         type: "fsm",

@@ -102,21 +102,14 @@ export function buildLogicNetwork(args: {
 
   // 4) 모든 term을 OR — 결과는 outputName
   if (termOutputs.length === 1) {
-    // 단일 term — OR 불필요. 마지막 게이트의 출력을 outputName으로 rename.
-    // (또는 buffer 게이트 생성. 여기선 buffer 생략하고 마지막 게이트의 output를 outputName으로)
-    const lastGate = gates[gates.length - 1];
-    if (lastGate && lastGate.output === termOutputs[0]) {
-      lastGate.output = outputName;
-    } else {
-      // termOutputs[0]가 NOT 출력이거나 단일 변수 → buffer 노출이 필요. NOT 게이트의 출력 이름 변경.
-      // 단순화: NOT 게이트의 output을 outputName으로 변경
-      const matchGate = gates.find((g) => g.output === termOutputs[0]);
-      if (matchGate) matchGate.output = outputName;
-      else {
-        // 변수 직접 — 변수→outputName 표현이 필요. inputs에 변수가 있고 outputs에 outputName.
-        // gates 비어 있으면 그냥 입력=출력 (buffer 표시 없음). LogicNetworkDiagram 자체는 inputs+outputs+gates로 충분.
-      }
-    }
+    // 단일 term — buffer (1-input OR) 게이트로 outputName 노출. NOT 게이트 rename 금지
+    // (단일 출력이라 안전하지만, 다중 출력 함수와 일관성 유지 + 변수 직접 케이스 대응).
+    gates.push({
+      id: `G_buf_${outputName}`,
+      type: "OR",
+      inputs: [termOutputs[0]],
+      output: outputName,
+    });
   } else {
     gates.push({
       id: `G_or_${gateIdx}`,
@@ -284,13 +277,8 @@ export function buildLogicNetworkPos(args: {
 
   // 모든 term을 AND로 결합
   if (termOutputs.length === 1) {
-    const lastGate = gates[gates.length - 1];
-    if (lastGate && lastGate.output === termOutputs[0]) {
-      lastGate.output = outputName;
-    } else {
-      const matchGate = gates.find((g) => g.output === termOutputs[0]);
-      if (matchGate) matchGate.output = outputName;
-    }
+    // 단일 sum term — buffer 게이트로 노출 (NOT rename 금지, OR 게이트 공유될 수 있음)
+    gates.push({ id: `G_buf_${outputName}`, type: "AND", inputs: [termOutputs[0]], output: outputName });
   } else {
     gates.push({ id: `G_and_${gateIdx}`, type: "AND", inputs: termOutputs, output: outputName });
   }
