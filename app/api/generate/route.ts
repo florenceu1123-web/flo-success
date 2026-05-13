@@ -73,9 +73,23 @@ export async function POST(req: NextRequest) {
 
     // analysis에서 topicKey/semantic을 우선 활용 (body의 명시 값이 있으면 그것 우선)
     const expectedTopicKey: TopicKey | undefined = body.topicKey ?? analysis?.topicKey;
-    const expectedSemantic: SemanticStructure = body.semantic ?? analysis?.semantic ?? DEFAULT_SEMANTIC;
+    const rawSemantic: SemanticStructure = body.semantic ?? analysis?.semantic ?? DEFAULT_SEMANTIC;
 
     const subjectKey = subject as SubjectKey;
+    // ── semantic normalize: SW만 있고 C/L이 없는 두 정상상태 비교 케이스는
+    //    waveform 응답이 아니므로 hasWaveformEvolution을 false로 (analyze가 SW
+    //    swiching을 timing 변화로 잘못 marking할 때가 잦아 ruleSet의 waveform required
+    //    조건이 false-positive로 figure 누락 issue를 일으킴).
+    const inventory = analysis?.componentInventory ?? [];
+    const hasCapOrIndInCircuit = inventory.some((c) => c.type === "C" || c.type === "L");
+    const expectedSemantic: SemanticStructure =
+      rawSemantic.hasWaveformEvolution && !hasCapOrIndInCircuit && Boolean(analysis?.topologySignature?.features?.hasSwitch)
+        ? { ...rawSemantic, hasWaveformEvolution: false }
+        : rawSemantic;
+    if (expectedSemantic !== rawSemantic) {
+      log.info("semantic_normalized", { reason: "SW state pair without C/L → hasWaveformEvolution=false" });
+    }
+
     const ruleSet = resolveRules({ subject: subjectKey, topicKey: expectedTopicKey, semantic: expectedSemantic });
 
     // ★ Circuit-type 기반 dispatch — 결정론 파이프라인을 가진 type은 그쪽으로.
