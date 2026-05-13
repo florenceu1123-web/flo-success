@@ -13,6 +13,7 @@ import { runRlStepPipeline } from "@/lib/pipeline/runRlStepPipeline";
 import { runRlcStepPipeline } from "@/lib/pipeline/runRlcStepPipeline";
 import { runDcSupermeshPipeline } from "@/lib/pipeline/runDcSupermeshPipeline";
 import { runDcSupernodePipeline } from "@/lib/pipeline/runDcSupernodePipeline";
+import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourcePipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -127,6 +128,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "dc_supernode" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "dc_supernode_pipeline", count: n, mode });
       problems = await runDcSupernodePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "dc_dependent_source" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "dc_dependent_source_pipeline", count: n, mode });
+      problems = await runDcDependentSourcePipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
