@@ -126,6 +126,7 @@ function buildSimpleCharging(rand: () => number): RcStepGeneration {
       { node: "a", label: "C+", style: "label_only" },
     ],
     measurementMarks: [
+      { kind: "voltage", refs: ["top", "GND"], label: "V_in" },
       { kind: "voltage", refs: ["a", "GND"], label: "V_C" },
     ],
   };

@@ -35,9 +35,36 @@ export async function runRcStepPipeline(args: {
       text, netlist: gen.netlist,
       figureLabel: "주어진 RC 회로", figureRole: "original_circuit",
       figureIdSuffix: i + 1, topicKey,
-      extraFigures: [buildWaveformFigure(gen, i + 1)],
+      extraFigures: [buildInputWaveformFigure(gen, i + 1), buildWaveformFigure(gen, i + 1)],
     });
   });
+}
+
+/**
+ * V_in(t) 입력 step waveform — t=0 직전 0V, t≥0에서 V1으로 step.
+ * 원본 RC 응답 문제의 (나) 입력 파형 — 누락 시 학생이 입력 모양을 알 수 없음.
+ */
+function buildInputWaveformFigure(gen: RcStepGeneration, suffix: number): FigureVariant {
+  const tauMs = gen.answer.tauMs;
+  const V1 = gen.values.V1;
+  return {
+    id: `fig_input_waveform_${suffix}`,
+    label: "V_in(t) 입력 파형",
+    role: "input_waveform",
+    diagramType: "waveform",
+    diagram: {
+      signals: [{
+        name: "V_in",
+        shape: "step",
+        samples: [
+          { t: 0, v: 0 },
+          { t: 0.001, v: V1 },
+          { t: 5 * tauMs, v: V1 },
+        ],
+      }],
+      unit: { time: "ms", value: "V" },
+    },
+  };
 }
 
 /**
