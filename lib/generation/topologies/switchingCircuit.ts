@@ -7,6 +7,30 @@ import {
   pick,
   round3,
 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const swlog = createLogger("lib/generation/topologies/switchingCircuit");
+
+function assembleViaBT(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  swState?: "open" | "closed";
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  const enriched = args.branches.map((b) => ({ ...b, rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role] }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) swlog.warn("branch_template_violation", { issues: validation.issues });
+  const inst = instantiateAnalogTemplate(enriched, args.values);
+  return { ...assembleNetlist(inst, "GND", args.swState), ...args.metadata };
+}
 
 /**
  * DC 스위칭 회로 generator — SW open/closed 두 정상상태에서의 값 비교.
@@ -126,48 +150,32 @@ function buildNetlist(args: {
   swState: "open" | "closed";
 }): CircuitNetlist {
   const { V1, R1, R2, R3, swState } = args;
-  return {
-    components: [
-      {
-        id: "V1", type: "V", value: `${V1}V`,
-        pins: [
-          { id: "p1", node: "top", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "R1", type: "R", value: `${R1}Ω`,
-        pins: [
-          { id: "p1", node: "top", side: "left" },
-          { id: "p2", node: "a", side: "right" },
-        ],
-      },
-      {
-        id: "R3", type: "R", value: `${R3}Ω`,
-        pins: [
-          { id: "p1", node: "a", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
-      {
-        id: "R2", type: "R", value: `${R2}Ω`,
-        pins: [
-          { id: "p1", node: "a", side: "left" },
-          { id: "p2", node: "b", side: "right" },
-        ],
-      },
-      {
-        id: "SW", type: "SW", state: swState,
-        pins: [
-          { id: "p1", node: "b", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
+  return assembleViaBT({
+    branches: [
+      { id: "br_V1", role: "left_source_leg", orientation: "vertical", fromNode: "top", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V1" }] },
+      { id: "br_R1", role: "top_rail", orientation: "horizontal", fromNode: "top", toNode: "a",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_R3", role: "load_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R3" }] },
+      { id: "br_R2", role: "top_rail", orientation: "horizontal", fromNode: "a", toNode: "b",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R2" }] },
+      { id: "br_SW", role: "switching_leg", orientation: "vertical", fromNode: "b", toNode: "GND",
+        components: [{ type: "SW", role: "switch", order: 1, required: false, idOverride: "SW" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "a", label: "a", style: "label_only" },
-      { node: "b", label: "b", style: "label_only" },
+    values: [
+      { branchId: "br_V1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R1}Ω` },
+      { branchId: "br_R3", componentRole: "resistor", type: "R", value: `${R3}Ω` },
+      { branchId: "br_R2", componentRole: "resistor", type: "R", value: `${R2}Ω` },
+      { branchId: "br_SW", componentRole: "switch", type: "SW", state: swState },
     ],
-  };
+    swState,
+    metadata: {
+      nodeAnnotations: [
+        { node: "a", label: "a", style: "label_only" },
+        { node: "b", label: "b", style: "label_only" },
+      ],
+    },
+  });
 }

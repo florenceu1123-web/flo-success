@@ -6,6 +6,29 @@ import {
   pick,
   round3,
 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const rlclog = createLogger("lib/generation/topologies/rlcStep");
+
+function assembleViaBT(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  const enriched = args.branches.map((b) => ({ ...b, rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role] }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) rlclog.warn("branch_template_violation", { issues: validation.issues });
+  const inst = instantiateAnalogTemplate(enriched, args.values);
+  return { ...assembleNetlist(inst, "GND"), ...args.metadata };
+}
 
 /**
  * Series RLC step-response 문제 generator.
@@ -76,45 +99,28 @@ function buildSeriesStep(rand: () => number): RlcStepGeneration {
 
   const rlc = solveRlcStepResponse({ V, R: R_ohm, L: L_H, C: C_F });
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "V1", type: "V", value: `${V}V`,
-        pins: [
-          { id: "p1", node: "top", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "R1", type: "R", value: `${R_ohm}Ω`,
-        pins: [
-          { id: "p1", node: "top", side: "left" },
-          { id: "p2", node: "n1", side: "right" },
-        ],
-      },
-      {
-        id: "L1", type: "L", value: `${lc.L_mH}mH`,
-        pins: [
-          { id: "p1", node: "n1", side: "left" },
-          { id: "p2", node: "n2", side: "right" },
-        ],
-      },
-      {
-        id: "C1", type: "C", value: `${lc.C_uF}μF`,
-        pins: [
-          { id: "p1", node: "n2", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_V1", role: "input_source_leg", orientation: "vertical", fromNode: "top", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V1" }] },
+      { id: "br_R1", role: "top_rail", orientation: "horizontal", fromNode: "top", toNode: "n1",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_L1", role: "top_rail", orientation: "horizontal", fromNode: "n1", toNode: "n2",
+        components: [{ type: "L", role: "inductor", order: 1, required: true, idOverride: "L1" }] },
+      { id: "br_C1", role: "load_leg", orientation: "vertical", fromNode: "n2", toNode: "GND",
+        components: [{ type: "C", role: "capacitor", order: 1, required: true, idOverride: "C1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "n2", label: "C+", style: "label_only" },
+    values: [
+      { branchId: "br_V1", componentRole: "voltage_source", type: "V", value: `${V}V` },
+      { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R_ohm}Ω` },
+      { branchId: "br_L1", componentRole: "inductor", type: "L", value: `${lc.L_mH}mH` },
+      { branchId: "br_C1", componentRole: "capacitor", type: "C", value: `${lc.C_uF}μF` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["n2", "GND"], label: "V_C" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [{ node: "n2", label: "C+", style: "label_only" }],
+      measurementMarks: [{ kind: "voltage", refs: ["n2", "GND"], label: "V_C" }],
+    },
+  });
 
   return {
     netlist,

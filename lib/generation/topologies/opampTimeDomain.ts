@@ -10,6 +10,29 @@ import {
   pick,
   round3,
 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const otdlog = createLogger("lib/generation/topologies/opampTimeDomain");
+
+function assembleViaBT(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  const enriched = args.branches.map((b) => ({ ...b, rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role] }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) otdlog.warn("branch_template_violation", { issues: validation.issues });
+  const inst = instantiateAnalogTemplate(enriched, args.values);
+  return { ...assembleNetlist(inst, "GND"), ...args.metadata };
+}
 
 /**
  * 시간영역 OPAMP 회로 generator.
@@ -75,47 +98,31 @@ function buildIntegratorStep(rand: () => number): OpampTimeDomainGeneration {
 
   const Vout = round3(-Vstep * tQuerySec / (R * C));
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "Vs", type: "V", value: `${Vstep}V (step)`,
-        pins: [
-          { id: "p1", node: "Vin", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "R", type: "R", value: `${R_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vin", side: "left" },
-          { id: "p2", node: "Vminus", side: "right" },
-        ],
-      },
-      {
-        id: "C", type: "C", value: `${C_uF}μF`,
-        pins: [
-          { id: "p1", node: "Vminus", side: "left", role: "positive" },
-          { id: "p2", node: "Vout", side: "right", role: "negative" },
-        ],
-      },
-      {
-        id: "U1", type: "OPAMP",
-        pins: [
-          { id: "p1", node: "GND", side: "left", role: "non_inverting" },
-          { id: "p2", node: "Vminus", side: "left", role: "inverting" },
-          { id: "p3", node: "Vout", side: "right" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_Vs", role: "input_source_leg", orientation: "vertical", fromNode: "Vin", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs" }] },
+      { id: "br_R", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "Vin", toNode: "Vminus",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R" }] },
+      { id: "br_C", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        components: [{ type: "C", role: "feedback_capacitor", order: 1, required: true, idOverride: "C" }] },
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        opampNodes: { vp: "GND", vn: "Vminus", vo: "Vout" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "Vin", label: "V_in", style: "label_only" },
-      { node: "Vout", label: "V_out", style: "label_only" },
+    values: [
+      { branchId: "br_Vs", componentRole: "voltage_source", type: "V", value: `${Vstep}V (step)` },
+      { branchId: "br_R", componentRole: "input_resistor", type: "R", value: `${R_k}kΩ` },
+      { branchId: "br_C", componentRole: "feedback_capacitor", type: "C", value: `${C_uF}μF` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["Vout", "GND"], label: "V_out" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "Vin", label: "V_in", style: "label_only" },
+        { node: "Vout", label: "V_out", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+    },
+  });
 
   // Waveform — 입력 step + 출력 linear ramp (8 ms 정도 표시)
   const tEndMs = Math.max(tQueryMs * 1.5, 5 * tauMs);
@@ -167,47 +174,31 @@ function buildDifferentiatorRamp(rand: () => number): OpampTimeDomainGeneration 
   const slopeVPerSec = slope * 1000;
   const Vout = round3(-R * C * slopeVPerSec);
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "Vs", type: "V", value: `${slope}·t V (ramp)`,
-        pins: [
-          { id: "p1", node: "Vin", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "C", type: "C", value: `${C_uF}μF`,
-        pins: [
-          { id: "p1", node: "Vin", side: "left", role: "positive" },
-          { id: "p2", node: "Vminus", side: "right", role: "negative" },
-        ],
-      },
-      {
-        id: "R", type: "R", value: `${R_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vminus", side: "left" },
-          { id: "p2", node: "Vout", side: "right" },
-        ],
-      },
-      {
-        id: "U1", type: "OPAMP",
-        pins: [
-          { id: "p1", node: "GND", side: "left", role: "non_inverting" },
-          { id: "p2", node: "Vminus", side: "left", role: "inverting" },
-          { id: "p3", node: "Vout", side: "right" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_Vs", role: "input_source_leg", orientation: "vertical", fromNode: "Vin", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs" }] },
+      { id: "br_C", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "Vin", toNode: "Vminus",
+        components: [{ type: "C", role: "input_capacitor", order: 1, required: true, idOverride: "C" }] },
+      { id: "br_R", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R" }] },
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        opampNodes: { vp: "GND", vn: "Vminus", vo: "Vout" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "Vin", label: "V_in", style: "label_only" },
-      { node: "Vout", label: "V_out", style: "label_only" },
+    values: [
+      { branchId: "br_Vs", componentRole: "voltage_source", type: "V", value: `${slope}·t V (ramp)` },
+      { branchId: "br_C", componentRole: "input_capacitor", type: "C", value: `${C_uF}μF` },
+      { branchId: "br_R", componentRole: "feedback_resistor", type: "R", value: `${R_k}kΩ` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["Vout", "GND"], label: "V_out" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "Vin", label: "V_in", style: "label_only" },
+        { node: "Vout", label: "V_out", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+    },
+  });
 
   // Waveform — 입력 ramp + 출력 constant
   const tEndMs = 10;

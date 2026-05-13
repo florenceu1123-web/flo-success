@@ -178,7 +178,7 @@ export const DEFAULT_BRANCH_RULES: Record<TemplateBranchRole, BranchRules> = {
   switching_leg:             { allowedComponentTypes: ["SW", "R", "L", "C", "I", "V"], requiredComponentTypes: ["SW"], minNodeDegree: 2 },
   load_leg:                  { allowedComponentTypes: ["R", "I", "L", "C"], minNodeDegree: 2, layoutHint: "rightmost" },
   opamp_block:               { allowedComponentTypes: ["OPAMP"], requiredComponentTypes: ["OPAMP"], minNodeDegree: 2, layoutHint: "center" },
-  opamp_input_resistor:      { allowedComponentTypes: ["R"], requiredComponentTypes: ["R"], minNodeDegree: 2 },
+  opamp_input_resistor:      { allowedComponentTypes: ["R", "C", "L"], requiredComponentTypes: ["R", "C", "L"], minNodeDegree: 2 },
   opamp_feedback_resistor:   { allowedComponentTypes: ["R", "C"], requiredComponentTypes: ["R"], minNodeDegree: 2, layoutHint: "feedback_loop" },
   cascade_coupling:          { allowedComponentTypes: ["R"], requiredComponentTypes: ["R"], minNodeDegree: 2 },
   ground_symbol:             { allowedComponentTypes: [], minNodeDegree: 1, layoutHint: "ground_local" },
