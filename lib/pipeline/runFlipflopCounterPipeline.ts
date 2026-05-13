@@ -28,30 +28,24 @@ export async function runFlipflopCounterPipeline(args: {
     const gen = generateFlipflopCounter({ params: analysis?.circuitType?.params, seed });
     log.info("flipflop_counter_generated", {
       seq: gen.sequenceText,
-      D1: gen.d1Expression,
-      D0: gen.d0Expression,
+      ffType: gen.ffType,
+      ffInputs: gen.ffInputs.map((f) => `${f.name} = ${f.expression}`),
     });
 
     const text = await writeFlipflopCounterText({ generation: gen, mode, topicLabel, contextHint });
 
     const figureVariants: FigureVariant[] = [
-      {
-        id: `fig_kmap_d1_${i + 1}`,
-        label: "D1 K-map",
-        role: "kmap",
-        diagramType: "kmap",
-        diagram: gen.d1Kmap,
-      },
-      {
-        id: `fig_kmap_d0_${i + 1}`,
-        label: "D0 K-map",
-        role: "kmap",
-        diagramType: "kmap",
-        diagram: gen.d0Kmap,
-      },
+      // 각 FF 입력별 K-map 1개씩 (D-FF: 2개, JK-FF: 4개)
+      ...gen.ffInputs.map((ff, idx) => ({
+        id: `fig_kmap_${ff.name}_${i + 1}`,
+        label: `${ff.name} K-map`,
+        role: "kmap" as const,
+        diagramType: "kmap" as const,
+        diagram: ff.kmap,
+      })),
       {
         id: `fig_impl_${i + 1}`,
-        label: "구현 회로 (조합부)",
+        label: `구현 회로 (${gen.ffType} FF 조합부)`,
         role: "implementation_circuit",
         diagramType: "logic_network",
         diagram: gen.logicNetworkDiagram,

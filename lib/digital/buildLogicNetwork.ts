@@ -159,12 +159,25 @@ export function buildLogicNetworkMulti(args: {
   }
 
   const outputs: string[] = [];
+  // 상수 입력 필요 — tautology(constant 1) 또는 empty SOP(constant 0)
+  let needsConstant0 = false;
+  let needsConstant1 = false;
 
   for (const { sop, outputName } of sops) {
     outputs.push(outputName);
 
     if (sop.length === 0) {
-      // F = 0: 어떤 게이트도 outputName으로 가지 않음. 그냥 outputs에만 등록.
+      // F = 0: "0" 상수 입력에 연결한 buffer 게이트
+      needsConstant0 = true;
+      gates.push({ id: `G_buf_${outputName}`, type: "OR", inputs: ["0"], output: outputName });
+      continue;
+    }
+
+    // tautology 검사 — 어떤 term이라도 모든 자리 X면 SOP=1
+    const hasTautology = sop.some((t) => Array.from(t.pattern).every((ch) => ch === "X"));
+    if (hasTautology) {
+      needsConstant1 = true;
+      gates.push({ id: `G_buf_${outputName}`, type: "OR", inputs: ["1"], output: outputName });
       continue;
     }
 
@@ -177,11 +190,7 @@ export function buildLogicNetworkMulti(args: {
         if (term.pattern[i] === "1") literalSignals.push(varNames[i]);
         else literalSignals.push(notSignal.get(varNames[i])!);
       }
-      if (literalSignals.length === 0) {
-        // tautology — 이 SOP는 1.
-        // outputName으로 가는 buffer는 없지만 LogicNetwork 구조상 표현 어려움. 일단 skip.
-        continue;
-      }
+      if (literalSignals.length === 0) continue;   // 안전망 (tautology 분기에서 이미 처리)
       if (literalSignals.length === 1) {
         termOutputs.push(literalSignals[0]);
       } else {
@@ -192,29 +201,17 @@ export function buildLogicNetworkMulti(args: {
     }
 
     if (termOutputs.length === 1) {
-      // 단일 literal output — buffer 역할 1-input OR 게이트로 노출. NOT 게이트 rename 금지
-      // (공유될 수 있음). 1-input OR은 logical identity = pass-through.
-      gates.push({
-        id: `G_buf_${outputName}`,
-        type: "OR",
-        inputs: [termOutputs[0]],
-        output: outputName,
-      });
+      gates.push({ id: `G_buf_${outputName}`, type: "OR", inputs: [termOutputs[0]], output: outputName });
     } else if (termOutputs.length > 1) {
-      gates.push({
-        id: `G_or_${outputName}_${gateIdx++}`,
-        type: "OR",
-        inputs: termOutputs,
-        output: outputName,
-      });
+      gates.push({ id: `G_or_${outputName}_${gateIdx++}`, type: "OR", inputs: termOutputs, output: outputName });
     }
   }
 
-  return {
-    inputs: [...varNames],
-    outputs,
-    gates,
-  };
+  const finalInputs = [...varNames];
+  if (needsConstant1) finalInputs.push("1");
+  if (needsConstant0) finalInputs.push("0");
+
+  return { inputs: finalInputs, outputs, gates };
 }
 
 /**
