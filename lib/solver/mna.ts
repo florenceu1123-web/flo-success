@@ -38,6 +38,15 @@ export type SolverNetwork = {
    * V(a) - V(b) = k·(V(vca) - V(vcb))
    */
   vcvs?: Array<{ id: string; a: string; b: string; vca: string; vcb: string; k: number }>;
+  /**
+   * 이상적 OPAMP — V(vp) = V(vn) (가상단락), 입력 전류 = 0.
+   *  - vp: 비반전 입력 (+)
+   *  - vn: 반전 입력 (-)
+   *  - vo: 출력 노드
+   *  출력 단자는 무한 전류 공급/흡수 (필요한 만큼). 출력 전류 = 추가 unknown.
+   *  ※ feedback 네트워크 없이 사용하면 행렬이 특이해질 수 있음.
+   */
+  opamps?: Array<{ id: string; vp: string; vn: string; vo: string }>;
 };
 
 export type SolverResult = {
@@ -55,10 +64,11 @@ export function solveMNA(net: SolverNetwork): SolverResult {
   const { nodeIds, groundId, resistors, vsources, isources } = net;
   const vccsList = net.vccs ?? [];
   const vcvsList = net.vcvs ?? [];
+  const opampList = net.opamps ?? [];
 
   const n = nodeIds.length;
-  // V 소스(독립) + VCVS는 동일하게 행/열 1개씩 추가 — 합쳐서 m_v
-  const m_v = vsources.length + vcvsList.length;
+  // V 소스(독립) + VCVS + OPAMP는 동일하게 행/열 1개씩 추가
+  const m_v = vsources.length + vcvsList.length + opampList.length;
   const size = n + m_v;
 
   const idx = new Map<string, number>();
@@ -146,10 +156,27 @@ export function solveMNA(net: SolverNetwork): SolverResult {
     M[row][size] = 0;  // 독립 항 없음
   });
 
-  // 6) Gauss-Jordan
+  // 6) OPAMP → MNA 확장
+  // 가상단락: V(vp) - V(vn) = 0
+  // KCL at vo: I_opamp 추가 unknown 노드로 들어옴 (V source의 양수 단자처럼 -1 계수)
+  // V+ / V-에 대해 입력 전류 0 → 해당 노드 KCL에 column 기여 없음.
+  opampList.forEach((op, kk) => {
+    const row = n + vsources.length + vcvsList.length + kk;
+    const vo = idx.get(op.vo);
+    const vp = idx.get(op.vp);
+    const vn = idx.get(op.vn);
+    // KCL at vo: -I_opamp (출력으로 공급되는 전류)
+    if (vo !== undefined) M[vo][row] -= 1;
+    // Constraint row: V(vp) - V(vn) = 0
+    if (vp !== undefined) M[row][vp] += 1;
+    if (vn !== undefined) M[row][vn] -= 1;
+    M[row][size] = 0;
+  });
+
+  // 7) Gauss-Jordan
   const x = gaussJordan(M, size);
 
-  // 7) 결과 packing
+  // 8) 결과 packing
   const nodeVoltages: Record<string, number> = {};
   nodeVoltages[groundId] = 0;
   nodeIds.forEach((id, i) => { nodeVoltages[id] = x[i]; });
@@ -158,6 +185,9 @@ export function solveMNA(net: SolverNetwork): SolverResult {
   vsources.forEach((s, k) => { vsourceCurrents[s.id] = x[n + k]; });
   vcvsList.forEach((dep, kk) => {
     vsourceCurrents[dep.id] = x[n + vsources.length + kk];
+  });
+  opampList.forEach((op, kk) => {
+    vsourceCurrents[op.id] = x[n + vsources.length + vcvsList.length + kk];
   });
 
   return { nodeVoltages, vsourceCurrents };

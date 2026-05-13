@@ -16,6 +16,7 @@ import { runDcSupernodePipeline } from "@/lib/pipeline/runDcSupernodePipeline";
 import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourcePipeline";
 import { runMaxPowerTransferPipeline } from "@/lib/pipeline/runMaxPowerTransferPipeline";
 import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitPipeline";
+import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -154,6 +155,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "switched_dc" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "switching_circuit_pipeline", count: n, mode });
       problems = await runSwitchingCircuitPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "opamp" && subjectKey === "electronics") {
+      log.info("dispatch", { route: "opamp_pipeline", count: n, mode });
+      problems = await runOpampPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

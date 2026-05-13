@@ -28,6 +28,23 @@ export function classifyCircuitType(
   analysis: AnalysisResult,
   subject: SubjectKey,
 ): CircuitTypeClassification {
+  // electronics: opamp만 우선 처리, 나머지(BJT/MOSFET 등)는 후속
+  if (subject === "electronics") {
+    if (analysis.topicKey === "opamp" || matchesKeyword(`${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`, ["opamp", "op-amp", "op amp", "연산증폭기", "OPAMP", "U1"])) {
+      return {
+        type: "opamp",
+        params: {},
+        confidence: "high",
+        reasoning: "electronics + opamp 키워드/topic",
+      };
+    }
+    return {
+      type: "unsupported",
+      params: {},
+      confidence: "high",
+      reasoning: `electronics 의 ${analysis.topicKey ?? "(unknown)"} 은 현 phase netlist generator 범위 밖`,
+    };
+  }
   if (subject !== "circuit_theory") {
     return {
       type: "unsupported",
