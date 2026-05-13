@@ -26,6 +26,7 @@ import { runFlipflopCounterPipeline } from "@/lib/pipeline/runFlipflopCounterPip
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
+import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -81,7 +82,22 @@ export async function POST(req: NextRequest) {
     // 현 phase: thevenin, norton. 나머지는 기존 free/strict 경로.
     const circuitType = analysis?.circuitType?.type;
     let problems: GeneratedProblem[];
-    if (circuitType === "thevenin" && subjectKey === "circuit_theory") {
+    // ★ Topology-driven fallback — 회로이론에서 archetype의 가정과 원본 topology가 어긋나는
+    //   hybrid 케이스(예: supermesh + SW + 종속전원 동시)는 generic topology-driven 파이프라인으로.
+    //   archetype hardcoded 생성기는 SW/종속전원을 못 다루므로 원본 구조를 잃음.
+    if (
+      subjectKey === "circuit_theory" &&
+      analysis?.topologySignature &&
+      shouldUseTopologyDriven(circuitType, analysis.topologySignature.features)
+    ) {
+      log.info("dispatch", { route: "topology_driven_pipeline", count: n, mode, reason: "archetype/topology hybrid mismatch", features: analysis.topologySignature.features });
+      problems = await runTopologyDrivenPipeline({
+        analysis,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "thevenin" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "thevenin_pipeline", count: n, mode });
       problems = await runTheveninPipeline({
         analysis: analysis ?? null,
@@ -295,3 +311,31 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * archetype별 지원 features 화이트리스트 — 둘 이상 hybrid feature가 동시 또는 archetype이 못 다루면
+ * topology-driven으로 fallback.
+ *
+ *  archetype 가정:
+ *   - switched_*: SW만, 종속전원·supermesh 미지원
+ *   - dc_dependent_source: 종속전원만, SW·supermesh 미지원
+ *   - dc_supermesh: supermesh만, SW·종속전원 미지원 (현 구현 한계)
+ *   - 그 외: SW·종속전원·supermesh 모두 미지원
+ */
+function shouldUseTopologyDriven(
+  circuitType: string | undefined,
+  features: { hasSwitch?: boolean; hasDependentSource?: boolean; hasSupermesh?: boolean },
+): boolean {
+  const hasSwitch = Boolean(features.hasSwitch);
+  const hasDep = Boolean(features.hasDependentSource);
+  const hasSupermesh = Boolean(features.hasSupermesh);
+
+  const archetypeSupportsSwitch =
+    circuitType === "switched_rc" || circuitType === "switched_rl" || circuitType === "switched_dc";
+  const archetypeSupportsDep = circuitType === "dc_dependent_source";
+
+  if (hasSwitch && !archetypeSupportsSwitch) return true;
+  if (hasDep && !archetypeSupportsDep) return true;
+  // dc_supermesh archetype은 SW/dep 둘 다 못 다룸
+  if (hasSupermesh && (hasSwitch || hasDep)) return true;
+  return false;
+}
