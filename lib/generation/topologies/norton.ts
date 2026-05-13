@@ -9,6 +9,29 @@ import {
   pick,
   round3,
 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const nlog = createLogger("lib/generation/topologies/norton");
+
+function assembleViaBT(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  const enriched = args.branches.map((b) => ({ ...b, rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role] }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) nlog.warn("branch_template_violation", { issues: validation.issues });
+  const inst = instantiateAnalogTemplate(enriched, args.values);
+  return { ...assembleNetlist(inst, "GND"), ...args.metadata };
+}
 
 /**
  * Norton 등가회로 문제 generator.
@@ -78,29 +101,24 @@ function buildCurrentParallelR(rand: () => number): NortonGeneration {
     isources: [{ id: "I1", a: "GND", b: "a", I: I1 }],
   };
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "I1", type: "I", value: `${I1}A`,
-        pins: [
-          { id: "p1", node: "GND", side: "bottom" },
-          { id: "p2", node: "a", side: "top" },
-        ],
-      },
-      {
-        id: "R1", type: "R", value: `${R1}Ω`,
-        pins: [
-          { id: "p1", node: "a", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_I1", role: "left_source_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
+        components: [{ type: "I", role: "current_source", order: 1, required: true, idOverride: "I1" }] },
+      { id: "br_R1", role: "load_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
+        components: [{ type: "R", role: "load_resistor", order: 1, required: true, idOverride: "R1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "a", label: "a", style: "terminal_dot" },
-      { node: "GND", label: "b", style: "terminal_dot" },
+    values: [
+      { branchId: "br_I1", componentRole: "current_source", type: "I", value: `${I1}A` },
+      { branchId: "br_R1", componentRole: "load_resistor", type: "R", value: `${R1}Ω` },
     ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "a", label: "a", style: "terminal_dot" },
+        { node: "GND", label: "b", style: "terminal_dot" },
+      ],
+    },
+  });
 
   const { Vth, Rth } = solveThevenin({ net: solverNet, terminalA: "a", terminalB: "GND" });
   return {
@@ -133,43 +151,30 @@ function buildMixedVI(rand: () => number): NortonGeneration {
     isources: [{ id: "I1", a: "GND", b: "a",   I: I1 }],
   };
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "V1", type: "V", value: `${V1}V`,
-        pins: [
-          { id: "p1", node: "top", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "R1", type: "R", value: `${R1}Ω`,
-        pins: [
-          { id: "p1", node: "top", side: "left" },
-          { id: "p2", node: "a", side: "right" },
-        ],
-      },
-      {
-        id: "R2", type: "R", value: `${R2}Ω`,
-        pins: [
-          { id: "p1", node: "a", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
-      {
-        id: "I1", type: "I", value: `${I1}A`,
-        pins: [
-          { id: "p1", node: "GND", side: "bottom" },
-          { id: "p2", node: "a", side: "top" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_V1", role: "left_source_leg", orientation: "vertical", fromNode: "top", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V1" }] },
+      { id: "br_R1", role: "top_rail", orientation: "horizontal", fromNode: "top", toNode: "a",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_R2", role: "load_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
+        components: [{ type: "R", role: "load_resistor", order: 1, required: true, idOverride: "R2" }] },
+      { id: "br_I1", role: "load_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
+        components: [{ type: "I", role: "current_source", order: 1, required: true, idOverride: "I1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "a", label: "a", style: "terminal_dot" },
-      { node: "GND", label: "b", style: "terminal_dot" },
+    values: [
+      { branchId: "br_V1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R1}Ω` },
+      { branchId: "br_R2", componentRole: "load_resistor", type: "R", value: `${R2}Ω` },
+      { branchId: "br_I1", componentRole: "current_source", type: "I", value: `${I1}A` },
     ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "a", label: "a", style: "terminal_dot" },
+        { node: "GND", label: "b", style: "terminal_dot" },
+      ],
+    },
+  });
 
   const { Vth, Rth } = solveThevenin({ net: solverNet, terminalA: "a", terminalB: "GND" });
   return {
