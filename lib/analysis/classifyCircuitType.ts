@@ -30,7 +30,17 @@ export function classifyCircuitType(
 ): CircuitTypeClassification {
   // electronics: opamp만 우선 처리, 나머지(BJT/MOSFET 등)는 후속
   if (subject === "electronics") {
-    if (analysis.topicKey === "opamp" || matchesKeyword(`${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`, ["opamp", "op-amp", "op amp", "연산증폭기", "OPAMP", "U1"])) {
+    const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    // 시간영역 OPAMP (integrator/differentiator) 키워드가 명시되면 우선
+    if (matchesKeyword(text, ["적분기", "미분기", "integrator", "differentiator", "적분", "미분"])) {
+      return {
+        type: "opamp_time_domain",
+        params: {},
+        confidence: "high",
+        reasoning: "electronics + 적분기/미분기 키워드",
+      };
+    }
+    if (analysis.topicKey === "opamp" || matchesKeyword(text, ["opamp", "op-amp", "op amp", "연산증폭기", "OPAMP", "U1"])) {
       return {
         type: "opamp",
         params: {},

@@ -17,6 +17,7 @@ import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourc
 import { runMaxPowerTransferPipeline } from "@/lib/pipeline/runMaxPowerTransferPipeline";
 import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitPipeline";
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
+import { runOpampTimeDomainPipeline } from "@/lib/pipeline/runOpampTimeDomainPipeline";
 import { runKmapSopPipeline } from "@/lib/pipeline/runKmapSopPipeline";
 import { runKmapPosPipeline } from "@/lib/pipeline/runKmapPosPipeline";
 import { runFlipflopCounterPipeline } from "@/lib/pipeline/runFlipflopCounterPipeline";
@@ -169,6 +170,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "opamp" && subjectKey === "electronics") {
       log.info("dispatch", { route: "opamp_pipeline", count: n, mode });
       problems = await runOpampPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "opamp_time_domain" && subjectKey === "electronics") {
+      log.info("dispatch", { route: "opamp_time_domain_pipeline", count: n, mode });
+      problems = await runOpampTimeDomainPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
