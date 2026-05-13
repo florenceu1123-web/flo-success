@@ -495,6 +495,12 @@ function wire(a: Point, b: Point): string {
 // =====================================================================
 // Junctions / Ground
 // =====================================================================
+/**
+ * Junction dot 렌더 — CONNECTION_LAYOUT_RULES.Rule-7 구현.
+ *   - degree ≥ 3 node: T-junction/fan-out → dot 표시 (같은 net임을 의미)
+ *   - degree = 2 node: 단순 corner 또는 wire 통과 → dot 안 찍음
+ *   - cross-over (별개 net의 교차)는 wire 끊김으로 표현되어 자동으로 dot 없음.
+ */
 function renderJunctions(netlist: CircuitNetlist, nodePos: Map<string, Point>): string {
   const degree = new Map<string, number>();
   for (const c of netlist.components) {

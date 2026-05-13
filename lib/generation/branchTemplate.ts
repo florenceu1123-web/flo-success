@@ -23,14 +23,45 @@ import type {
 // =====================================================================
 
 export type TemplateBranchRole =
-  | "top_rail"
-  | "bottom_return"           // dangling top↔GND 닫기 위한 wire branch
-  | "left_source_leg"
-  | "dependent_source_leg"
-  | "switching_leg"
-  | "load_leg";
+  // ── top rail · ground rail ──────────────────────────────
+  | "top_rail"                  // 인접 top node 사이의 horizontal branch (보통 R)
+  | "bottom_return"             // dangling top↔GND 닫기 위한 wire branch
+  // ── vertical source legs ───────────────────────────────
+  | "left_source_leg"           // 좌측 V/I source leg
+  | "right_source_leg"          // 우측 V/I source leg (Thevenin 출력 등)
+  | "input_source_leg"          // 입력 신호 V source (V_1·V_2 등)
+  | "dependent_source_leg"      // VCVS/VCCS/CCVS/CCCS leg
+  | "switching_leg"             // SW가 포함된 vertical leg (SW + R + I 같은 chain)
+  | "load_leg"                  // 부하 R (R_L 등) leg
+  // ── OPAMP / multi-pin block ────────────────────────────
+  | "opamp_block"               // OPAMP 자체 (3-pin: vp/vn/vo)
+  | "opamp_input_resistor"      // OPAMP 반전 입력 쪽 R (R_in)
+  | "opamp_feedback_resistor"   // OPAMP feedback R (R_f)
+  | "cascade_coupling"          // cascade 단 사이 결합 R (앞단 vo → 뒷단 vn)
+  // ── 기타 ───────────────────────────────────────────────
+  | "ground_symbol";            // 명시적 GND 단자 표시 (시각화용)
 
 export type BranchOrientation = "horizontal" | "vertical";
+
+/** 한 branch가 따라야 할 도메인 규칙. validator·renderer 모두 이 규칙을 참조해 일관 동작. */
+export type BranchRules = {
+  /** branch에 허용되는 component type whitelist (없으면 무제한) */
+  allowedComponentTypes?: string[];
+  /** branch에 반드시 포함되어야 하는 component type */
+  requiredComponentTypes?: string[];
+  /** 양 끝 node의 최소 degree (회로 완결성) */
+  minNodeDegree?: number;
+  /** 시각화 시 권장 placement 영역 — renderer가 layout 결정에 참조 */
+  layoutHint?:
+    | "leftmost"          // 좌측 가장자리 (입력 source 등)
+    | "rightmost"         // 우측 가장자리 (출력 source/load)
+    | "center"            // 회로 중앙 (OPAMP 등)
+    | "feedback_loop"     // feedback path (OPAMP body 위 또는 아래 wrap)
+    | "ground_local"      // GND-attached 짧은 stub
+    | "top_rail";         // top rail horizontal
+  /** 같은 node를 공유해야 하는 sibling branch id (예: cascade_coupling은 앞단 opamp_block의 vo와 같음) */
+  pairWithBranchId?: string;
+};
 
 export type RequiredComponentSpec = {
   type: string;       // 정해짐 (변경 불가)
@@ -46,6 +77,107 @@ export type BranchTemplate = {
   fromNode: string;
   toNode: string;
   components: RequiredComponentSpec[];
+  /** 이 branch에 적용되는 도메인 규칙 (선택). buildBranchTemplate이 role별 기본값 자동 채움. */
+  rules?: BranchRules;
+};
+
+/** validation 결과 — 규칙 위반 issue 목록 */
+export type BranchTemplateValidation = {
+  ok: boolean;
+  issues: Array<{ branchId?: string; rule: string; message: string }>;
+};
+
+// =====================================================================
+// CONNECTION_LAYOUT_RULES — 회로 생성·렌더링이 항상 따라야 할 공통 규칙.
+// generator/renderer가 한 곳을 참조하여 일관성 보장. (이 모듈을 import하면
+// 자동으로 contract을 따르는 것이 강제됨 — 위반 시 validator가 issue 발행.)
+// =====================================================================
+export const CONNECTION_LAYOUT_RULES = {
+  /**
+   * Rule-1 (회로 완결성): 모든 node는 ≥2개 component pin에 연결되어야 한다.
+   *   - dangling 금지. 출력 직전 검산 필수.
+   *   - 위반 시: autoCloseAnalogDangling이 WIRE로 GND에 자동 연결.
+   */
+  minNodeDegree: 2,
+
+  /**
+   * Rule-2 (소자 회피 라우팅): node→node wire는 소자(component body)와 겹치지 않고
+   *   우회하여 연결되어야 한다.
+   *   - wire가 component bounding box 내부를 가로지르지 않음.
+   *   - 우회 라우팅: orthogonal (horizontal-vertical-horizontal 또는 vertical-horizontal-vertical) 사용.
+   *   - body 외곽까지만 wire 그리고, body 자체는 wire 위에 fill="white"로 덮음.
+   */
+  wireAvoidsComponentBody: true,
+
+  /**
+   * Rule-3 (lane 분리): 서로 다른 두 node의 wire는 같은 x-lane 또는 y-lane을
+   *   공유하지 않도록 적절한 offset을 둔다.
+   *   - 예외: 단순 교차 (점으로 지나치는 cross-over)는 허용 (junction dot으로 구분).
+   *   - 같은 column-pair 다중 component는 x-offset 분산.
+   *   - 같은 node-pair 다중 component(parallel)는 y-offset 분산.
+   *   - OPAMP 입력 vp(+)/vn(−) wire는 위/아래 lane으로 분리.
+   */
+  laneOffsetMinPx: 16,
+
+  /**
+   * Rule-4 (Pin convention): multi-pin component는 정해진 pin 위치를 갖는다.
+   *   - OPAMP: vp(좌상, +) / vn(좌하, −) / vo(우, output tip)
+   *   - BJT:   B(좌)  / C(상)  / E(하)
+   *   - MOSFET: G(좌) / D(상)  / S(하)
+   *   - 모든 pin은 body 외곽에 명시적 stub + terminal dot 표시.
+   *   - node wire는 stub dot에서 끊겨 body fill이 wire를 가리지 않음.
+   */
+  multiPinExposedStub: true,
+
+  /**
+   * Rule-5 (GND 표현): 회로의 GND는 단일 visual 위치로 모으지 않고, 각 GND-attached
+   *   pin 옆에 분산 표시한다.
+   *   - 단일 위치 long wire 회피.
+   *   - 각 V source/OPAMP 등 GND pin 옆에 작은 GND symbol.
+   *   - OPAMP vp=GND (상단)는 symbol을 위로 향한 ▽, vn=GND (하단)는 아래로 향한 △.
+   */
+  groundDistributed: true,
+
+  /**
+   * Rule-6 (Layout flow): 회로의 신호 흐름은 좌→우.
+   *   - leftmost: 입력 source (V_1, V_2 등)
+   *   - center:   active component (OPAMP/BJT 등) cascade는 좌→우 단 순서
+   *   - rightmost: 출력 단자 (V_o, R_L)
+   *   - top_rail: horizontal R chain
+   *   - GND: 각 component 옆 local 표시
+   */
+  signalFlowLeftToRight: true,
+
+  /**
+   * Rule-7 (Junction dot): node와 node가 서로 연결되어 전류가 이어 흐르는 곳(분기점)에는
+   *   junction dot(●)을 표시한다. — 표준 회로도 규칙.
+   *   - T-junction (세 wire 만남, degree ≥ 3): dot 표시 (같은 net)
+   *   - Fan-out (한 node에서 여러 wire 갈라짐): dot 표시
+   *   - Simple corner (같은 net이 L자로 꺾임, degree 2): dot 안 찍음
+   *   - Cross-over (서로 다른 net이 점으로 교차): dot 안 찍음 (별개 net임을 의미)
+   *   - 구현: renderJunctions는 node degree ≥ 3에 dot. 점 교차는 wire 끊김으로 표현.
+   */
+  junctionDotOnDegreeAtLeast: 3,
+} as const;
+
+// =====================================================================
+// Role별 기본 BranchRules — buildBranchTemplate이 자동 적용.
+// validator·renderer가 이 규칙을 참조하면 새 role 추가 시 한 곳만 갱신.
+// =====================================================================
+export const DEFAULT_BRANCH_RULES: Record<TemplateBranchRole, BranchRules> = {
+  top_rail:                  { allowedComponentTypes: ["R", "L", "C", "V", "WIRE"], minNodeDegree: 2, layoutHint: "top_rail" },
+  bottom_return:             { allowedComponentTypes: ["WIRE"], minNodeDegree: 2, layoutHint: "ground_local" },
+  left_source_leg:           { allowedComponentTypes: ["V", "I"], requiredComponentTypes: ["V", "I"], minNodeDegree: 2, layoutHint: "leftmost" },
+  right_source_leg:          { allowedComponentTypes: ["V", "I", "R"], minNodeDegree: 2, layoutHint: "rightmost" },
+  input_source_leg:          { allowedComponentTypes: ["V"], requiredComponentTypes: ["V"], minNodeDegree: 2, layoutHint: "leftmost" },
+  dependent_source_leg:      { allowedComponentTypes: ["VCVS", "VCCS", "CCVS", "CCCS"], requiredComponentTypes: ["VCVS", "VCCS", "CCVS", "CCCS"], minNodeDegree: 2 },
+  switching_leg:             { allowedComponentTypes: ["SW", "R", "L", "C", "I", "V"], requiredComponentTypes: ["SW"], minNodeDegree: 2 },
+  load_leg:                  { allowedComponentTypes: ["R", "I", "L", "C"], minNodeDegree: 2, layoutHint: "rightmost" },
+  opamp_block:               { allowedComponentTypes: ["OPAMP"], requiredComponentTypes: ["OPAMP"], minNodeDegree: 2, layoutHint: "center" },
+  opamp_input_resistor:      { allowedComponentTypes: ["R"], requiredComponentTypes: ["R"], minNodeDegree: 2 },
+  opamp_feedback_resistor:   { allowedComponentTypes: ["R", "C"], requiredComponentTypes: ["R"], minNodeDegree: 2, layoutHint: "feedback_loop" },
+  cascade_coupling:          { allowedComponentTypes: ["R"], requiredComponentTypes: ["R"], minNodeDegree: 2 },
+  ground_symbol:             { allowedComponentTypes: [], minNodeDegree: 1, layoutHint: "ground_local" },
 };
 
 export type AnalogValueAssignment = {
@@ -176,11 +308,104 @@ export function buildBranchTemplate(topology: TopologySignature): {
       fromNode,
       toNode,
       components,
+      rules: DEFAULT_BRANCH_RULES[b.templateRole],
     });
     id++;
   }
 
   return { template, topNodes, groundNode };
+}
+
+// =====================================================================
+// validateBranchTemplate — branch들이 도메인 규칙을 따르는지 검사.
+// 회로 생성 단계의 결정론 invariant. 위반 시 GPT 재시도 또는 generator fix 신호.
+// =====================================================================
+export function validateBranchTemplate(branches: BranchTemplate[]): BranchTemplateValidation {
+  const issues: BranchTemplateValidation["issues"] = [];
+
+  // Rule 1: 각 branch의 component type이 rules.allowedComponentTypes 안에 있는지
+  for (const b of branches) {
+    const rules = b.rules ?? DEFAULT_BRANCH_RULES[b.role];
+    if (!rules) continue;
+    if (rules.allowedComponentTypes && rules.allowedComponentTypes.length > 0) {
+      for (const c of b.components) {
+        if (!rules.allowedComponentTypes.includes(c.type)) {
+          issues.push({
+            branchId: b.id,
+            rule: "component_type_not_allowed",
+            message: `${b.id} (role=${b.role}): component type "${c.type}"는 허용 enum [${rules.allowedComponentTypes.join(",")}]에 없음`,
+          });
+        }
+      }
+    }
+    if (rules.requiredComponentTypes && rules.requiredComponentTypes.length > 0) {
+      const present = new Set(b.components.map((c) => c.type));
+      const hasAny = rules.requiredComponentTypes.some((t) => present.has(t));
+      if (!hasAny) {
+        issues.push({
+          branchId: b.id,
+          rule: "required_component_missing",
+          message: `${b.id} (role=${b.role}): 필수 component type 중 하나 필요 [${rules.requiredComponentTypes.join("|")}], 실제=[${[...present].join(",")}]`,
+        });
+      }
+    }
+  }
+
+  // Rule 2: switching_leg는 SW 포함 + vertical
+  for (const b of branches) {
+    if (b.role !== "switching_leg") continue;
+    if (b.orientation !== "vertical") {
+      issues.push({ branchId: b.id, rule: "switching_leg_orientation", message: `${b.id}: switching_leg는 반드시 vertical (현재 ${b.orientation})` });
+    }
+    if (!b.components.some((c) => c.type === "SW")) {
+      issues.push({ branchId: b.id, rule: "switching_leg_no_sw", message: `${b.id}: switching_leg에 SW component 누락` });
+    }
+  }
+
+  // Rule 3: opamp_block은 3-pin 가정 — instantiate 단계에서 별도 검증 필요하지만 type 강제
+  for (const b of branches) {
+    if (b.role !== "opamp_block") continue;
+    if (!b.components.some((c) => c.type === "OPAMP")) {
+      issues.push({ branchId: b.id, rule: "opamp_block_no_opamp", message: `${b.id}: opamp_block에 OPAMP component 누락` });
+    }
+  }
+
+  // Rule 4: top_rail은 horizontal, vertical leg-류는 vertical
+  const VERTICAL_ROLES: TemplateBranchRole[] = [
+    "left_source_leg", "right_source_leg", "input_source_leg",
+    "dependent_source_leg", "switching_leg", "load_leg",
+    "bottom_return",
+  ];
+  for (const b of branches) {
+    if (b.role === "top_rail" && b.orientation !== "horizontal") {
+      issues.push({ branchId: b.id, rule: "top_rail_orientation", message: `${b.id}: top_rail은 horizontal (현재 ${b.orientation})` });
+    }
+    if (VERTICAL_ROLES.includes(b.role) && b.orientation !== "vertical") {
+      issues.push({ branchId: b.id, rule: "leg_orientation", message: `${b.id} (role=${b.role}): vertical 필요 (현재 ${b.orientation})` });
+    }
+  }
+
+  // Rule 5: node degree — 모든 node가 적어도 2개 branch에 등장 (회로 완결성, bottom_return 제외)
+  const degree = new Map<string, number>();
+  for (const b of branches) {
+    degree.set(b.fromNode, (degree.get(b.fromNode) ?? 0) + 1);
+    degree.set(b.toNode, (degree.get(b.toNode) ?? 0) + 1);
+  }
+  for (const [node, deg] of degree) {
+    if (deg < 2) {
+      issues.push({ rule: "node_dangling", message: `node "${node}"가 1개 branch에만 등장 (degree ${deg} — 회로 완결성 위반)` });
+    }
+  }
+
+  // Rule 6: pairWithBranchId 정합성 — sibling 관계가 박혀있으면 해당 branch가 존재해야
+  const branchIds = new Set(branches.map((b) => b.id));
+  for (const b of branches) {
+    if (b.rules?.pairWithBranchId && !branchIds.has(b.rules.pairWithBranchId)) {
+      issues.push({ branchId: b.id, rule: "pair_branch_missing", message: `${b.id} rules.pairWithBranchId="${b.rules.pairWithBranchId}"가 존재하지 않음` });
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
 }
 
 // =====================================================================

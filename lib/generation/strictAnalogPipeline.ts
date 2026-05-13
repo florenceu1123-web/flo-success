@@ -6,6 +6,7 @@ import {
   type AnalogValueAssignment,
   type BranchTemplate,
   addGroundReturnWires,
+  validateBranchTemplate,
   assembleNetlist,
   buildBranchTemplate,
   instantiateAnalogTemplate,
@@ -87,11 +88,21 @@ export async function generateStrictAnalogProblems(args: {
   // 3) dangling top node에 ground return wire 자동 추가
   template = addGroundReturnWires(template, topNodes, groundNode);
 
+  // 4) BranchTemplate 도메인 규칙 검증 — allowed/required type, orientation, degree, sibling 등.
+  //    위반은 strict 가정 깨짐 → 경고 로그 (GPT 출력의 topology 추출 단계 책임).
+  const branchValidation = validateBranchTemplate(template);
+  if (!branchValidation.ok) {
+    log.warn("branch_template_violation", {
+      issues: branchValidation.issues.map((i) => `${i.branchId ?? "-"}:${i.rule}:${i.message}`),
+    });
+  }
+
   log.info("template_built", {
     branches: template.length,
     topNodes: topNodes.length,
     roles: template.map((b) => b.role),
     components: template.map((b) => `${b.id}:[${b.components.map((c) => c.type).join(",")}]`),
+    branchRulesOk: branchValidation.ok,
   });
 
   const userPrompt = buildStrictPrompt({
