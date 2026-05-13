@@ -48,6 +48,14 @@ export function classifyCircuitType(
   // digital_logic: kmap_sop / kmap_pos / flipflop_counter, 나머지(FSM 등)는 후속
   if (subject === "digital_logic") {
     const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    if (analysis.topicKey === "fsm" || matchesKeyword(text, ["FSM", "유한 상태", "유한상태", "Mealy", "Moore", "상태 기계", "상태 머신", "상태 전이도", "상태천이도"])) {
+      return {
+        type: "fsm",
+        params: {},
+        confidence: "high",
+        reasoning: "digital_logic + FSM 키워드/topic",
+      };
+    }
     if (analysis.topicKey === "flipflop_counter" || matchesKeyword(text, ["플립플롭", "flip-flop", "flipflop", "카운터", "counter", "순차", "동기식"])) {
       return {
         type: "flipflop_counter",

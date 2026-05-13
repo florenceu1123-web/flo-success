@@ -19,6 +19,9 @@ export function resolveDigitalRules(args: {
   if (args.topicKey === "combinational_gate") {
     required.push("kmap", "implementation_circuit");
   }
+  if (args.topicKey === "fsm") {
+    required.push("implementation_circuit");   // state_diagram은 trigger 기반으로 추가
+  }
   if (args.topicKey === "waveform_analysis" || args.semantic.hasWaveformEvolution) {
     required.push("waveform");
   }
