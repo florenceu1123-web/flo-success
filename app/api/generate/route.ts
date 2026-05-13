@@ -10,6 +10,7 @@ import { runNortonPipeline } from "@/lib/pipeline/runNortonPipeline";
 import { runDcMeshPipeline } from "@/lib/pipeline/runDcMeshPipeline";
 import { runRcStepPipeline } from "@/lib/pipeline/runRcStepPipeline";
 import { runRlStepPipeline } from "@/lib/pipeline/runRlStepPipeline";
+import { runRlcStepPipeline } from "@/lib/pipeline/runRlcStepPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -100,6 +101,14 @@ export async function POST(req: NextRequest) {
     } else if ((circuitType === "rl_step" || circuitType === "switched_rl") && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "rl_step_pipeline", count: n, mode });
       problems = await runRlStepPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "rlc_step" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "rlc_step_pipeline", count: n, mode });
+      problems = await runRlcStepPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
