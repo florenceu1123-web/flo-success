@@ -21,25 +21,37 @@ export async function writeFsmText(args: {
   contextHint?: string;
 }): Promise<FsmTextOutput> {
   const { generation, mode, topicLabel, contextHint } = args;
-  const { nextState, output, d1Expression, d0Expression, zExpression, values } = generation;
+  const { nextState, output, d1Expression, d0Expression, zExpression, values, machineType } = generation;
 
-  // 상태 전이 표 한국어
+  // 상태 전이 표 한국어 (Mealy / Moore 다른 표기)
   const transitionRows: string[] = [];
   for (let s = 0; s < 4; s++) {
     for (let x = 0; x < 2; x++) {
       const idx = (s << 1) | x;
       const sBits = s.toString(2).padStart(2, "0");
       const nsBits = nextState[idx].toString(2).padStart(2, "0");
-      transitionRows.push(`  S${s} (${sBits}), X=${x} → S${nextState[idx]} (${nsBits}), Z=${output[idx]}`);
+      const zVal = machineType === "Mealy" ? output[idx] : output[s];
+      const zLabel = machineType === "Mealy" ? `Z=${zVal}` : `(state Z=${zVal})`;
+      transitionRows.push(`  S${s} (${sBits}), X=${x} → S${nextState[idx]} (${nsBits}), ${zLabel}`);
     }
   }
 
-  const userPrompt = `다음 정보로 임용 시험 스타일의 Mealy FSM 설계 문제를 작성하세요.
+  const machineDescription = machineType === "Mealy"
+    ? "Mealy 머신 — 출력 Z는 (상태, 입력)의 함수 (전이마다 출력)"
+    : "Moore 머신 — 출력 Z는 (상태)만의 함수 (상태에 출력 부여)";
+
+  const zDerivationNote = machineType === "Mealy"
+    ? "Z = f(Q1, Q0, X) — 3변수 K-map"
+    : "Z = f(Q1, Q0) only — 2변수 K-map (입력 X 무관, SOP 최소화 시 X don't-care로 처리됨)";
+
+  const userPrompt = `다음 정보로 임용 시험 스타일의 ${machineType} FSM 설계 문제를 작성하세요.
 문제 데이터(상태·전이·출력·도식)는 코드가 이미 결정했으므로 변경 금지 — 너는 문제 문장과 풀이만 작성.
 
 [FSM 정보]
-4-state Mealy 머신. 상태 인코딩 Q1Q0 (S0=00, S1=01, S2=10, S3=11).
-입력: X (1비트), 출력: Z (1비트, Mealy = state·input 함수).
+4-state ${machineType} 머신. ${machineDescription}.
+상태 인코딩 Q1Q0 (S0=00, S1=01, S2=10, S3=11).
+입력: X (1비트), 출력: Z (1비트).
+${zDerivationNote}
 상태 전이 + 출력:
 ${transitionRows.join("\n")}
 
