@@ -1,0 +1,211 @@
+import type {
+  AnalysisResult,
+  CircuitType,
+  CircuitTypeClassification,
+  CircuitTypeParams,
+  SubjectKey,
+  TopicKey,
+} from "@/types";
+
+/**
+ * AnalysisResult에서 CircuitType과 generator-friendly params를 derive한다.
+ *
+ *  Inputs (analysis로부터):
+ *    - topicKey (mesh_analysis | nodal_analysis | transient_rc | ...)
+ *    - semantic flags (hasStateTransition, hasEquivalentTransformation, hasWaveformEvolution)
+ *    - topologySignature.features (hasSwitch, hasSupermesh, meshCount, hasDependentSource)
+ *    - componentInventory (R/V/I/C/L 카운트 추출)
+ *    - interpretation 텍스트 (테브난/노턴 키워드 보조)
+ *
+ *  Outputs:
+ *    - type: CircuitType
+ *    - params: 소자 카운트 + 의미 플래그
+ *    - confidence: 분류 강도
+ *
+ *  electronics / digital_logic은 unsupported로 fallback (현 phase 외).
+ */
+export function classifyCircuitType(
+  analysis: AnalysisResult,
+  subject: SubjectKey,
+): CircuitTypeClassification {
+  if (subject !== "circuit_theory") {
+    return {
+      type: "unsupported",
+      params: {},
+      confidence: "high",
+      reasoning: `subject=${subject} 은 현 phase의 netlist generator 범위 밖`,
+    };
+  }
+
+  const counts = aggregateComponentCounts(analysis);
+  const features: Partial<NonNullable<AnalysisResult["topologySignature"]>["features"]> =
+    analysis.topologySignature?.features ?? {};
+  const semantic: Partial<NonNullable<AnalysisResult["semantic"]>> = analysis.semantic ?? {};
+  const topicKey = analysis.topicKey;
+  const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""} ${(analysis.relatedConcepts ?? []).join(" ")}`;
+
+  const params: CircuitTypeParams = {
+    resistorCount: counts.R,
+    vSourceCount: counts.V,
+    iSourceCount: counts.I,
+    capacitorCount: counts.C,
+    inductorCount: counts.L,
+    switchCount: counts.SW,
+    dependentSourceCount: counts.dep,
+    meshCount: features.meshCount,
+    hasDependentSource: features.hasDependentSource,
+    hasStateTransition: Boolean(semantic.hasStateTransition || features.hasSwitch),
+    hasWaveform: Boolean(semantic.hasWaveformEvolution),
+    hasTerminalPort: matchesKeyword(text, EQUIVALENT_KEYWORDS),
+    hasLoadPlaceholder: matchesKeyword(text, LOAD_PLACEHOLDER_KEYWORDS),
+  };
+
+  const { type, confidence, reasoning } = decideType({
+    topicKey,
+    features,
+    semantic,
+    counts,
+    text,
+  });
+
+  return { type, params, confidence, reasoning };
+}
+
+// ─── 키워드 셋 ─────────────────────────────────
+const EQUIVALENT_KEYWORDS = [
+  "테브난", "테브닌", "thevenin",
+  "노턴", "norton",
+  "등가회로", "등가저항", "단자 a", "단자 b", "a-b", "ab간", "ab 단자",
+];
+const LOAD_PLACEHOLDER_KEYWORDS = [
+  "R_L", "RL", "부하 저항", "부하저항", "load resistor", "max power", "최대 전력", "최대전력",
+];
+const NORTON_KEYWORDS = ["노턴", "norton"];
+const MAX_POWER_KEYWORDS = ["최대 전력", "최대전력", "max power transfer", "maximum power"];
+const SUPERMESH_KEYWORDS = ["슈퍼메시", "supermesh", "super mesh"];
+const SUPERNODE_KEYWORDS = ["슈퍼노드", "supernode", "super node"];
+
+function matchesKeyword(text: string, keywords: string[]): boolean {
+  const lower = text.toLowerCase();
+  return keywords.some((k) => lower.includes(k.toLowerCase()));
+}
+
+// ─── component count 집계 ──────────────────────
+type Counts = {
+  R: number; V: number; I: number; C: number; L: number; SW: number; dep: number;
+};
+
+function aggregateComponentCounts(analysis: AnalysisResult): Counts {
+  const c: Counts = { R: 0, V: 0, I: 0, C: 0, L: 0, SW: 0, dep: 0 };
+  const inv = analysis.componentInventory ?? [];
+  if (inv.length > 0) {
+    for (const item of inv) {
+      bumpCount(c, item.type);
+    }
+    return c;
+  }
+  // fallback: topologySignature.branches에서 집계
+  const branches = analysis.topologySignature?.branches ?? [];
+  for (const b of branches) {
+    for (const comp of b.components ?? []) {
+      bumpCount(c, comp.type);
+    }
+  }
+  return c;
+}
+
+function bumpCount(c: Counts, type: string): void {
+  const t = (type ?? "").toUpperCase();
+  if (t === "R") c.R++;
+  else if (t === "V") c.V++;
+  else if (t === "I") c.I++;
+  else if (t === "C") c.C++;
+  else if (t === "L") c.L++;
+  else if (t === "SW") c.SW++;
+  else if (t === "VCVS" || t === "VCCS" || t === "CCVS" || t === "CCCS") c.dep++;
+}
+
+// ─── 분류 로직 ─────────────────────────────────
+type DecideArgs = {
+  topicKey: TopicKey | undefined;
+  features: Partial<NonNullable<AnalysisResult["topologySignature"]>["features"]>;
+  semantic: Partial<NonNullable<AnalysisResult["semantic"]>>;
+  counts: Counts;
+  text: string;
+};
+
+type DecideResult = { type: CircuitType; confidence: "high" | "medium" | "low"; reasoning: string };
+
+function decideType(args: DecideArgs): DecideResult {
+  const { topicKey, features, semantic, counts, text } = args;
+
+  // 1. 과도응답 — 가장 우선 (capacitor/inductor가 있으면 다른 분류보다 우선)
+  if (topicKey === "transient_rc" || (counts.C > 0 && semantic.hasWaveformEvolution)) {
+    if (counts.SW > 0) {
+      return { type: "switched_rc", confidence: "high", reasoning: "C 존재 + 스위치 → switched_rc" };
+    }
+    return { type: "rc_step", confidence: "high", reasoning: "C 존재 + 과도 → rc_step" };
+  }
+  if (topicKey === "transient_rl" || (counts.L > 0 && semantic.hasWaveformEvolution)) {
+    if (counts.SW > 0) {
+      return { type: "switched_rl", confidence: "high", reasoning: "L 존재 + 스위치 → switched_rl" };
+    }
+    return { type: "rl_step", confidence: "high", reasoning: "L 존재 + 과도 → rl_step" };
+  }
+  if (topicKey === "rlc_response" || (counts.C > 0 && counts.L > 0)) {
+    return { type: "rlc_step", confidence: "high", reasoning: "C+L 존재 → rlc_step" };
+  }
+
+  // 2. 슈퍼메시/슈퍼노드 — features 우선
+  if (features.hasSupermesh || topicKey === "supermesh" || matchesKeyword(text, SUPERMESH_KEYWORDS)) {
+    return { type: "dc_supermesh", confidence: "high", reasoning: "supermesh 특징 또는 키워드" };
+  }
+  if (topicKey === "supernode" || matchesKeyword(text, SUPERNODE_KEYWORDS)) {
+    return { type: "dc_supernode", confidence: "high", reasoning: "supernode 특징 또는 키워드" };
+  }
+
+  // 3. 등가회로 — 텍스트 키워드 + topic 보조
+  const isEquivalent = semantic.hasEquivalentTransformation
+    || matchesKeyword(text, EQUIVALENT_KEYWORDS);
+  if (isEquivalent) {
+    if (matchesKeyword(text, MAX_POWER_KEYWORDS)) {
+      return { type: "max_power_transfer", confidence: "high", reasoning: "최대전력 키워드" };
+    }
+    if (matchesKeyword(text, NORTON_KEYWORDS)) {
+      return { type: "norton", confidence: "high", reasoning: "노턴 키워드" };
+    }
+    return { type: "thevenin", confidence: "medium", reasoning: "등가회로 컨텍스트 → thevenin (norton 키워드 없으면 thevenin 기본)" };
+  }
+
+  // 4. 종속전원
+  if (features.hasDependentSource || counts.dep > 0 || topicKey === "dependent_source") {
+    return { type: "dc_dependent_source", confidence: "high", reasoning: "종속전원 존재" };
+  }
+
+  // 5. 스위치만 단독 (RC/RL 없는 dc 스위칭) — 거의 없지만 fallback으로 switched_rc
+  if (counts.SW > 0 || topicKey === "switching_circuit") {
+    return { type: "switched_rc", confidence: "medium", reasoning: "스위치 존재, RC 추정" };
+  }
+
+  // 6. nodal vs mesh — topicKey 우선
+  if (topicKey === "nodal_analysis") {
+    return { type: "dc_nodal", confidence: "high", reasoning: "topicKey=nodal_analysis" };
+  }
+  if (topicKey === "mesh_analysis") {
+    return { type: "dc_mesh", confidence: "high", reasoning: "topicKey=mesh_analysis" };
+  }
+  if (topicKey === "dc_resistive") {
+    // meshCount로 분기
+    const m = features.meshCount ?? 1;
+    if (m >= 2) {
+      return { type: "dc_mesh", confidence: "medium", reasoning: "dc_resistive + meshCount≥2 → dc_mesh" };
+    }
+    return { type: "dc_nodal", confidence: "low", reasoning: "dc_resistive 단순회로 → dc_nodal fallback" };
+  }
+
+  return {
+    type: "unsupported",
+    confidence: "low",
+    reasoning: `분류 실패: topicKey=${topicKey}`,
+  };
+}

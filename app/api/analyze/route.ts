@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImage, AnalyzeError } from "@/lib/analysis/analyzeImage";
 import { extractComponentInventory } from "@/lib/analysis/extractComponentInventory";
+import { classifyCircuitType } from "@/lib/analysis/classifyCircuitType";
 import { compactAnalysis } from "@/lib/analysis/compactAnalysis";
 import { createLogger } from "@/lib/logger";
 import { SUBJECT_KEYS, type SubjectKey } from "@/types";
@@ -30,10 +31,15 @@ export async function POST(req: NextRequest) {
     ]);
 
     const compact = compactAnalysis(analysis);
-    const result = inventory.length > 0
+    const withInventory = inventory.length > 0
       ? { ...compact, componentInventory: inventory }
       : compact;
-    return NextResponse.json(result);
+
+    // circuit_type 분류 — 추가 GPT 호출 없이 derive
+    const circuitType = classifyCircuitType(withInventory, subject as SubjectKey);
+    log.info("circuit_type_classified", { type: circuitType.type, confidence: circuitType.confidence });
+
+    return NextResponse.json({ ...withInventory, circuitType });
   } catch (e) {
     if (e instanceof AnalyzeError) {
       log.error("AnalyzeError", { message: e.message });

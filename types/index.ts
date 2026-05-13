@@ -222,6 +222,11 @@ export type AnalysisResult = {
    * inventory가 잡은 개수만큼은 반드시 생성되도록.
    */
   componentInventory?: Array<{ id: string; type: string; value?: string }>;
+  /**
+   * 회로 archetype 분류 — netlist generator가 분기 키로 사용.
+   * lib/analysis/classifyCircuitType.ts가 다른 분석 필드에서 derive (추가 GPT 호출 없음).
+   */
+  circuitType?: import("./circuitType").CircuitTypeClassification;
 };
 
 export type FillInTheBlank = {
@@ -650,3 +655,24 @@ export type NetlistEdge = {
   from: string;
   to: string;
 };
+
+// =====================================================================
+// Constraint system — 통합 제약 평가 (lib/constraints/*)
+// =====================================================================
+export type {
+  Constraint,
+  ConstraintContext,
+  ConstraintKind,
+  ConstraintSet,
+  ConstraintSeverity,
+  ConstraintViolation,
+} from "./constraints";
+
+// =====================================================================
+// CircuitType — netlist generator의 회로 archetype 분기 키
+// =====================================================================
+export type {
+  CircuitType,
+  CircuitTypeClassification,
+  CircuitTypeParams,
+} from "./circuitType";

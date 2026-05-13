@@ -5,11 +5,15 @@ import { generateSimilar } from "@/lib/mutation";
 import { resolveRules } from "@/lib/rules";
 import { validateProblem, validateFigures, type ValidationResult } from "@/lib/validators";
 import { createLogger } from "@/lib/logger";
+import { runTheveninPipeline } from "@/lib/pipeline/runTheveninPipeline";
+import { runNortonPipeline } from "@/lib/pipeline/runNortonPipeline";
+import { runDcMeshPipeline } from "@/lib/pipeline/runDcMeshPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
   type AnalysisResult,
   type GenerationMode,
+  type GeneratedProblem,
   type SemanticStructure,
   type SubjectKey,
   type TopicKey,
@@ -55,15 +59,45 @@ export async function POST(req: NextRequest) {
     const subjectKey = subject as SubjectKey;
     const ruleSet = resolveRules({ subject: subjectKey, topicKey: expectedTopicKey, semantic: expectedSemantic });
 
-    const fn = (mode as GenerationMode) === "exam_similar" ? generateSimilar : generateVariant;
-    const problems = await fn({
-      image,
-      subject: subjectKey,
-      count: n,
-      analysis: analysis ?? null,
-      topicKey: expectedTopicKey,
-      semantic: expectedSemantic,
-    });
+    // ★ Circuit-type 기반 dispatch — 결정론 파이프라인을 가진 type은 그쪽으로.
+    // 현 phase: thevenin, norton. 나머지는 기존 free/strict 경로.
+    const circuitType = analysis?.circuitType?.type;
+    let problems: GeneratedProblem[];
+    if (circuitType === "thevenin" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "thevenin_pipeline", count: n, mode });
+      problems = await runTheveninPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "norton" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "norton_pipeline", count: n, mode });
+      problems = await runNortonPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if ((circuitType === "dc_mesh" || circuitType === "dc_nodal") && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "dc_mesh_pipeline", count: n, mode });
+      problems = await runDcMeshPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else {
+      const fn = (mode as GenerationMode) === "exam_similar" ? generateSimilar : generateVariant;
+      problems = await fn({
+        image,
+        subject: subjectKey,
+        count: n,
+        analysis: analysis ?? null,
+        topicKey: expectedTopicKey,
+        semantic: expectedSemantic,
+      });
+    }
 
     // 검증 (Pipeline 6단계)
     const validations: Array<{ problemId: string; problem: ValidationResult; figures: ValidationResult }> = [];
