@@ -10,6 +10,8 @@ const ARCHETYPE_LABEL: Record<OpampGeneration["archetype"], string> = {
   inverting: "반전 증폭기 (inverting amplifier)",
   non_inverting: "비반전 증폭기 (non-inverting amplifier)",
   summing: "가산 증폭기 (summing amplifier)",
+  difference: "차동 증폭기 (difference amplifier, 균형형)",
+  voltage_follower: "전압 추종기 (voltage follower / unity-gain buffer)",
 };
 
 export type OpampTextOutput = {
