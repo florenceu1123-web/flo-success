@@ -31,6 +31,15 @@ export function classifyCircuitType(
   // electronics: opamp만 우선 처리, 나머지(BJT/MOSFET 등)는 후속
   if (subject === "electronics") {
     const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    // BJT 소신호 등가
+    if (analysis.topicKey === "bjt_amplifier" || matchesKeyword(text, ["BJT", "트랜지스터", "소신호", "small-signal", "small signal", "hybrid-π", "hybrid pi", "공통 에미터", "common emitter", "common-emitter", "공통에미터", "g_m", "r_π", "r_pi", "베이스", "컬렉터", "에미터"])) {
+      return {
+        type: "bjt_small_signal",
+        params: {},
+        confidence: "high",
+        reasoning: "electronics + BJT 소신호 키워드/topic",
+      };
+    }
     // 시간영역 OPAMP (integrator/differentiator) 키워드가 명시되면 우선
     if (matchesKeyword(text, ["적분기", "미분기", "integrator", "differentiator", "적분", "미분"])) {
       return {
