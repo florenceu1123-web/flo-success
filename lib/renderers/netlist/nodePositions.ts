@@ -2,10 +2,13 @@ import type { CircuitNetlist } from "@/types";
 import type { Point } from "./graph";
 import type { TopologyInfo } from "./topology";
 
-const NODE_X_SPACING = 140;
-const NODE_Y_SPACING = 110;
-const PADDING_X = 80;
-const PADDING_Y = 80;
+// component 박스(R=80×40, V/I=60×60, OPAMP=90×70)와 node circle이 겹치지 않으려면
+// node 간격 ≥ max(component width) + 여유. R(80) + 양옆 padding 30씩 ≈ 140은 빠듯,
+// OPAMP(90)·V/I(60)이 함께 있는 회로에선 200까지 늘려야 안전.
+const NODE_X_SPACING = 200;
+const NODE_Y_SPACING = 160;
+const PADDING_X = 100;
+const PADDING_Y = 100;
 
 /**
  * 그래프 토폴로지 기반 node 좌표 결정.

@@ -26,6 +26,8 @@ export function renderComponentSymbol(node: RenderNode): string {
     case "VCVS":
     case "CCVS":
       return renderDependentVoltageSource(c, cx, cy);
+    case "OPAMP":
+      return renderOpamp(c, cx, cy);
     default:
       return renderGenericComponent(c, cx, cy);
   }
@@ -96,6 +98,17 @@ function renderDependentVoltageSource(c: CircuitComponent, x: number, y: number)
   <text x="0" y="-6" text-anchor="middle" font-size="14">+</text>
   <text x="0" y="12" text-anchor="middle" font-size="14">−</text>
   <text x="0" y="-36" text-anchor="middle" font-size="12">${escapeSvg(c.gain ?? c.value)}</text>
+</g>`;
+}
+
+function renderOpamp(c: CircuitComponent, x: number, y: number) {
+  // 표준 opamp 삼각형: 좌측 두 입력 (vp 상단 +, vn 하단 −), 우측 tip = 출력 vo.
+  return `
+<g transform="translate(${x},${y})">
+  <path d="M -32 -28 L -32 28 L 32 0 Z" fill="white" stroke="black" stroke-width="2"/>
+  <text x="-22" y="-12" text-anchor="middle" font-size="14">+</text>
+  <text x="-22" y="20" text-anchor="middle" font-size="14">−</text>
+  <text x="0" y="-36" text-anchor="middle" font-size="12">${escapeSvg(c.id)}</text>
 </g>`;
 }
 
