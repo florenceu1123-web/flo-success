@@ -3,10 +3,20 @@ import type {
   FigureVariant,
   GenerationMode,
   LogicStructureSignature,
-  StructureSignature,
 } from "@/types";
 
 type CandidateProblem = { figureVariants?: FigureVariant[] | null };
+
+type CandidateSignature = {
+  inputCount: number;
+  outputCount: number;
+  figureCount: number;
+  componentCounts: Record<string, number>;
+  gateCounts: Record<string, number>;
+  totalComponentCount: number;
+  totalGateCount: number;
+  blankCount: number;
+};
 
 /**
  * candidate 회로 구조의 시그니처를 추출.
@@ -14,9 +24,9 @@ type CandidateProblem = { figureVariants?: FigureVariant[] | null };
  *  - analog_netlist들의 component 종류별 카운트
  *  - figure 개수, input/output 개수
  */
-export function extractCandidateSignature(candidate: CandidateProblem) {
+export function extractCandidateSignature(candidate: CandidateProblem): CandidateSignature {
   const figs = candidate.figureVariants ?? [];
-  const sig: StructureSignature = {
+  const sig: CandidateSignature = {
     inputCount: 0,
     outputCount: 0,
     figureCount: figs.length,
@@ -39,19 +49,19 @@ export function extractCandidateSignature(candidate: CandidateProblem) {
       sig.outputCount = Math.max(sig.outputCount, (d?.outputs ?? []).length);
       for (const g of d?.gates ?? []) {
         const t = (g.type ?? "").toUpperCase();
-        sig.gateCounts![t] = (sig.gateCounts![t] ?? 0) + 1;
-        sig.totalGateCount = (sig.totalGateCount ?? 0) + 1;
+        sig.gateCounts[t] = (sig.gateCounts[t] ?? 0) + 1;
+        sig.totalGateCount += 1;
       }
       // distinct blank symbol 카운트 (shared group은 1로)
       const symbols = new Set<string>();
       for (const b of d?.blanks ?? []) if (b.symbol) symbols.add(b.symbol);
-      sig.blankCount = (sig.blankCount ?? 0) + symbols.size;
+      sig.blankCount += symbols.size;
     } else if (f.diagramType === "analog_netlist") {
       const d = f.diagram as { components?: Array<{ type?: string; pins?: unknown[] }> } | null | undefined;
       for (const c of d?.components ?? []) {
         const t = (c.type ?? "").toUpperCase();
-        sig.componentCounts![t] = (sig.componentCounts![t] ?? 0) + 1;
-        sig.totalComponentCount = (sig.totalComponentCount ?? 0) + 1;
+        sig.componentCounts[t] = (sig.componentCounts[t] ?? 0) + 1;
+        sig.totalComponentCount += 1;
       }
     }
   }
@@ -92,7 +102,7 @@ export function validateStructureSignature(
   // 3) gate counts (logic_network)
   if (expected.gateCounts) {
     for (const [type, expCount] of Object.entries(expected.gateCounts)) {
-      const gotCount = got.gateCounts?.[type] ?? 0;
+      const gotCount = got.gateCounts[type] ?? 0;
       if (Math.abs(gotCount - (expCount ?? 0)) > tolerance) {
         errors.push(`gate ${type} count: got ${gotCount}, expected ${expCount} (tol ${tolerance})`);
       }
@@ -100,33 +110,30 @@ export function validateStructureSignature(
   }
   // 4) total gate count
   if (expected.totalGateCount !== undefined) {
-    const gotTotal = got.totalGateCount ?? 0;
-    if (Math.abs(gotTotal - expected.totalGateCount) > tolerance) {
-      errors.push(`totalGateCount: got ${gotTotal}, expected ${expected.totalGateCount} (tol ${tolerance})`);
+    if (Math.abs(got.totalGateCount - expected.totalGateCount) > tolerance) {
+      errors.push(`totalGateCount: got ${got.totalGateCount}, expected ${expected.totalGateCount} (tol ${tolerance})`);
     }
   }
 
   // 5) component counts (analog_netlist)
   if (expected.componentCounts) {
     for (const [type, expCount] of Object.entries(expected.componentCounts)) {
-      const gotCount = got.componentCounts?.[type] ?? 0;
+      const gotCount = got.componentCounts[type] ?? 0;
       if (Math.abs(gotCount - (expCount ?? 0)) > tolerance) {
         errors.push(`component ${type} count: got ${gotCount}, expected ${expCount} (tol ${tolerance})`);
       }
     }
   }
   if (expected.totalComponentCount !== undefined) {
-    const gotTotal = got.totalComponentCount ?? 0;
-    if (Math.abs(gotTotal - expected.totalComponentCount) > tolerance) {
-      errors.push(`totalComponentCount: got ${gotTotal}, expected ${expected.totalComponentCount} (tol ${tolerance})`);
+    if (Math.abs(got.totalComponentCount - expected.totalComponentCount) > tolerance) {
+      errors.push(`totalComponentCount: got ${got.totalComponentCount}, expected ${expected.totalComponentCount} (tol ${tolerance})`);
     }
   }
 
   // 6a) blankCount — 원본에 빈칸이 있었으면 candidate도 같은 수만큼 (둘 다 strict)
   if (expected.blankCount !== undefined && expected.blankCount > 0) {
-    const gotBlanks = got.blankCount ?? 0;
-    if (gotBlanks < expected.blankCount) {
-      errors.push(`blankCount 부족: got ${gotBlanks}, expected ${expected.blankCount}. logic_network.blanks에 distinct symbol을 ${expected.blankCount}개 만들 것 (예: ⓐ, ⓑ).`);
+    if (got.blankCount < expected.blankCount) {
+      errors.push(`blankCount 부족: got ${got.blankCount}, expected ${expected.blankCount}. logic_network.blanks에 distinct symbol을 ${expected.blankCount}개 만들 것 (예: ⓐ, ⓑ).`);
     }
   }
 
@@ -135,13 +142,13 @@ export function validateStructureSignature(
     const log = expected as Partial<LogicStructureSignature>;
     if (log.productTermGateCount !== undefined) {
       // candidate에서 SOP product term은 AND 게이트 수로 근사 (대략)
-      const ands = got.gateCounts?.AND ?? 0;
+      const ands = got.gateCounts.AND ?? 0;
       if (ands < log.productTermGateCount) {
         errors.push(`productTerm 부족: AND ${ands} < expected ${log.productTermGateCount}`);
       }
     }
     if (log.outputCombinerGateCount !== undefined) {
-      const ors = got.gateCounts?.OR ?? 0;
+      const ors = got.gateCounts.OR ?? 0;
       if (ors < log.outputCombinerGateCount) {
         errors.push(`outputCombiner 부족: OR ${ors} < expected ${log.outputCombinerGateCount}`);
       }

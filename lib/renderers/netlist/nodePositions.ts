@@ -77,7 +77,7 @@ function horizontalChainLayout(
     positions.set(curr, { x: PADDING_X + i * NODE_X_SPACING, y: PADDING_Y });
     visited.add(curr);
     i++;
-    const next = Array.from(adj.get(curr) ?? []).find((n) => !visited.has(n));
+    const next: string | undefined = Array.from(adj.get(curr) ?? []).find((n) => !visited.has(n));
     curr = next;
   }
 
