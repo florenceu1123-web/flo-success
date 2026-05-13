@@ -35,6 +35,7 @@ export type CircuitType =
   | "kmap_sop"              // K-map → 최소 SOP → 구현 회로 (AND-OR)
   | "kmap_pos"              // K-map → 최소 POS → 구현 회로 (OR-AND, SOP dual)
   | "flipflop_counter"      // 2비트 D-FF 카운터 (상태 순서 → D 입력 K-map)
+  | "combinational_gate"    // 3-입력 2-출력 조합 회로 (F, G 동시 설계)
   // ── fallback ─────────────────────────────────
   | "unsupported";          // electronics / digital_logic / 분류 실패
 

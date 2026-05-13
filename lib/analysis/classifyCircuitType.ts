@@ -56,6 +56,14 @@ export function classifyCircuitType(
         reasoning: "digital_logic + 플립플롭/카운터 키워드/topic",
       };
     }
+    if (analysis.topicKey === "combinational_gate" || matchesKeyword(text, ["조합 회로", "조합회로", "다중 출력", "multi-output", "combinational"])) {
+      return {
+        type: "combinational_gate",
+        params: {},
+        confidence: "high",
+        reasoning: "digital_logic + 조합회로 키워드/topic",
+      };
+    }
     if (analysis.topicKey === "kmap_pos" || matchesKeyword(text, ["POS", "PI 곱", "곱의 합 dual", "최소 곱항"])) {
       return {
         type: "kmap_pos",
