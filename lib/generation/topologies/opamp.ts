@@ -19,6 +19,32 @@ import { createLogger } from "@/lib/logger";
 const cascadeLog = createLogger("lib/generation/topologies/opamp/cascade");
 
 /**
+ * 헬퍼: BranchTemplate path 표준 적용.
+ *  - DEFAULT_BRANCH_RULES 자동 attach
+ *  - validateBranchTemplate 검증 → 위반 시 경고 로그
+ *  - instantiateAnalogTemplate + assembleNetlist
+ *  - metadata(nodeAnnotations·measurementMarks·positions) 추가
+ */
+function assembleViaBranchTemplate(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  // 각 branch에 role별 default rules 자동 attach (안 박혀있으면)
+  const enriched: BranchTemplate[] = args.branches.map((b) => ({
+    ...b,
+    rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role],
+  }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) {
+    cascadeLog.warn("opamp_branch_template_violation", { issues: validation.issues });
+  }
+  const instantiated = instantiateAnalogTemplate(enriched, args.values);
+  const base = assembleNetlist(instantiated, "GND");
+  return { ...base, ...args.metadata };
+}
+
+/**
  * 이상 OPAMP 회로 generator.
  *
  *  Archetypes:
@@ -125,83 +151,55 @@ function buildCascade(rand: () => number): OpampGeneration {
   const sol = solveMNA(solverNet);
   const Vout = round3(sol.nodeVoltages.Vo);
 
-  // ── BranchTemplate path: branches 정의 → validate → instantiate → assemble ──
-  const branches: BranchTemplate[] = [
-    { id: "br_Vs1", role: "input_source_leg", orientation: "vertical", fromNode: "V1", toNode: "GND",
-      components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs1" }],
-      rules: DEFAULT_BRANCH_RULES.input_source_leg },
-    { id: "br_Vs2", role: "input_source_leg", orientation: "vertical", fromNode: "V2", toNode: "GND",
-      components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs2" }],
-      rules: DEFAULT_BRANCH_RULES.input_source_leg },
-    { id: "br_Rin1", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V2", toNode: "u1in",
-      components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_in1" }],
-      rules: DEFAULT_BRANCH_RULES.opamp_input_resistor },
-    { id: "br_Rf1", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "u1in", toNode: "u1out",
-      components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_f1" }],
-      rules: DEFAULT_BRANCH_RULES.opamp_feedback_resistor },
-    { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "u1in", toNode: "u1out",
-      opampNodes: { vp: "GND", vn: "u1in", vo: "u1out" },
-      components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }],
-      rules: DEFAULT_BRANCH_RULES.opamp_block },
-    { id: "br_Ra", role: "cascade_coupling", orientation: "horizontal", fromNode: "u1out", toNode: "u2in",
-      components: [{ type: "R", role: "coupling_resistor", order: 1, required: true, idOverride: "R_a" }],
-      rules: DEFAULT_BRANCH_RULES.cascade_coupling },
-    { id: "br_Rb", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V1", toNode: "u2in",
-      components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_b" }],
-      rules: DEFAULT_BRANCH_RULES.opamp_input_resistor },
-    { id: "br_Rf2", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "u2in", toNode: "Vo",
-      components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_f2" }],
-      rules: DEFAULT_BRANCH_RULES.opamp_feedback_resistor },
-    { id: "br_U2", role: "opamp_block", orientation: "horizontal", fromNode: "u2in", toNode: "Vo",
-      opampNodes: { vp: "GND", vn: "u2in", vo: "Vo" },
-      components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U2" }],
-      rules: DEFAULT_BRANCH_RULES.opamp_block },
-  ];
-
-  // 도메인 규칙 검증 — CONNECTION_LAYOUT_RULES + role별 allowed/required type
-  const validation = validateBranchTemplate(branches);
-  if (!validation.ok) {
-    cascadeLog.warn("branch_template_violation", { issues: validation.issues });
-  }
-
-  const valueAssignments: AnalogValueAssignment[] = [
-    { branchId: "br_Vs1", componentRole: "voltage_source", type: "V", value: `${V_1}V` },
-    { branchId: "br_Vs2", componentRole: "voltage_source", type: "V", value: `${V_2}V` },
-    { branchId: "br_Rin1", componentRole: "input_resistor", type: "R", value: `${R_in1_k}kΩ` },
-    { branchId: "br_Rf1", componentRole: "feedback_resistor", type: "R", value: `${R_f1_k}kΩ` },
-    { branchId: "br_Ra", componentRole: "coupling_resistor", type: "R", value: `${R_a_k}kΩ` },
-    { branchId: "br_Rb", componentRole: "input_resistor", type: "R", value: `${R_b_k}kΩ` },
-    { branchId: "br_Rf2", componentRole: "feedback_resistor", type: "R", value: `${R_f2_k}kΩ` },
-  ];
-
-  const instantiated = instantiateAnalogTemplate(branches, valueAssignments);
-  const baseNetlist = assembleNetlist(instantiated, "GND");
-
-  // assembleNetlist의 결과 위에 cascade-specific metadata 추가
-  const netlist: CircuitNetlist = {
-    ...baseNetlist,
-    nodeAnnotations: [
-      { node: "V1", label: "V_1", style: "label_only" },
-      { node: "V2", label: "V_2", style: "label_only" },
-      { node: "Vo", label: "V_o", style: "label_only" },
+  const netlist = assembleViaBranchTemplate({
+    branches: [
+      { id: "br_Vs1", role: "input_source_leg", orientation: "vertical", fromNode: "V1", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs1" }] },
+      { id: "br_Vs2", role: "input_source_leg", orientation: "vertical", fromNode: "V2", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs2" }] },
+      { id: "br_Rin1", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V2", toNode: "u1in",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_in1" }] },
+      { id: "br_Rf1", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "u1in", toNode: "u1out",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_f1" }] },
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "u1in", toNode: "u1out",
+        opampNodes: { vp: "GND", vn: "u1in", vo: "u1out" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
+      { id: "br_Ra", role: "cascade_coupling", orientation: "horizontal", fromNode: "u1out", toNode: "u2in",
+        components: [{ type: "R", role: "coupling_resistor", order: 1, required: true, idOverride: "R_a" }] },
+      { id: "br_Rb", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V1", toNode: "u2in",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_b" }] },
+      { id: "br_Rf2", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "u2in", toNode: "Vo",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_f2" }] },
+      { id: "br_U2", role: "opamp_block", orientation: "horizontal", fromNode: "u2in", toNode: "Vo",
+        opampNodes: { vp: "GND", vn: "u2in", vo: "Vo" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U2" }] },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["Vo", "GND"], label: "V_o" },
+    values: [
+      { branchId: "br_Vs1", componentRole: "voltage_source", type: "V", value: `${V_1}V` },
+      { branchId: "br_Vs2", componentRole: "voltage_source", type: "V", value: `${V_2}V` },
+      { branchId: "br_Rin1", componentRole: "input_resistor", type: "R", value: `${R_in1_k}kΩ` },
+      { branchId: "br_Rf1", componentRole: "feedback_resistor", type: "R", value: `${R_f1_k}kΩ` },
+      { branchId: "br_Ra", componentRole: "coupling_resistor", type: "R", value: `${R_a_k}kΩ` },
+      { branchId: "br_Rb", componentRole: "input_resistor", type: "R", value: `${R_b_k}kΩ` },
+      { branchId: "br_Rf2", componentRole: "feedback_resistor", type: "R", value: `${R_f2_k}kΩ` },
     ],
-    positions: {
-      V2: { x: 120, y: 200 },
-      V1: { x: 120, y: 380 },
-      u1in: { x: 360, y: 200 },
-      u1out: { x: 600, y: 200 },
-      u2in: { x: 760, y: 200 },
-      Vo: { x: 1000, y: 200 },
-      GND: { x: 560, y: 540 },
-      U1: { x: 480, y: 280 },
-      U2: { x: 880, y: 280 },
-      Vs1: { x: 200, y: 460 },
-      Vs2: { x: 240, y: 340 },
+    metadata: {
+      nodeAnnotations: [
+        { node: "V1", label: "V_1", style: "label_only" },
+        { node: "V2", label: "V_2", style: "label_only" },
+        { node: "Vo", label: "V_o", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vo", "GND"], label: "V_o" }],
+      positions: {
+        V2: { x: 120, y: 200 }, V1: { x: 120, y: 380 },
+        u1in: { x: 360, y: 200 }, u1out: { x: 600, y: 200 },
+        u2in: { x: 760, y: 200 }, Vo: { x: 1000, y: 200 },
+        GND: { x: 560, y: 540 },
+        U1: { x: 480, y: 280 }, U2: { x: 880, y: 280 },
+        Vs1: { x: 200, y: 460 }, Vs2: { x: 240, y: 340 },
+      },
     },
-  };
+  });
 
   const gainV2 = (R_f2 * R_f1) / (R_a * R_in1);
   const gainV1 = -R_f2 / R_b;
@@ -250,47 +248,31 @@ function buildInverting(rand: () => number): OpampGeneration {
   const Vminus = round3(sol.nodeVoltages.Vminus);
   const Vplus = 0;
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "Vs", type: "V", value: `${Vin}V`,
-        pins: [
-          { id: "p1", node: "Vin", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "Rin", type: "R", value: `${Rin_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vin", side: "left" },
-          { id: "p2", node: "Vminus", side: "right" },
-        ],
-      },
-      {
-        id: "Rf", type: "R", value: `${Rf_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vminus", side: "left" },
-          { id: "p2", node: "Vout", side: "right" },
-        ],
-      },
-      {
-        id: "U1", type: "OPAMP",
-        pins: [
-          { id: "p1", node: "GND", side: "left", role: "non_inverting" },
-          { id: "p2", node: "Vminus", side: "left", role: "inverting" },
-          { id: "p3", node: "Vout", side: "right" },
-        ],
-      },
+  const netlist = assembleViaBranchTemplate({
+    branches: [
+      { id: "br_Vs", role: "input_source_leg", orientation: "vertical", fromNode: "Vin", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs" }] },
+      { id: "br_Rin", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "Vin", toNode: "Vminus",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "Rin" }] },
+      { id: "br_Rf", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "Rf" }] },
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        opampNodes: { vp: "GND", vn: "Vminus", vo: "Vout" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "Vin", label: "V_in", style: "label_only" },
-      { node: "Vout", label: "V_out", style: "label_only" },
+    values: [
+      { branchId: "br_Vs", componentRole: "voltage_source", type: "V", value: `${Vin}V` },
+      { branchId: "br_Rin", componentRole: "input_resistor", type: "R", value: `${Rin_k}kΩ` },
+      { branchId: "br_Rf", componentRole: "feedback_resistor", type: "R", value: `${Rf_k}kΩ` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["Vout", "GND"], label: "V_out" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "Vin", label: "V_in", style: "label_only" },
+        { node: "Vout", label: "V_out", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+    },
+  });
 
   return {
     netlist, solverNet, Vout, Vminus, Vplus,
@@ -334,47 +316,31 @@ function buildNonInverting(rand: () => number): OpampGeneration {
   const Vminus = round3(sol.nodeVoltages.Vminus);
   const Vplus = round3(sol.nodeVoltages.Vin);
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "Vs", type: "V", value: `${Vin}V`,
-        pins: [
-          { id: "p1", node: "Vin", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "U1", type: "OPAMP",
-        pins: [
-          { id: "p1", node: "Vin", side: "left", role: "non_inverting" },
-          { id: "p2", node: "Vminus", side: "left", role: "inverting" },
-          { id: "p3", node: "Vout", side: "right" },
-        ],
-      },
-      {
-        id: "Rf", type: "R", value: `${Rf_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vminus", side: "left" },
-          { id: "p2", node: "Vout", side: "right" },
-        ],
-      },
-      {
-        id: "Rg", type: "R", value: `${Rg_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vminus", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
+  const netlist = assembleViaBranchTemplate({
+    branches: [
+      { id: "br_Vs", role: "input_source_leg", orientation: "vertical", fromNode: "Vin", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs" }] },
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        opampNodes: { vp: "Vin", vn: "Vminus", vo: "Vout" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
+      { id: "br_Rf", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "Rf" }] },
+      { id: "br_Rg", role: "load_leg", orientation: "vertical", fromNode: "Vminus", toNode: "GND",
+        components: [{ type: "R", role: "ground_resistor", order: 1, required: true, idOverride: "Rg" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "Vin", label: "V_in", style: "label_only" },
-      { node: "Vout", label: "V_out", style: "label_only" },
+    values: [
+      { branchId: "br_Vs", componentRole: "voltage_source", type: "V", value: `${Vin}V` },
+      { branchId: "br_Rf", componentRole: "feedback_resistor", type: "R", value: `${Rf_k}kΩ` },
+      { branchId: "br_Rg", componentRole: "ground_resistor", type: "R", value: `${Rg_k}kΩ` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["Vout", "GND"], label: "V_out" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "Vin", label: "V_in", style: "label_only" },
+        { node: "Vout", label: "V_out", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+    },
+  });
 
   return {
     netlist, solverNet, Vout, Vminus, Vplus,
@@ -421,60 +387,34 @@ function buildSumming(rand: () => number): OpampGeneration {
   const Vminus = round3(sol.nodeVoltages.Vminus);
   const Vplus = 0;
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "Vs1", type: "V", value: `${V1}V`,
-        pins: [
-          { id: "p1", node: "V1n", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "Vs2", type: "V", value: `${V2}V`,
-        pins: [
-          { id: "p1", node: "V2n", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "R1", type: "R", value: `${R1_k}kΩ`,
-        pins: [
-          { id: "p1", node: "V1n", side: "left" },
-          { id: "p2", node: "Vminus", side: "right" },
-        ],
-      },
-      {
-        id: "R2", type: "R", value: `${R2_k}kΩ`,
-        pins: [
-          { id: "p1", node: "V2n", side: "left" },
-          { id: "p2", node: "Vminus", side: "right" },
-        ],
-      },
-      {
-        id: "Rf", type: "R", value: `${Rf_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vminus", side: "left" },
-          { id: "p2", node: "Vout", side: "right" },
-        ],
-      },
-      {
-        id: "U1", type: "OPAMP",
-        pins: [
-          { id: "p1", node: "GND", side: "left", role: "non_inverting" },
-          { id: "p2", node: "Vminus", side: "left", role: "inverting" },
-          { id: "p3", node: "Vout", side: "right" },
-        ],
-      },
+  const netlist = assembleViaBranchTemplate({
+    branches: [
+      { id: "br_Vs1", role: "input_source_leg", orientation: "vertical", fromNode: "V1n", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs1" }] },
+      { id: "br_Vs2", role: "input_source_leg", orientation: "vertical", fromNode: "V2n", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs2" }] },
+      { id: "br_R1", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V1n", toNode: "Vminus",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_R2", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V2n", toNode: "Vminus",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R2" }] },
+      { id: "br_Rf", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "Rf" }] },
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        opampNodes: { vp: "GND", vn: "Vminus", vo: "Vout" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "Vout", label: "V_out", style: "label_only" },
+    values: [
+      { branchId: "br_Vs1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_Vs2", componentRole: "voltage_source", type: "V", value: `${V2}V` },
+      { branchId: "br_R1", componentRole: "input_resistor", type: "R", value: `${R1_k}kΩ` },
+      { branchId: "br_R2", componentRole: "input_resistor", type: "R", value: `${R2_k}kΩ` },
+      { branchId: "br_Rf", componentRole: "feedback_resistor", type: "R", value: `${Rf_k}kΩ` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["Vout", "GND"], label: "V_out" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [{ node: "Vout", label: "V_out", style: "label_only" }],
+      measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+    },
+  });
 
   return {
     netlist, solverNet, Vout, Vminus, Vplus,
@@ -526,67 +466,37 @@ function buildDifference(rand: () => number): OpampGeneration {
   const Vminus = round3(sol.nodeVoltages.Vminus);
   const Vplus = round3(sol.nodeVoltages.Vplus);
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "Vs1", type: "V", value: `${V1}V`,
-        pins: [
-          { id: "p1", node: "V1n", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "Vs2", type: "V", value: `${V2}V`,
-        pins: [
-          { id: "p1", node: "V2n", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "Rin", type: "R", value: `${Rin_k}kΩ`,
-        pins: [
-          { id: "p1", node: "V1n", side: "left" },
-          { id: "p2", node: "Vminus", side: "right" },
-        ],
-      },
-      {
-        id: "Rg", type: "R", value: `${Rin_k}kΩ`,
-        pins: [
-          { id: "p1", node: "V2n", side: "left" },
-          { id: "p2", node: "Vplus", side: "right" },
-        ],
-      },
-      {
-        id: "Rp", type: "R", value: `${Rf_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vplus", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
-      {
-        id: "Rf", type: "R", value: `${Rf_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vminus", side: "left" },
-          { id: "p2", node: "Vout", side: "right" },
-        ],
-      },
-      {
-        id: "U1", type: "OPAMP",
-        pins: [
-          { id: "p1", node: "Vplus", side: "left", role: "non_inverting" },
-          { id: "p2", node: "Vminus", side: "left", role: "inverting" },
-          { id: "p3", node: "Vout", side: "right" },
-        ],
-      },
+  const netlist = assembleViaBranchTemplate({
+    branches: [
+      { id: "br_Vs1", role: "input_source_leg", orientation: "vertical", fromNode: "V1n", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs1" }] },
+      { id: "br_Vs2", role: "input_source_leg", orientation: "vertical", fromNode: "V2n", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs2" }] },
+      { id: "br_Rin", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V1n", toNode: "Vminus",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "Rin" }] },
+      { id: "br_Rg", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V2n", toNode: "Vplus",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "Rg" }] },
+      { id: "br_Rp", role: "load_leg", orientation: "vertical", fromNode: "Vplus", toNode: "GND",
+        components: [{ type: "R", role: "ground_resistor", order: 1, required: true, idOverride: "Rp" }] },
+      { id: "br_Rf", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "Rf" }] },
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "Vminus", toNode: "Vout",
+        opampNodes: { vp: "Vplus", vn: "Vminus", vo: "Vout" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "Vout", label: "V_out", style: "label_only" },
+    values: [
+      { branchId: "br_Vs1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_Vs2", componentRole: "voltage_source", type: "V", value: `${V2}V` },
+      { branchId: "br_Rin", componentRole: "input_resistor", type: "R", value: `${Rin_k}kΩ` },
+      { branchId: "br_Rg", componentRole: "input_resistor", type: "R", value: `${Rin_k}kΩ` },
+      { branchId: "br_Rp", componentRole: "ground_resistor", type: "R", value: `${Rf_k}kΩ` },
+      { branchId: "br_Rf", componentRole: "feedback_resistor", type: "R", value: `${Rf_k}kΩ` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["Vout", "GND"], label: "V_out" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [{ node: "Vout", label: "V_out", style: "label_only" }],
+      measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+    },
+  });
 
   return {
     netlist, solverNet, Vout, Vminus, Vplus,
@@ -626,41 +536,29 @@ function buildVoltageFollower(rand: () => number): OpampGeneration {
   const Vminus = Vout;  // vn = vo for buffer
   const Vplus = round3(sol.nodeVoltages.Vin);
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "Vs", type: "V", value: `${Vin}V`,
-        pins: [
-          { id: "p1", node: "Vin", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "U1", type: "OPAMP",
-        pins: [
-          { id: "p1", node: "Vin", side: "left", role: "non_inverting" },
-          { id: "p2", node: "Vout", side: "left", role: "inverting" },
-          { id: "p3", node: "Vout", side: "right" },
-        ],
-      },
-      // 시각용 풀다운 R_L (생략 가능하나 sigular 행렬 방지)
-      {
-        id: "RL", type: "R", value: `${RL_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vout", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
+  // voltage follower: vn=vo=Vout (직접 피드백). opamp_block의 opampNodes로 자연스럽게 표현.
+  const netlist = assembleViaBranchTemplate({
+    branches: [
+      { id: "br_Vs", role: "input_source_leg", orientation: "vertical", fromNode: "Vin", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs" }] },
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "Vin", toNode: "Vout",
+        opampNodes: { vp: "Vin", vn: "Vout", vo: "Vout" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
+      { id: "br_RL", role: "load_leg", orientation: "vertical", fromNode: "Vout", toNode: "GND",
+        components: [{ type: "R", role: "load_resistor", order: 1, required: true, idOverride: "RL" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "Vin", label: "V_in", style: "label_only" },
-      { node: "Vout", label: "V_out", style: "label_only" },
+    values: [
+      { branchId: "br_Vs", componentRole: "voltage_source", type: "V", value: `${Vin}V` },
+      { branchId: "br_RL", componentRole: "load_resistor", type: "R", value: `${RL_k}kΩ` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["Vout", "GND"], label: "V_out" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "Vin", label: "V_in", style: "label_only" },
+        { node: "Vout", label: "V_out", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+    },
+  });
 
   return {
     netlist, solverNet, Vout, Vminus, Vplus,
