@@ -45,9 +45,18 @@ export function classifyCircuitType(
       reasoning: `electronics 의 ${analysis.topicKey ?? "(unknown)"} 은 현 phase netlist generator 범위 밖`,
     };
   }
-  // digital_logic: kmap_sop 우선 처리, 나머지(kmap_pos/FSM 등)는 후속
+  // digital_logic: kmap_sop / kmap_pos 우선 처리, 나머지(FSM 등)는 후속
   if (subject === "digital_logic") {
-    if (analysis.topicKey === "kmap_sop" || matchesKeyword(`${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`, ["k-map", "kmap", "카르노", "SOP", "최소화"])) {
+    const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    if (analysis.topicKey === "kmap_pos" || matchesKeyword(text, ["POS", "PI 곱", "곱의 합 dual", "최소 곱항"])) {
+      return {
+        type: "kmap_pos",
+        params: {},
+        confidence: "high",
+        reasoning: "digital_logic + POS 키워드/topic",
+      };
+    }
+    if (analysis.topicKey === "kmap_sop" || matchesKeyword(text, ["k-map", "kmap", "카르노", "SOP", "최소화"])) {
       return {
         type: "kmap_sop",
         params: {},

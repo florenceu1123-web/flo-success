@@ -1,6 +1,46 @@
 import type { BooleanFunction, SopTerm } from "./booleanFunction";
 
 /**
+ * POS 최소화 — F의 0-cell에 Q-M 적용해 F' SOP를 구하고, De Morgan으로 F의 POS 도출.
+ *
+ *  알고리즘:
+ *   1) F의 0-cell(maxterm 인덱스) 추출
+ *   2) F'를 위 0-cell들을 minterm으로 하는 함수로 정의
+ *   3) minimizeSop으로 F' SOP 계산
+ *   4) 각 SOP term의 pattern을 invert (0↔1) → POS term pattern
+ *      이유: NOT(A B' C) = A' + B + C'. SOP pattern "101"이 F' AB'C이면,
+ *      POS pattern "010"이 F의 (A'+B+C') sum term.
+ *      pattern 해석은 SOP와 동일 ("1"=직접, "0"=반전, "X"=없음).
+ *
+ *  F가 항등(F=1): maxterm 없음 → POS = 빈 = 1.
+ *  F가 항등(F=0): 모든 cell이 maxterm → POS는 minterm 만큼 항.
+ */
+export function minimizePos(f: BooleanFunction): SopTerm[] {
+  const N = 1 << f.vars;
+  const maxterms: number[] = [];
+  for (let i = 0; i < N; i++) {
+    if (f.dontCares.includes(i)) continue;
+    if (!f.minterms.includes(i)) maxterms.push(i);
+  }
+  if (maxterms.length === 0) return [];   // F = 1
+  const negF: BooleanFunction = {
+    vars: f.vars,
+    varNames: f.varNames,
+    minterms: maxterms,
+    dontCares: f.dontCares,
+  };
+  const sopOfNot = minimizeSop(negF);
+  // pattern invert: "101" → "010", "X0" → "X1"
+  return sopOfNot.map((t) => ({
+    ...t,
+    pattern: t.pattern
+      .split("")
+      .map((ch) => ch === "0" ? "1" : ch === "1" ? "0" : "X")
+      .join(""),
+  }));
+}
+
+/**
  * Quine-McCluskey SOP 최소화.
  *
  *  1) 모든 1-minterm + don't-care를 implicant로 시작.

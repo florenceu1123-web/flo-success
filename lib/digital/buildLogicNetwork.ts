@@ -132,3 +132,77 @@ export function buildLogicNetwork(args: {
     gates,
   };
 }
+
+/**
+ * POS → LogicNetworkDiagram 변환. OR-AND 구조 (SOP의 AND-OR dual).
+ *
+ *  각 POS term을 OR 게이트로 합성, 모든 term을 AND 게이트로 묶어 출력.
+ *  pattern 해석: "1"=직접 literal, "0"=반전 literal, "X"=없음.
+ *  (sopTermToString과 동일 convention. NOT 게이트로 보수 신호 처리.)
+ */
+export function buildLogicNetworkPos(args: {
+  pos: SopTerm[];
+  varNames: string[];
+  outputName: string;
+}): LogicNetworkDiagram {
+  const { pos, varNames, outputName } = args;
+  const gates: LogicGate[] = [];
+
+  if (pos.length === 0) {
+    return { inputs: [...varNames], outputs: [outputName], gates: [] };   // F = 1
+  }
+
+  // NOT 게이트가 필요한 변수 추출
+  const needsNot = new Set<string>();
+  for (const term of pos) {
+    for (let i = 0; i < term.pattern.length; i++) {
+      if (term.pattern[i] === "0") needsNot.add(varNames[i]);
+    }
+  }
+  let gateIdx = 1;
+  const notSignal = new Map<string, string>();
+  for (const v of varNames) {
+    if (needsNot.has(v)) {
+      const notOut = `${v}_n`;
+      gates.push({ id: `G_not_${v}`, type: "NOT", inputs: [v], output: notOut });
+      notSignal.set(v, notOut);
+    }
+  }
+
+  // 각 POS term → OR 게이트
+  const termOutputs: string[] = [];
+  for (const term of pos) {
+    const literalSignals: string[] = [];
+    for (let i = 0; i < term.pattern.length; i++) {
+      if (term.pattern[i] === "X") continue;
+      if (term.pattern[i] === "1") literalSignals.push(varNames[i]);
+      else literalSignals.push(notSignal.get(varNames[i])!);
+    }
+    if (literalSignals.length === 0) {
+      // 항상 1인 sum term — POS 전체에서 이 항은 무시 (1·X = X), term 생략
+      continue;
+    }
+    if (literalSignals.length === 1) {
+      termOutputs.push(literalSignals[0]);
+    } else {
+      const out = `or${gateIdx++}`;
+      gates.push({ id: `G_or_${gateIdx}`, type: "OR", inputs: literalSignals, output: out });
+      termOutputs.push(out);
+    }
+  }
+
+  // 모든 term을 AND로 결합
+  if (termOutputs.length === 1) {
+    const lastGate = gates[gates.length - 1];
+    if (lastGate && lastGate.output === termOutputs[0]) {
+      lastGate.output = outputName;
+    } else {
+      const matchGate = gates.find((g) => g.output === termOutputs[0]);
+      if (matchGate) matchGate.output = outputName;
+    }
+  } else {
+    gates.push({ id: `G_and_${gateIdx}`, type: "AND", inputs: termOutputs, output: outputName });
+  }
+
+  return { inputs: [...varNames], outputs: [outputName], gates };
+}

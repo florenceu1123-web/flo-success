@@ -32,7 +32,8 @@ export type CircuitType =
   // ── 전자회로 ─────────────────────────────────
   | "opamp"                 // 이상 OPAMP DC 분석 (inverting/non_inverting/summing 등)
   // ── 디지털논리 ───────────────────────────────
-  | "kmap_sop"              // K-map → 최소 SOP → 구현 회로
+  | "kmap_sop"              // K-map → 최소 SOP → 구현 회로 (AND-OR)
+  | "kmap_pos"              // K-map → 최소 POS → 구현 회로 (OR-AND, SOP dual)
   // ── fallback ─────────────────────────────────
   | "unsupported";          // electronics / digital_logic / 분류 실패
 

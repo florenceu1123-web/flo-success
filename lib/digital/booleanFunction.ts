@@ -126,3 +126,24 @@ export function sopToString(sop: SopTerm[], varNames: string[]): string {
   if (sop.length === 0) return "0";
   return sop.map((t) => sopTermToString(t, varNames)).join(" + ");
 }
+
+/**
+ * POS term을 sum 형태로 변환.
+ *  pattern "010" + [A,B,C] → "(A' + B + C')"
+ *  모든 자리가 X면 "1" (해당 항 없음, 의미상)
+ */
+export function posTermToString(term: SopTerm, varNames: string[]): string {
+  const parts: string[] = [];
+  for (let i = 0; i < term.pattern.length; i++) {
+    const ch = term.pattern[i];
+    if (ch === "X") continue;
+    parts.push(ch === "1" ? varNames[i] : `${varNames[i]}'`);
+  }
+  if (parts.length === 0) return "1";
+  return `(${parts.join(" + ")})`;
+}
+
+export function posToString(pos: SopTerm[], varNames: string[]): string {
+  if (pos.length === 0) return "1";
+  return pos.map((t) => posTermToString(t, varNames)).join("·");
+}
