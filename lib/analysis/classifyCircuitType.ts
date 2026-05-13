@@ -91,10 +91,22 @@ export function classifyCircuitType(
         reasoning: "digital_logic + 플립플롭/카운터 키워드/topic",
       };
     }
-    if (analysis.topicKey === "combinational_gate" || matchesKeyword(text, ["조합 회로", "조합회로", "다중 출력", "multi-output", "combinational"])) {
+    // K-map + 회로 빈칸 게이트 (ⓐ/ⓑ 등)이 함께 나오면 multi-output 조합회로로 분류 — kmap_sop보다 우선.
+    // 임용 표준 패턴: 같은 입력에 대한 두 출력(X·Y) K-map 2개 + 회로의 빈칸 게이트.
+    if (matchesKeyword(text, KMAP_KEYWORDS) && matchesKeyword(text, BLANK_GATE_KEYWORDS)) {
       return {
         type: "combinational_gate",
-        params: {},
+        params: { kmapBlankCount: 2 },
+        confidence: "high",
+        reasoning: "K-map + 빈칸 게이트(ⓐ/ⓑ) → multi-output 조합회로 (kmap_sop 우선 매치)",
+      };
+    }
+    if (analysis.topicKey === "combinational_gate" || matchesKeyword(text, COMBINATIONAL_KEYWORDS)) {
+      const params: CircuitTypeParams = {};
+      if (matchesKeyword(text, BLANK_GATE_KEYWORDS)) params.kmapBlankCount = 2;
+      return {
+        type: "combinational_gate",
+        params,
         confidence: "high",
         reasoning: "digital_logic + 조합회로 키워드/topic",
       };
@@ -178,6 +190,18 @@ const NORTON_KEYWORDS = ["노턴", "norton"];
 const MAX_POWER_KEYWORDS = ["최대 전력", "최대전력", "max power transfer", "maximum power"];
 const SUPERMESH_KEYWORDS = ["슈퍼메시", "supermesh", "super mesh"];
 const SUPERNODE_KEYWORDS = ["슈퍼노드", "supernode", "super node"];
+
+// 디지털 — K-map 본문 키워드 (kmap_sop/pos·combinational_gate 분기 공용)
+const KMAP_KEYWORDS = ["k-map", "kmap", "카르노", "karnaugh"];
+// 다중 출력 조합회로 키워드 ("조합논리회로"는 "조합회로"를 substring으로 포함하지 않으므로 별도 등록)
+const COMBINATIONAL_KEYWORDS = [
+  "조합 회로", "조합회로", "조합논리회로", "조합 논리회로", "조합 논리 회로", "조합논리", "조합 논리",
+  "다중 출력", "다중출력", "두 출력", "2개 출력", "multi-output", "combinational",
+];
+// 회로 내 학생-채움 빈칸 게이트 — 임용 ⓐ ⓑ ⓒ ⓓ 또는 "들어갈 (논리)게이트" 표현
+const BLANK_GATE_KEYWORDS = [
+  "ⓐ", "ⓑ", "ⓒ", "ⓓ", "들어갈 논리게이트", "들어갈 논리 게이트", "들어갈 게이트", "들어갈 논리",
+];
 
 function matchesKeyword(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();

@@ -71,6 +71,9 @@ export type CircuitTypeParams = {
   hasDependentSource?: boolean;
   /** waveform figure 동반 필요 */
   hasWaveform?: boolean;
+  // ── 디지털 K-map / 조합회로 전용 ──────────────
+  /** 다중 출력 K-map / 회로의 회로 내 학생-채움 빈칸 게이트 수 (예: ⓐ, ⓑ → 2) */
+  kmapBlankCount?: number;
 };
 
 /**
