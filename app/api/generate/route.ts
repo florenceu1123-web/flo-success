@@ -17,6 +17,7 @@ import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourc
 import { runMaxPowerTransferPipeline } from "@/lib/pipeline/runMaxPowerTransferPipeline";
 import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitPipeline";
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
+import { runKmapSopPipeline } from "@/lib/pipeline/runKmapSopPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -163,6 +164,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "opamp" && subjectKey === "electronics") {
       log.info("dispatch", { route: "opamp_pipeline", count: n, mode });
       problems = await runOpampPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "kmap_sop" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "kmap_sop_pipeline", count: n, mode });
+      problems = await runKmapSopPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
