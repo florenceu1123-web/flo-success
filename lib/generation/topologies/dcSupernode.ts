@@ -8,6 +8,29 @@ import {
   pick,
   round3,
 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const snlog = createLogger("lib/generation/topologies/dcSupernode");
+
+function assembleViaBT(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  const enriched = args.branches.map((b) => ({ ...b, rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role] }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) snlog.warn("branch_template_violation", { issues: validation.issues });
+  const inst = instantiateAnalogTemplate(enriched, args.values);
+  return { ...assembleNetlist(inst, "GND"), ...args.metadata };
+}
 
 /**
  * Supernode 회로 generator — 두 non-ground node를 V source가 직결.
@@ -95,43 +118,31 @@ function buildTwoNodeSharedV(rand: () => number): DcSupernodeGeneration {
   ];
   const t = targetChoices[Math.floor(rand() * targetChoices.length)];
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "V_s", type: "V", value: `${Vs}V`,
-        pins: [
-          { id: "p1", node: "n1", side: "left", role: "positive" },
-          { id: "p2", node: "n2", side: "right", role: "negative" },
-        ],
-      },
-      {
-        id: "R1", type: "R", value: `${R1}Ω`,
-        pins: [
-          { id: "p1", node: "n1", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
-      {
-        id: "R2", type: "R", value: `${R2}Ω`,
-        pins: [
-          { id: "p1", node: "n2", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
-      {
-        id: "I1", type: "I", value: `${I1}A`,
-        pins: [
-          { id: "p1", node: "GND", side: "bottom" },
-          { id: "p2", node: "n1", side: "top" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    // V_s가 n1↔n2 사이 horizontal mesh_only_branch: top_rail role로 표현 (수평).
+    branches: [
+      { id: "br_Vs", role: "top_rail", orientation: "horizontal", fromNode: "n1", toNode: "n2",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V_s" }] },
+      { id: "br_R1", role: "load_leg", orientation: "vertical", fromNode: "n1", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_R2", role: "load_leg", orientation: "vertical", fromNode: "n2", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R2" }] },
+      { id: "br_I1", role: "load_leg", orientation: "vertical", fromNode: "n1", toNode: "GND",
+        components: [{ type: "I", role: "current_source", order: 1, required: true, idOverride: "I1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "n1", label: "n₁", style: "label_only" },
-      { node: "n2", label: "n₂", style: "label_only" },
+    values: [
+      { branchId: "br_Vs", componentRole: "voltage_source", type: "V", value: `${Vs}V` },
+      { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R1}Ω` },
+      { branchId: "br_R2", componentRole: "resistor", type: "R", value: `${R2}Ω` },
+      { branchId: "br_I1", componentRole: "current_source", type: "I", value: `${I1}A` },
     ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "n1", label: "n₁", style: "label_only" },
+        { node: "n2", label: "n₂", style: "label_only" },
+      ],
+    },
+  });
 
   return {
     netlist,
