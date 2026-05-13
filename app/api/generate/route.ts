@@ -8,6 +8,7 @@ import { createLogger } from "@/lib/logger";
 import { runTheveninPipeline } from "@/lib/pipeline/runTheveninPipeline";
 import { runNortonPipeline } from "@/lib/pipeline/runNortonPipeline";
 import { runDcMeshPipeline } from "@/lib/pipeline/runDcMeshPipeline";
+import { runRcStepPipeline } from "@/lib/pipeline/runRcStepPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -82,6 +83,14 @@ export async function POST(req: NextRequest) {
     } else if ((circuitType === "dc_mesh" || circuitType === "dc_nodal") && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "dc_mesh_pipeline", count: n, mode });
       problems = await runDcMeshPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if ((circuitType === "rc_step" || circuitType === "switched_rc") && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "rc_step_pipeline", count: n, mode });
+      problems = await runRcStepPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

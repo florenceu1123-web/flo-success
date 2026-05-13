@@ -38,14 +38,19 @@ export function assembleProblem(args: {
   figureRole: string;
   figureIdSuffix: string | number;
   topicKey?: TopicKey;
+  /** 추가 figure (waveform 등) — 주 회로 figure 뒤에 append됨 */
+  extraFigures?: FigureVariant[];
 }): GeneratedProblem {
-  const figureVariants: FigureVariant[] = [{
-    id: `fig_main_${args.figureIdSuffix}`,
-    label: args.figureLabel,
-    role: args.figureRole,
-    diagramType: "analog_netlist",
-    diagram: args.netlist,
-  }];
+  const figureVariants: FigureVariant[] = [
+    {
+      id: `fig_main_${args.figureIdSuffix}`,
+      label: args.figureLabel,
+      role: args.figureRole,
+      diagramType: "analog_netlist",
+      diagram: args.netlist,
+    },
+    ...(args.extraFigures ?? []),
+  ];
   return {
     id: randomUUID(),
     content: args.text.content,
