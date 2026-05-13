@@ -42,6 +42,9 @@ function hasAny(text: string, words: string[]): boolean {
  *   - supermesh/supernode topic 단독 — 기본 형태는 단일 DC 회로 (switch 동반 아님)
  */
 function isStateTransitionProblem(args: ResolveFigureRolesArgs): boolean {
+  // switching_circuit topic — 항상 state pair (이건 정의가 두 상태 비교)
+  if (args.topicKey === "switching_circuit") return true;
+
   // digital_logic — semantic.hasStateTransition (FSM/플립플롭) 신뢰
   if (args.subjectKey === "digital_logic" && args.semantic.hasStateTransition === true) {
     return true;

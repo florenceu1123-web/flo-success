@@ -28,6 +28,7 @@ export type CircuitType =
   // ── 스위칭 ───────────────────────────────────
   | "switched_rc"           // SW가 t=0에 닫혀 RC 응답 시작
   | "switched_rl"           // SW가 t=0에 닫혀 RL 응답 시작
+  | "switched_dc"           // SW open/closed 두 DC 정상상태 비교 (C/L 없음, 과도 없음)
   // ── fallback ─────────────────────────────────
   | "unsupported";          // electronics / digital_logic / 분류 실패
 

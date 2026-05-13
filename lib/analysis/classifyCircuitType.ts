@@ -182,9 +182,13 @@ function decideType(args: DecideArgs): DecideResult {
     return { type: "dc_dependent_source", confidence: "high", reasoning: "종속전원 존재" };
   }
 
-  // 5. 스위치만 단독 (RC/RL 없는 dc 스위칭) — 거의 없지만 fallback으로 switched_rc
-  if (counts.SW > 0 || topicKey === "switching_circuit") {
-    return { type: "switched_rc", confidence: "medium", reasoning: "스위치 존재, RC 추정" };
+  // 5. 스위치만 단독 (C/L 없는 dc 스위칭) — 두 DC 정상상태 비교 문제
+  if ((counts.SW > 0 || topicKey === "switching_circuit") && counts.C === 0 && counts.L === 0) {
+    return { type: "switched_dc", confidence: "high", reasoning: "스위치 존재, C/L 없음 → DC 스위칭" };
+  }
+  // 스위치 + (C 또는 L) — 보수적 fallback
+  if (counts.SW > 0) {
+    return { type: counts.C > 0 ? "switched_rc" : "switched_rl", confidence: "medium", reasoning: "스위치 + 에너지 저장소자" };
   }
 
   // 6. nodal vs mesh — topicKey 우선
