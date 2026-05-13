@@ -21,8 +21,8 @@ type RenderContext = {
 };
 
 const TOP_Y = 120;
-const X_PAD = 100;
-const X_PITCH = 170;
+const X_PAD = 120;
+const X_PITCH = 220;   // component(R width=56, OPAMP=64) + label(±34) + node circle 여유
 const GROUND_LABELS = new Set(["GND", "gnd", "Gnd", "0"]);
 
 /**
@@ -43,6 +43,7 @@ export function componentHalfWidth(c: CircuitComponent): number {
     case "VCVS":
     case "CCCS":
     case "CCVS": return 22; // diamond ±22
+    case "OPAMP": return 32; // 삼각형 base 좌측 ±32
     case "WIRE": return 0;  // 0-symbol wire
     default:   return 22;   // inline box 44x44 → ±22
   }
@@ -58,11 +59,19 @@ export function renderNetlistEdgeSVG(netlist: CircuitNetlist): string {
   }
 
   const { positions, indexOf } = computeNodePositions(netlist);
-  const edges = buildRenderEdges(netlist, positions, indexOf);
+  const { edges, localGndPoints } = buildRenderEdges(netlist, positions, indexOf);
 
   const edgesSvg = renderEdges(edges);
+  // 3-pin 이상 (OPAMP 등) — buildRenderEdges에서 skip된 component를 여기서 별도 렌더.
+  // GND-attached pin은 local 위치로 wire가 그려지고 그 위치들이 multiPinGndPoints에 누적.
+  const multiPinGndPoints: GroundMark[] = [];
+  const multiPinSvg = netlist.components
+    .filter((c) => c.pins && c.pins.length > 2)
+    .map((c) => renderMultiPinComponent(c, positions, netlist.positions, multiPinGndPoints, netlist.ground))
+    .join("");
   const junctions = renderJunctions(netlist, positions);
-  const grounds = renderGroundSymbols(positions, netlist.ground);
+  // 분산된 GND symbol — 각 GND-attached pin 옆에 별도 표시 (단일 위치 long wire 회피).
+  const grounds = renderDistributedGroundSymbols([...localGndPoints, ...multiPinGndPoints]);
 
   // bounding box
   const xs = Array.from(positions.values()).map((p) => p.x);
@@ -76,7 +85,7 @@ export function renderNetlistEdgeSVG(netlist: CircuitNetlist): string {
   const w = Math.max(maxX - minX, 320);
   const h = Math.max(maxY - minY, 220);
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${h}" viewBox="${minX} ${minY} ${w} ${h}">${edgesSvg}${junctions}${grounds}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${h}" viewBox="${minX} ${minY} ${w} ${h}">${edgesSvg}${multiPinSvg}${junctions}${grounds}</svg>`;
 }
 
 // =====================================================================
@@ -102,7 +111,15 @@ function validateBasic(netlist: CircuitNetlist) {
 }
 
 // =====================================================================
-// Node positions + index 부여 (등장 순)
+// Node positions — 그래프 BFS-level 기반 배치
+//
+//  알고리즘:
+//   1. 2-pin component만으로 노드 인접 그래프 구성 (OPAMP/BJT/MOSFET 등 3+pin은 그래프에서 제외 — flow를 흐트러뜨림)
+//   2. ground 노드를 root로 BFS → 각 노드에 level 부여
+//   3. level → x 좌표(좌→우 흐름), 같은 level 내 다중 노드는 y 분산
+//   4. ground는 bottom rail (y=380) 중앙 정렬
+//
+//  cascade(OPAMP 2단) 같은 회로에서 V_input → R → OPAMP_in → R → OPAMP_out → R → Vo가 좌→우로 자연스럽게.
 // =====================================================================
 function computeNodePositions(netlist: CircuitNetlist): {
   positions: Map<string, Point>;
@@ -113,29 +130,116 @@ function computeNodePositions(netlist: CircuitNetlist): {
     ...(netlist.ground ? [netlist.ground] : []),
   ]);
 
-  const ordered: string[] = [];
-  const indexOf = new Map<string, number>();
+  // ★ generator가 positions hint를 제공한 경우 그것을 우선 사용 (archetype-aware layout).
+  //   BFS-level 휴리스틱은 일반 case fallback.
+  if (netlist.positions && Object.keys(netlist.positions).length > 0) {
+    const positions = new Map<string, Point>();
+    const indexOf = new Map<string, number>();
+    // 등장 순으로 인덱스 부여 (wrap 판별용)
+    const seen: string[] = [];
+    for (const c of netlist.components) {
+      for (const p of c.pins ?? []) {
+        if (!positions.has(p.node)) {
+          const hint = netlist.positions[p.node];
+          if (hint) positions.set(p.node, { x: hint.x, y: hint.y });
+          indexOf.set(p.node, seen.length);
+          seen.push(p.node);
+        }
+      }
+    }
+    // hint가 누락된 node가 있으면 falls through to BFS — 모두 있으면 즉시 반환
+    const allCovered = seen.every((n) => positions.has(n));
+    if (allCovered) return { positions, indexOf };
+  }
+
+  // 1. 모든 노드 수집 + 등장 순 기록 (tie-breaker로 사용)
+  const allNodes = new Set<string>();
+  const firstSeen = new Map<string, number>();
   for (const c of netlist.components) {
     for (const p of c.pins ?? []) {
-      if (!indexOf.has(p.node)) {
-        indexOf.set(p.node, ordered.length);
-        ordered.push(p.node);
+      if (!allNodes.has(p.node)) {
+        firstSeen.set(p.node, firstSeen.size);
+        allNodes.add(p.node);
       }
     }
   }
 
-  const positions = new Map<string, Point>();
-  let topIdx = 0;
-  let botIdx = 0;
-  for (const node of ordered) {
-    if (groundCandidates.has(node)) {
-      positions.set(node, { x: X_PAD + botIdx * X_PITCH, y: 380 });
-      botIdx++;
-    } else {
-      positions.set(node, { x: X_PAD + topIdx * X_PITCH, y: TOP_Y });
-      topIdx++;
+  // 2. 2-pin 인접 그래프 (3+pin component인 OPAMP/BJT/MOSFET은 그래프에서 제외)
+  const adj = new Map<string, Set<string>>();
+  for (const c of netlist.components) {
+    if (c.type === "GND") continue;
+    if (!c.pins || c.pins.length !== 2) continue;
+    const a = c.pins[0].node;
+    const b = c.pins[1].node;
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a)!.add(b);
+    adj.get(b)!.add(a);
+  }
+
+  // 3. BFS — ground 우선, 없으면 첫 노드
+  const level = new Map<string, number>();
+  const root = [...allNodes].find((n) => groundCandidates.has(n)) ?? [...allNodes][0];
+  if (root !== undefined) {
+    level.set(root, 0);
+    const queue: string[] = [root];
+    while (queue.length > 0) {
+      const curr = queue.shift()!;
+      const lvl = level.get(curr)!;
+      for (const n of adj.get(curr) ?? []) {
+        if (!level.has(n)) {
+          level.set(n, lvl + 1);
+          queue.push(n);
+        }
+      }
     }
   }
+  // 분리된 sub-graph (예: OPAMP만으로 연결된 노드)는 max+1 부터
+  let extraLevel = (level.size === 0 ? 0 : Math.max(...level.values())) + 1;
+  for (const n of allNodes) {
+    if (!level.has(n)) level.set(n, extraLevel++);
+  }
+
+  // 4. level별 그룹화 — ground는 별도
+  const topByLevel = new Map<number, string[]>();
+  for (const [n, lv] of level) {
+    if (groundCandidates.has(n)) continue;
+    if (!topByLevel.has(lv)) topByLevel.set(lv, []);
+    topByLevel.get(lv)!.push(n);
+  }
+  // 같은 level 내 노드는 등장 순으로 정렬 (안정성)
+  for (const arr of topByLevel.values()) {
+    arr.sort((a, b) => (firstSeen.get(a) ?? 0) - (firstSeen.get(b) ?? 0));
+  }
+
+  // 5. x = level * X_PITCH (level 0이 ground라 top은 level 1부터 좌측에 시작)
+  //    같은 level 다중 노드는 y로 +60씩 분산
+  const sortedLevels = Array.from(topByLevel.keys()).sort((a, b) => a - b);
+  const positions = new Map<string, Point>();
+  const indexOf = new Map<string, number>();
+  const ordered: string[] = [];
+
+  sortedLevels.forEach((lv, col) => {
+    const ns = topByLevel.get(lv)!;
+    ns.forEach((n, i) => {
+      positions.set(n, { x: X_PAD + col * X_PITCH, y: TOP_Y + i * 60 });
+      indexOf.set(n, ordered.length);
+      ordered.push(n);
+    });
+  });
+
+  // ground node들은 bottom rail의 top 노드 X 범위 중앙
+  const topXs = Array.from(positions.values()).map((p) => p.x);
+  const midX = topXs.length > 0 ? (Math.min(...topXs) + Math.max(...topXs)) / 2 : X_PAD;
+  let groundCol = 0;
+  for (const n of allNodes) {
+    if (!groundCandidates.has(n)) continue;
+    positions.set(n, { x: midX + groundCol * X_PITCH, y: 380 });
+    indexOf.set(n, ordered.length);
+    ordered.push(n);
+    groundCol++;
+  }
+
   return { positions, indexOf };
 }
 
@@ -146,15 +250,33 @@ function buildRenderEdges(
   netlist: CircuitNetlist,
   positions: Map<string, Point>,
   indexOf: Map<string, number>,
-): RenderEdge[] {
+): { edges: RenderEdge[]; localGndPoints: GroundMark[] } {
+  const groundLabels = new Set<string>([...GROUND_LABELS, ...(netlist.ground ? [netlist.ground] : [])]);
   const edges: RenderEdge[] = [];
+  const localGndPoints: GroundMark[] = [];
   for (const c of netlist.components) {
     if (c.type === "GND") continue;
     if (!c.pins || c.pins.length < 2) continue;
+    // 3-pin 이상 (OPAMP/BJT/MOSFET 등)은 edge 모델 부적합 — 별도 renderMultiPinComponent에서 처리.
+    if (c.pins.length > 2) continue;
     const [p1, p2] = c.pins;
-    const start = positions.get(p1.node);
-    const end = positions.get(p2.node);
+    let start = positions.get(p1.node);
+    let end = positions.get(p2.node);
     if (!start || !end) continue;
+
+    // ★ GND-attached: GND endpoint를 component 옆 local 위치로 (단일 위치 long wire 회피).
+    const p1IsGnd = groundLabels.has(p1.node);
+    const p2IsGnd = groundLabels.has(p2.node);
+    if (p1IsGnd && !p2IsGnd) {
+      const localGnd: GroundMark = { x: end.x, y: end.y + 100 };
+      localGndPoints.push(localGnd);
+      start = localGnd;
+    } else if (p2IsGnd && !p1IsGnd) {
+      const localGnd: GroundMark = { x: start.x, y: start.y + 100 };
+      localGndPoints.push(localGnd);
+      end = localGnd;
+    }
+
     edges.push({
       component: c,
       fromNode: p1.node,
@@ -165,7 +287,91 @@ function buildRenderEdges(
       toIndex: indexOf.get(p2.node) ?? 0,
     });
   }
-  return edges;
+  return { edges, localGndPoints };
+}
+
+/**
+ * 3-pin 이상 component (OPAMP/BJT/MOSFET 등)를 위한 별도 렌더.
+ *  - body 위치는 pin centroid
+ *  - 각 pin → body 외곽까지 orthogonal wire (body 내부에 wire 그리지 않음 → fill="white"가 wire 가리지 않게)
+ *  - OPAMP 한정: pins[0,1]은 left 입력측(cx-32), pins[2]는 right 출력측(cx+32). body symbol 좌·우와 일치.
+ */
+function renderMultiPinComponent(
+  c: CircuitComponent,
+  positions: Map<string, Point>,
+  componentPositions?: Record<string, { x: number; y: number }>,
+  outLocalGndPoints?: GroundMark[],
+  groundNodeId?: string,
+): string {
+  if (!c.pins || c.pins.length < 3) return "";
+  // pin → 좌표 매핑 (각 pin 따라 GND-attach 여부 추적용으로 따로 보관)
+  const groundLabels = new Set<string>([...GROUND_LABELS, ...(groundNodeId ? [groundNodeId] : [])]);
+  const pinInfo = c.pins.map((p) => ({
+    node: p.node,
+    isGnd: groundLabels.has(p.node),
+    pt: positions.get(p.node),
+  }));
+  const pinPoints = pinInfo.map((pi) => pi.pt).filter((p): p is Point => !!p);
+  if (pinPoints.length < 3) return "";
+
+  // body 위치 — generator hint(componentPositions[c.id]) 우선, 없으면 pin centroid.
+  const hint = componentPositions?.[c.id];
+  const cx = hint?.x ?? pinPoints.reduce((s, p) => s + p.x, 0) / pinPoints.length;
+  const cy = hint?.y ?? pinPoints.reduce((s, p) => s + p.y, 0) / pinPoints.length;
+
+  const isOpamp = c.type === "OPAMP";
+  // OPAMP는 body(±32) + pin stub(16) = 외부 dot at ±48. wire는 dot까지.
+  const bodyHalf = 32;
+  const stubLen = 16;
+  const opampOutX = bodyHalf + stubLen;   // 48
+
+  // 각 pin → stub dot(또는 body 외곽) wire. OPAMP는 입력/출력 방향에 맞춰 좌·우 분리.
+  // ★ GND-attached pin은 wire를 멀리 단일 GND까지 끌지 않고 stub dot에서 짧게 끝낸 뒤 local GND symbol.
+  let wires = "";
+  pinInfo.forEach((pi, idx) => {
+    if (!pi.pt) return;
+    let endX: number;
+    let endY: number;
+    if (isOpamp) {
+      if (idx < 2) {
+        endX = cx - opampOutX;
+        endY = cy + (idx === 0 ? -OPAMP_PIN_DY : OPAMP_PIN_DY);
+      } else {
+        endX = cx + opampOutX;
+        endY = cy;
+      }
+    } else {
+      endX = pi.pt.x < cx ? cx - bodyHalf : cx + bodyHalf;
+      endY = cy;
+    }
+    if (pi.isGnd) {
+      // GND pin: pin이 향하는 방향(상단=up / 하단=down)으로 GND symbol.
+      const goesUp = endY < cy;
+      const dy = goesUp ? -30 : 30;
+      const gndPt: GroundMark = { x: endX, y: endY + dy, up: goesUp };
+      outLocalGndPoints?.push(gndPt);
+      wires += `<path d="M ${endX} ${endY} L ${gndPt.x} ${gndPt.y}" stroke="black" fill="none" stroke-width="2"/>`;
+    } else {
+      // ★ OPAMP 입력(idx<2): vp(+)는 위쪽 lane, vn(−)은 아래쪽 lane으로 wire 분리 — 두 입력이
+      //   서로 다른 node에 연결되어 있을 때 겹쳐 보이는 것을 방지.
+      //   두 입력이 같은 node에 연결된 케이스(드물지만 voltage_follower 등)는 일반 라우팅.
+      const vpNode = pinInfo[0]?.node;
+      const vnNode = pinInfo[1]?.node;
+      const sameInputs = isOpamp && vpNode === vnNode;
+      if (isOpamp && idx < 2 && !sameInputs) {
+        const laneOffset = idx === 0 ? -30 : 30;   // vp 위쪽, vn 아래쪽
+        const laneY = endY + laneOffset;
+        wires += `<path d="M ${endX} ${endY} L ${endX} ${laneY} L ${pi.pt.x} ${laneY} L ${pi.pt.x} ${pi.pt.y}" stroke="black" fill="none" stroke-width="2"/>`;
+      } else {
+        wires += `<path d="M ${pi.pt.x} ${pi.pt.y} L ${endX} ${pi.pt.y} L ${endX} ${endY}" stroke="black" fill="none" stroke-width="2"/>`;
+      }
+    }
+  });
+
+  // body symbol — renderComponentOnEdge가 OPAMP 케이스 처리.
+  const body = renderComponentOnEdge(c, { x: cx, y: cy }, "horizontal");
+
+  return wires + body;
 }
 
 // =====================================================================
@@ -306,6 +512,23 @@ function renderJunctions(netlist: CircuitNetlist, nodePos: Map<string, Point>): 
   return svg;
 }
 
+/** GND 표시 위치 + 방향. up=true면 wire가 위로 가고 symbol이 거꾸로 (위로 향함). */
+type GroundMark = { x: number; y: number; up?: boolean };
+
+function renderDistributedGroundSymbols(points: GroundMark[]): string {
+  let svg = "";
+  for (const p of points) {
+    const f = p.up ? -1 : 1;
+    svg += `<g transform="translate(${p.x},${p.y})">
+  <line x1="0" y1="0" x2="0" y2="${10 * f}" stroke="black" stroke-width="2"/>
+  <line x1="-10" y1="${10 * f}" x2="10" y2="${10 * f}" stroke="black" stroke-width="2.4"/>
+  <line x1="-7" y1="${14 * f}" x2="7" y2="${14 * f}" stroke="black" stroke-width="2"/>
+  <line x1="-3" y1="${18 * f}" x2="3" y2="${18 * f}" stroke="black" stroke-width="2"/>
+</g>`;
+  }
+  return svg;
+}
+
 function renderGroundSymbols(nodePos: Map<string, Point>, ground?: string): string {
   let svg = "";
   for (const [node, p] of nodePos) {
@@ -338,9 +561,43 @@ export function renderComponentOnEdge(c: CircuitComponent, center: Point, orient
     case "CCCS": return renderDependent(c, cx, cy, orientation, "current");
     case "VCVS":
     case "CCVS": return renderDependent(c, cx, cy, orientation, "voltage");
+    case "OPAMP": return renderOpamp(c, cx, cy);
     case "WIRE": return ""; // 0-symbol — surrounding wire가 곧장 연결
     default:   return renderInlineBox(c, cx, cy, orientation);
   }
+}
+
+/**
+ * OPAMP 표준 삼각형 심볼 — body 외부에 명시적 pin stub(짧은 가로선 + terminal dot).
+ *  - vp(+, 좌측 상단): body 좌면(cx-32, cy-14)에서 외부(cx-48)까지 stub + dot
+ *  - vn(−, 좌측 하단): body 좌면(cx-32, cy+14)에서 외부(cx-48)까지 stub + dot
+ *  - vo (우측 tip): body 우면(cx+32, cy)에서 외부(cx+48)까지 stub + dot
+ *  node wire는 dot 위치에서 끝나야 함 (renderMultiPinComponent의 endpoint와 동일).
+ */
+const OPAMP_BODY_HALF = 32;
+const OPAMP_PIN_STUB = 16;
+const OPAMP_PIN_DY = 14;
+function renderOpamp(c: CircuitComponent, cx: number, cy: number): string {
+  const path = `M ${cx - OPAMP_BODY_HALF} ${cy - 28} L ${cx - OPAMP_BODY_HALF} ${cy + 28} L ${cx + OPAMP_BODY_HALF} ${cy} Z`;
+  const pinDotX_left = cx - OPAMP_BODY_HALF - OPAMP_PIN_STUB;
+  const pinDotX_right = cx + OPAMP_BODY_HALF + OPAMP_PIN_STUB;
+  const stubs =
+    // vp(+) pin stub: 좌측 상단
+    `<path d="M ${cx - OPAMP_BODY_HALF} ${cy - OPAMP_PIN_DY} L ${pinDotX_left} ${cy - OPAMP_PIN_DY}" stroke="black" fill="none" stroke-width="2"/>` +
+    `<circle cx="${pinDotX_left}" cy="${cy - OPAMP_PIN_DY}" r="2.5" fill="black"/>` +
+    // vn(−) pin stub: 좌측 하단
+    `<path d="M ${cx - OPAMP_BODY_HALF} ${cy + OPAMP_PIN_DY} L ${pinDotX_left} ${cy + OPAMP_PIN_DY}" stroke="black" fill="none" stroke-width="2"/>` +
+    `<circle cx="${pinDotX_left}" cy="${cy + OPAMP_PIN_DY}" r="2.5" fill="black"/>` +
+    // vo pin stub: 우측 tip
+    `<path d="M ${cx + OPAMP_BODY_HALF} ${cy} L ${pinDotX_right} ${cy}" stroke="black" fill="none" stroke-width="2"/>` +
+    `<circle cx="${pinDotX_right}" cy="${cy}" r="2.5" fill="black"/>`;
+  return (
+    stubs +
+    `<path d="${path}" stroke="black" fill="white" stroke-width="2"/>` +
+    `<text x="${cx - 22}" y="${cy - 10}" text-anchor="middle" font-size="14">+</text>` +
+    `<text x="${cx - 22}" y="${cy + 18}" text-anchor="middle" font-size="14">−</text>` +
+    `<text x="${cx}" y="${cy - 36}" text-anchor="middle" font-size="11" fill="#1e3a8a" font-weight="600">${escapeSvg(c.id)}</text>`
+  );
 }
 
 // =====================================================================

@@ -561,6 +561,8 @@ export type CircuitNetlist = {
   loadPlaceholders?: LoadPlaceholder[];
   /** 측정 표시 (V_ab, I_x 등) */
   measurementMarks?: MeasurementMark[];
+  /** 노드별 (x,y) hint. generator가 archetype-specific layout을 줄 때 명시 — renderer는 hint가 있으면 우선 사용. */
+  positions?: Record<string, { x: number; y: number }>;
 };
 
 /** Legacy — 직전 단계의 단순 netlist. CircuitNetlist로 대체. */

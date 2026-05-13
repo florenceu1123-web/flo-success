@@ -35,9 +35,9 @@ const GROUND_LABELS = new Set([
 ]);
 const TOP_Y = 80;
 const BOT_Y = 340;
-const LEFT_X = 100;
-const X_PITCH = 170;
-const VERTICAL_PARALLEL_GAP = 80;
+const LEFT_X = 120;
+const X_PITCH = 220;            // component(R 56·OPAMP 64) + label 양옆 여유
+const VERTICAL_PARALLEL_GAP = 130;  // 같은 top node에 V 두 개 등 parallel일 때 source 원(r=22) + label 안 겹침
 
 type HPlace = {
   component: CircuitComponent;
