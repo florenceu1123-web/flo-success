@@ -375,9 +375,10 @@ export function validateBranchTemplate(branches: BranchTemplate[]): BranchTempla
   }
 
   // Rule 4: top_rail은 horizontal, vertical leg-류는 vertical
+  // dependent_source_leg는 의미상 leg지만 CCVS in series처럼 horizontal로도 들어감 — 제외.
   const VERTICAL_ROLES: TemplateBranchRole[] = [
     "left_source_leg", "right_source_leg", "input_source_leg",
-    "dependent_source_leg", "switching_leg", "load_leg",
+    "switching_leg", "load_leg",
     "bottom_return",
   ];
   for (const b of branches) {

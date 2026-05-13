@@ -7,6 +7,29 @@ import {
   pick,
   round3,
 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const dslog = createLogger("lib/generation/topologies/dcDependentSource");
+
+function assembleViaBT(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  const enriched = args.branches.map((b) => ({ ...b, rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role] }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) dslog.warn("branch_template_violation", { issues: validation.issues });
+  const inst = instantiateAnalogTemplate(enriched, args.values);
+  return { ...assembleNetlist(inst, "GND"), ...args.metadata };
+}
 
 /**
  * DC 종속전원 회로 generator.
@@ -102,30 +125,37 @@ function buildVccsChain(rand: () => number): DepSourceGeneration {
 
   const t = pickTarget(rand, Vnodes, Ir3);
 
-  const netlist: CircuitNetlist = {
-    components: [
-      vSourceComp("V1", V1, "top", "GND"),
-      hResistorComp("R1", R1, "top", "a"),
-      hResistorComp("R2", R2, "a", "b"),
-      vResistorComp("Rx", Rx, "a", "GND"),
-      vResistorComp("R3", R3, "b", "GND"),
-      {
-        id: "Gx", type: "VCCS", value: `${gm}·V_x`, gain: gm, control: "V_x",
-        pins: [
-          { id: "p1", node: "GND", side: "bottom" },
-          { id: "p2", node: "b", side: "top" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_V1", role: "left_source_leg", orientation: "vertical", fromNode: "top", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V1" }] },
+      { id: "br_R1", role: "top_rail", orientation: "horizontal", fromNode: "top", toNode: "a",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_R2", role: "top_rail", orientation: "horizontal", fromNode: "a", toNode: "b",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R2" }] },
+      { id: "br_Rx", role: "load_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "Rx" }] },
+      { id: "br_R3", role: "load_leg", orientation: "vertical", fromNode: "b", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R3" }] },
+      { id: "br_Gx", role: "dependent_source_leg", orientation: "vertical", fromNode: "b", toNode: "GND",
+        components: [{ type: "VCCS", role: "dep_current_source", order: 1, required: true, idOverride: "Gx" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "a", label: "a (V_x)", style: "label_only" },
-      { node: "b", label: "b", style: "label_only" },
+    values: [
+      { branchId: "br_V1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R1}Ω` },
+      { branchId: "br_R2", componentRole: "resistor", type: "R", value: `${R2}Ω` },
+      { branchId: "br_Rx", componentRole: "resistor", type: "R", value: `${Rx}Ω` },
+      { branchId: "br_R3", componentRole: "resistor", type: "R", value: `${R3}Ω` },
+      { branchId: "br_Gx", componentRole: "dep_current_source", type: "VCCS", value: `${gm}·V_x`, gain: `${gm}` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["a", "GND"], label: "V_x" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "a", label: "a (V_x)", style: "label_only" },
+        { node: "b", label: "b", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["a", "GND"], label: "V_x" }],
+    },
+  });
 
   return {
     netlist, solverNet, Vnodes,
@@ -174,30 +204,37 @@ function buildCccsInject(rand: () => number): DepSourceGeneration {
 
   const t = pickTarget(rand, Vnodes, Ir3);
 
-  const netlist: CircuitNetlist = {
-    components: [
-      vSourceComp("V1", V1, "top", "GND"),
-      hResistorComp("R1", R1, "top", "a"),
-      hResistorComp("R2", R2, "a", "b"),
-      vResistorComp("Rx", Rx, "a", "GND"),
-      vResistorComp("R3", R3, "b", "GND"),
-      {
-        id: "Fx", type: "CCCS", value: `${beta}·I_x`, gain: beta, control: "I_R1",
-        pins: [
-          { id: "p1", node: "GND", side: "bottom" },
-          { id: "p2", node: "b", side: "top" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_V1", role: "left_source_leg", orientation: "vertical", fromNode: "top", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V1" }] },
+      { id: "br_R1", role: "top_rail", orientation: "horizontal", fromNode: "top", toNode: "a",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_R2", role: "top_rail", orientation: "horizontal", fromNode: "a", toNode: "b",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R2" }] },
+      { id: "br_Rx", role: "load_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "Rx" }] },
+      { id: "br_R3", role: "load_leg", orientation: "vertical", fromNode: "b", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R3" }] },
+      { id: "br_Fx", role: "dependent_source_leg", orientation: "vertical", fromNode: "b", toNode: "GND",
+        components: [{ type: "CCCS", role: "dep_current_source", order: 1, required: true, idOverride: "Fx" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "a", label: "a", style: "label_only" },
-      { node: "b", label: "b", style: "label_only" },
+    values: [
+      { branchId: "br_V1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R1}Ω` },
+      { branchId: "br_R2", componentRole: "resistor", type: "R", value: `${R2}Ω` },
+      { branchId: "br_Rx", componentRole: "resistor", type: "R", value: `${Rx}Ω` },
+      { branchId: "br_R3", componentRole: "resistor", type: "R", value: `${R3}Ω` },
+      { branchId: "br_Fx", componentRole: "dep_current_source", type: "CCCS", value: `${beta}·I_x`, gain: `${beta}` },
     ],
-    measurementMarks: [
-      { kind: "current", refs: ["R1"], label: "I_x" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "a", label: "a", style: "label_only" },
+        { node: "b", label: "b", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "current", refs: ["R1"], label: "I_x" }],
+    },
+  });
 
   return {
     netlist, solverNet, Vnodes,
@@ -244,29 +281,34 @@ function buildCcvsInSeries(rand: () => number): DepSourceGeneration {
 
   const t = pickTarget(rand, Vnodes, Ir3);
 
-  const netlist: CircuitNetlist = {
-    components: [
-      vSourceComp("V1", V1, "top", "GND"),
-      hResistorComp("R1", R1, "top", "a"),
-      vResistorComp("Rx", Rx, "a", "GND"),
-      {
-        id: "Hx", type: "CCVS", value: `${r}·I_x [V]`, gain: r, control: "I_R1",
-        pins: [
-          { id: "p1", node: "a", side: "left", role: "positive" },
-          { id: "p2", node: "b", side: "right", role: "negative" },
-        ],
-      },
-      vResistorComp("R3", R3, "b", "GND"),
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_V1", role: "left_source_leg", orientation: "vertical", fromNode: "top", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V1" }] },
+      { id: "br_R1", role: "top_rail", orientation: "horizontal", fromNode: "top", toNode: "a",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_Rx", role: "load_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "Rx" }] },
+      { id: "br_Hx", role: "dependent_source_leg", orientation: "horizontal", fromNode: "a", toNode: "b",
+        components: [{ type: "CCVS", role: "dep_voltage_source", order: 1, required: true, idOverride: "Hx" }] },
+      { id: "br_R3", role: "load_leg", orientation: "vertical", fromNode: "b", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R3" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "a", label: "a", style: "label_only" },
-      { node: "b", label: "b", style: "label_only" },
+    values: [
+      { branchId: "br_V1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R1}Ω` },
+      { branchId: "br_Rx", componentRole: "resistor", type: "R", value: `${Rx}Ω` },
+      { branchId: "br_Hx", componentRole: "dep_voltage_source", type: "CCVS", value: `${r}·I_x [V]`, gain: `${r}` },
+      { branchId: "br_R3", componentRole: "resistor", type: "R", value: `${R3}Ω` },
     ],
-    measurementMarks: [
-      { kind: "current", refs: ["R1"], label: "I_x" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "a", label: "a", style: "label_only" },
+        { node: "b", label: "b", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "current", refs: ["R1"], label: "I_x" }],
+    },
+  });
 
   return {
     netlist, solverNet, Vnodes,

@@ -1,6 +1,29 @@
 import type { CircuitNetlist, CircuitTypeParams } from "@/types";
 import { solveMNA, type SolverNetwork } from "@/lib/solver/mna";
 import { makeRand, pick, round3 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const bjtlog = createLogger("lib/generation/topologies/bjtSmallSignal");
+
+function assembleViaBT(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  const enriched = args.branches.map((b) => ({ ...b, rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role] }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) bjtlog.warn("branch_template_violation", { issues: validation.issues });
+  const inst = instantiateAnalogTemplate(enriched, args.values);
+  return { ...assembleNetlist(inst, "GND"), ...args.metadata };
+}
 
 /**
  * BJT Common-Emitter 소신호 등가 회로 generator.
@@ -93,53 +116,34 @@ function buildCeHybridPi(rand: () => number): BjtSmallSignalGeneration {
   const Vb_mV = round3(Vb * 1000);
   const AvRounded = round3(Av);
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "vs", type: "V", value: `${vs_mV}mV`,
-        pins: [
-          { id: "p1", node: "Vs", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "RS", type: "R", value: `${RS_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vs", side: "left" },
-          { id: "p2", node: "Vb", side: "right" },
-        ],
-      },
-      {
-        id: "Rpi", type: "R", value: `${Rpi_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vb", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
-      {
-        id: "BJT", type: "VCCS", value: `${gm_mS}·v_be [mA]`, gain: gm_mS, control: "v_be",
-        pins: [
-          { id: "p1", node: "Vc", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
-      {
-        id: "RC", type: "R", value: `${Rc_k}kΩ`,
-        pins: [
-          { id: "p1", node: "Vc", side: "top" },
-          { id: "p2", node: "GND", side: "bottom" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_vs", role: "input_source_leg", orientation: "vertical", fromNode: "Vs", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "vs" }] },
+      { id: "br_RS", role: "top_rail", orientation: "horizontal", fromNode: "Vs", toNode: "Vb",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "RS" }] },
+      { id: "br_Rpi", role: "load_leg", orientation: "vertical", fromNode: "Vb", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "Rpi" }] },
+      { id: "br_BJT", role: "dependent_source_leg", orientation: "vertical", fromNode: "Vc", toNode: "GND",
+        components: [{ type: "VCCS", role: "dep_current_source", order: 1, required: true, idOverride: "BJT" }] },
+      { id: "br_RC", role: "load_leg", orientation: "vertical", fromNode: "Vc", toNode: "GND",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "RC" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "Vb", label: "v_b (= v_be)", style: "label_only" },
-      { node: "Vc", label: "v_c", style: "label_only" },
+    values: [
+      { branchId: "br_vs", componentRole: "voltage_source", type: "V", value: `${vs_mV}mV` },
+      { branchId: "br_RS", componentRole: "resistor", type: "R", value: `${RS_k}kΩ` },
+      { branchId: "br_Rpi", componentRole: "resistor", type: "R", value: `${Rpi_k}kΩ` },
+      { branchId: "br_BJT", componentRole: "dep_current_source", type: "VCCS", value: `${gm_mS}·v_be [mA]`, gain: `${gm_mS}` },
+      { branchId: "br_RC", componentRole: "resistor", type: "R", value: `${Rc_k}kΩ` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["Vc", "GND"], label: "v_out" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [
+        { node: "Vb", label: "v_b (= v_be)", style: "label_only" },
+        { node: "Vc", label: "v_c", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vc", "GND"], label: "v_out" }],
+    },
+  });
 
   return {
     netlist, solverNet,
