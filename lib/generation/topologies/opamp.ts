@@ -6,6 +6,17 @@ import {
   pick,
   round3,
 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const cascadeLog = createLogger("lib/generation/topologies/opamp/cascade");
 
 /**
  * 이상 OPAMP 회로 generator.
@@ -114,75 +125,61 @@ function buildCascade(rand: () => number): OpampGeneration {
   const sol = solveMNA(solverNet);
   const Vout = round3(sol.nodeVoltages.Vo);
 
+  // ── BranchTemplate path: branches 정의 → validate → instantiate → assemble ──
+  const branches: BranchTemplate[] = [
+    { id: "br_Vs1", role: "input_source_leg", orientation: "vertical", fromNode: "V1", toNode: "GND",
+      components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs1" }],
+      rules: DEFAULT_BRANCH_RULES.input_source_leg },
+    { id: "br_Vs2", role: "input_source_leg", orientation: "vertical", fromNode: "V2", toNode: "GND",
+      components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs2" }],
+      rules: DEFAULT_BRANCH_RULES.input_source_leg },
+    { id: "br_Rin1", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V2", toNode: "u1in",
+      components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_in1" }],
+      rules: DEFAULT_BRANCH_RULES.opamp_input_resistor },
+    { id: "br_Rf1", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "u1in", toNode: "u1out",
+      components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_f1" }],
+      rules: DEFAULT_BRANCH_RULES.opamp_feedback_resistor },
+    { id: "br_U1", role: "opamp_block", orientation: "horizontal", fromNode: "u1in", toNode: "u1out",
+      opampNodes: { vp: "GND", vn: "u1in", vo: "u1out" },
+      components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }],
+      rules: DEFAULT_BRANCH_RULES.opamp_block },
+    { id: "br_Ra", role: "cascade_coupling", orientation: "horizontal", fromNode: "u1out", toNode: "u2in",
+      components: [{ type: "R", role: "coupling_resistor", order: 1, required: true, idOverride: "R_a" }],
+      rules: DEFAULT_BRANCH_RULES.cascade_coupling },
+    { id: "br_Rb", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V1", toNode: "u2in",
+      components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_b" }],
+      rules: DEFAULT_BRANCH_RULES.opamp_input_resistor },
+    { id: "br_Rf2", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "u2in", toNode: "Vo",
+      components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_f2" }],
+      rules: DEFAULT_BRANCH_RULES.opamp_feedback_resistor },
+    { id: "br_U2", role: "opamp_block", orientation: "horizontal", fromNode: "u2in", toNode: "Vo",
+      opampNodes: { vp: "GND", vn: "u2in", vo: "Vo" },
+      components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U2" }],
+      rules: DEFAULT_BRANCH_RULES.opamp_block },
+  ];
+
+  // 도메인 규칙 검증 — CONNECTION_LAYOUT_RULES + role별 allowed/required type
+  const validation = validateBranchTemplate(branches);
+  if (!validation.ok) {
+    cascadeLog.warn("branch_template_violation", { issues: validation.issues });
+  }
+
+  const valueAssignments: AnalogValueAssignment[] = [
+    { branchId: "br_Vs1", componentRole: "voltage_source", type: "V", value: `${V_1}V` },
+    { branchId: "br_Vs2", componentRole: "voltage_source", type: "V", value: `${V_2}V` },
+    { branchId: "br_Rin1", componentRole: "input_resistor", type: "R", value: `${R_in1_k}kΩ` },
+    { branchId: "br_Rf1", componentRole: "feedback_resistor", type: "R", value: `${R_f1_k}kΩ` },
+    { branchId: "br_Ra", componentRole: "coupling_resistor", type: "R", value: `${R_a_k}kΩ` },
+    { branchId: "br_Rb", componentRole: "input_resistor", type: "R", value: `${R_b_k}kΩ` },
+    { branchId: "br_Rf2", componentRole: "feedback_resistor", type: "R", value: `${R_f2_k}kΩ` },
+  ];
+
+  const instantiated = instantiateAnalogTemplate(branches, valueAssignments);
+  const baseNetlist = assembleNetlist(instantiated, "GND");
+
+  // assembleNetlist의 결과 위에 cascade-specific metadata 추가
   const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "Vs1", type: "V", value: `${V_1}V`,
-        pins: [
-          { id: "p1", node: "V1", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "Vs2", type: "V", value: `${V_2}V`,
-        pins: [
-          { id: "p1", node: "V2", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "R_in1", type: "R", value: `${R_in1_k}kΩ`,
-        pins: [
-          { id: "p1", node: "V2", side: "left" },
-          { id: "p2", node: "u1in", side: "right" },
-        ],
-      },
-      {
-        id: "R_f1", type: "R", value: `${R_f1_k}kΩ`,
-        pins: [
-          { id: "p1", node: "u1in", side: "left" },
-          { id: "p2", node: "u1out", side: "right" },
-        ],
-      },
-      {
-        id: "U1", type: "OPAMP",
-        pins: [
-          { id: "p1", node: "GND", side: "left", role: "non_inverting" },
-          { id: "p2", node: "u1in", side: "left", role: "inverting" },
-          { id: "p3", node: "u1out", side: "right" },
-        ],
-      },
-      {
-        id: "R_a", type: "R", value: `${R_a_k}kΩ`,
-        pins: [
-          { id: "p1", node: "u1out", side: "left" },
-          { id: "p2", node: "u2in", side: "right" },
-        ],
-      },
-      {
-        id: "R_b", type: "R", value: `${R_b_k}kΩ`,
-        pins: [
-          { id: "p1", node: "V1", side: "left" },
-          { id: "p2", node: "u2in", side: "right" },
-        ],
-      },
-      {
-        id: "R_f2", type: "R", value: `${R_f2_k}kΩ`,
-        pins: [
-          { id: "p1", node: "u2in", side: "left" },
-          { id: "p2", node: "Vo", side: "right" },
-        ],
-      },
-      {
-        id: "U2", type: "OPAMP",
-        pins: [
-          { id: "p1", node: "GND", side: "left", role: "non_inverting" },
-          { id: "p2", node: "u2in", side: "left", role: "inverting" },
-          { id: "p3", node: "Vo", side: "right" },
-        ],
-      },
-    ],
-    ground: "GND",
+    ...baseNetlist,
     nodeAnnotations: [
       { node: "V1", label: "V_1", style: "label_only" },
       { node: "V2", label: "V_2", style: "label_only" },
@@ -191,22 +188,18 @@ function buildCascade(rand: () => number): OpampGeneration {
     measurementMarks: [
       { kind: "voltage", refs: ["Vo", "GND"], label: "V_o" },
     ],
-    // ★ cascade 전용 layout hint — node 좌표 + component(특히 OPAMP·V source) 좌표 명시.
-    //   pin 위치는 component body 기준 자동 (OPAMP: 좌측 ±14에 vp/vn, 우측 tip에 vo).
     positions: {
-      // ── 노드 좌표 ──
-      V2:     { x: 120, y: 200 },
-      V1:     { x: 120, y: 380 },
-      u1in:   { x: 360, y: 200 },
-      u1out:  { x: 600, y: 200 },
-      u2in:   { x: 760, y: 200 },
-      Vo:     { x: 1000, y: 200 },
-      GND:    { x: 560, y: 540 },
-      // ── component 좌표 (OPAMP body 등) ──
-      U1:     { x: 480, y: 280 },   // U1 body — vp(GND, 위에서 위로 내려옴) / vn(u1in, 좌상) / vo(u1out, 우)
-      U2:     { x: 880, y: 280 },   // U2 body — 수평으로 U1 옆에
-      Vs1:    { x: 200, y: 460 },   // V_1 source — V1 node와 GND 사이
-      Vs2:    { x: 240, y: 340 },   // V_2 source — V2 node와 GND 사이
+      V2: { x: 120, y: 200 },
+      V1: { x: 120, y: 380 },
+      u1in: { x: 360, y: 200 },
+      u1out: { x: 600, y: 200 },
+      u2in: { x: 760, y: 200 },
+      Vo: { x: 1000, y: 200 },
+      GND: { x: 560, y: 540 },
+      U1: { x: 480, y: 280 },
+      U2: { x: 880, y: 280 },
+      Vs1: { x: 200, y: 460 },
+      Vs2: { x: 240, y: 340 },
     },
   };
 

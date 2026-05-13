@@ -68,6 +68,8 @@ export type RequiredComponentSpec = {
   role: string;       // branch 안에서의 역할
   order: number;      // chain 안에서 위치 (1부터)
   required: boolean;
+  /** 의미있는 id 강제 (예: "R_in1", "Vs1") — 없으면 type+sequence 기반 자동. */
+  idOverride?: string;
 };
 
 export type BranchTemplate = {
@@ -79,6 +81,8 @@ export type BranchTemplate = {
   components: RequiredComponentSpec[];
   /** 이 branch에 적용되는 도메인 규칙 (선택). buildBranchTemplate이 role별 기본값 자동 채움. */
   rules?: BranchRules;
+  /** opamp_block role 전용 — OPAMP 3-pin 노드 매핑. fromNode/toNode 2-pin 모델로 표현 불가. */
+  opampNodes?: { vp: string; vn: string; vo: string };
 };
 
 /** validation 결과 — 규칙 위반 issue 목록 */
@@ -514,13 +518,10 @@ export function instantiateAnalogTemplate(
   return template.map((branch) => ({
     ...branch,
     instantiated: branch.components.map((req) => {
-      // WIRE는 GPT value 없어도 OK — 코드가 처리
-      if (req.type === "WIRE") {
-        return {
-          id: makeComponentId(req.type, req.role),
-          type: req.type,
-          role: req.role,
-        };
+      const id = req.idOverride ?? makeComponentId(req.type, req.role);
+      // WIRE·OPAMP·BJT·MOSFET — value 없는 component. value lookup skip.
+      if (req.type === "WIRE" || req.type === "OPAMP" || req.type === "BJT" || req.type === "MOSFET") {
+        return { id, type: req.type, role: req.role };
       }
       const v = values.find(
         (x) =>
@@ -532,7 +533,7 @@ export function instantiateAnalogTemplate(
         throw new Error(`missing value for ${branch.id}/${req.role}/${req.type}`);
       }
       return {
-        id: makeComponentId(req.type, req.role),
+        id,
         type: req.type,
         role: req.role,
         value: v?.value,
@@ -554,6 +555,23 @@ export function assembleNetlist(
   const components: CircuitComponent[] = [];
 
   for (const b of instantiated) {
+    // ★ opamp_block: 3-pin OPAMP component. fromNode/toNode chain 모델 우회.
+    if (b.role === "opamp_block" && b.opampNodes) {
+      for (const c of b.instantiated) {
+        if (c.type !== "OPAMP") continue;
+        components.push({
+          id: c.id,
+          type: "OPAMP",
+          pins: [
+            { id: "p1", node: b.opampNodes.vp, side: "left", role: "non_inverting" },
+            { id: "p2", node: b.opampNodes.vn, side: "left", role: "inverting" },
+            { id: "p3", node: b.opampNodes.vo, side: "right" },
+          ],
+        });
+      }
+      continue;
+    }
+
     const chain: string[] = [b.fromNode];
     for (let i = 0; i < b.instantiated.length - 1; i++) {
       chain.push(`${b.id}_mid_${i + 1}`);
