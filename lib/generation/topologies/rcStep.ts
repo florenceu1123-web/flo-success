@@ -9,6 +9,29 @@ import {
   pick,
   round3,
 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const rclog = createLogger("lib/generation/topologies/rcStep");
+
+function assembleViaBT(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  const enriched = args.branches.map((b) => ({ ...b, rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role] }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) rclog.warn("branch_template_violation", { issues: validation.issues });
+  const inst = instantiateAnalogTemplate(enriched, args.values);
+  return { ...assembleNetlist(inst, "GND"), ...args.metadata };
+}
 
 /**
  * RC step-response 문제 generator.
@@ -97,39 +120,28 @@ function buildSimpleCharging(rand: () => number): RcStepGeneration {
   const VcAtQuery = rc.Vc(tQuerySec);
   const tQueryMs = tQuerySec * 1000;
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "V1", type: "V", value: `${V1}V`,
-        pins: [
-          { id: "p1", node: "top", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "R1", type: "R", value: `${R1_kohm}kΩ`,
-        pins: [
-          { id: "p1", node: "top", side: "left" },
-          { id: "p2", node: "a", side: "right" },
-        ],
-      },
-      {
-        id: "C1", type: "C", value: `${C1_uF}μF`,
-        pins: [
-          { id: "p1", node: "a", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_V1", role: "input_source_leg", orientation: "vertical", fromNode: "top", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V1" }] },
+      { id: "br_R1", role: "top_rail", orientation: "horizontal", fromNode: "top", toNode: "a",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_C1", role: "load_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
+        components: [{ type: "C", role: "capacitor", order: 1, required: true, idOverride: "C1" }] },
     ],
-    ground: "GND",
-    nodeAnnotations: [
-      { node: "a", label: "C+", style: "label_only" },
+    values: [
+      { branchId: "br_V1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R1_kohm}kΩ` },
+      { branchId: "br_C1", componentRole: "capacitor", type: "C", value: `${C1_uF}μF` },
     ],
-    measurementMarks: [
-      { kind: "voltage", refs: ["top", "GND"], label: "V_in" },
-      { kind: "voltage", refs: ["a", "GND"], label: "V_C" },
-    ],
-  };
+    metadata: {
+      nodeAnnotations: [{ node: "a", label: "C+", style: "label_only" }],
+      measurementMarks: [
+        { kind: "voltage", refs: ["top", "GND"], label: "V_in" },
+        { kind: "voltage", refs: ["a", "GND"], label: "V_C" },
+      ],
+    },
+  });
 
   return {
     netlist,

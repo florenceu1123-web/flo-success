@@ -8,6 +8,29 @@ import {
   pick,
   round3,
 } from "./_helpers";
+import {
+  DEFAULT_BRANCH_RULES,
+  assembleNetlist,
+  instantiateAnalogTemplate,
+  validateBranchTemplate,
+  type AnalogValueAssignment,
+  type BranchTemplate,
+} from "@/lib/generation/branchTemplate";
+import { createLogger } from "@/lib/logger";
+
+const smlog = createLogger("lib/generation/topologies/dcSupermesh");
+
+function assembleViaBT(args: {
+  branches: BranchTemplate[];
+  values: AnalogValueAssignment[];
+  metadata?: Pick<CircuitNetlist, "nodeAnnotations" | "measurementMarks" | "positions">;
+}): CircuitNetlist {
+  const enriched = args.branches.map((b) => ({ ...b, rules: b.rules ?? DEFAULT_BRANCH_RULES[b.role] }));
+  const validation = validateBranchTemplate(enriched);
+  if (!validation.ok) smlog.warn("branch_template_violation", { issues: validation.issues });
+  const inst = instantiateAnalogTemplate(enriched, args.values);
+  return { ...assembleNetlist(inst, "GND"), ...args.metadata };
+}
 
 /**
  * Supermesh 회로 generator — 두 mesh가 공유하는 vertical branch에 I source가 끼어,
@@ -97,49 +120,30 @@ function buildTwoMeshSharedI(rand: () => number, targetBranch?: string): DcSuper
     ? targetBranch
     : choices[Math.floor(rand() * choices.length)];
 
-  const netlist: CircuitNetlist = {
-    components: [
-      {
-        id: "V1", type: "V", value: `${V1}V`,
-        pins: [
-          { id: "p1", node: "top_left", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
-      {
-        id: "R1", type: "R", value: `${R1}Ω`,
-        pins: [
-          { id: "p1", node: "top_left", side: "left" },
-          { id: "p2", node: "top_mid", side: "right" },
-        ],
-      },
-      {
-        id: "I_s", type: "I", value: `${Is}A`,
-        pins: [
-          { id: "p1", node: "GND", side: "bottom" },
-          { id: "p2", node: "top_mid", side: "top" },
-        ],
-      },
-      {
-        id: "R3", type: "R", value: `${R3}Ω`,
-        pins: [
-          { id: "p1", node: "top_mid", side: "left" },
-          { id: "p2", node: "top_right", side: "right" },
-        ],
-      },
-      {
-        id: "V2", type: "V", value: `${V2}V`,
-        pins: [
-          { id: "p1", node: "top_right", side: "top", role: "positive" },
-          { id: "p2", node: "GND", side: "bottom", role: "negative" },
-        ],
-      },
+  const netlist = assembleViaBT({
+    branches: [
+      { id: "br_V1", role: "left_source_leg", orientation: "vertical", fromNode: "top_left", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V1" }] },
+      { id: "br_R1", role: "top_rail", orientation: "horizontal", fromNode: "top_left", toNode: "top_mid",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+      { id: "br_Is", role: "load_leg", orientation: "vertical", fromNode: "top_mid", toNode: "GND",
+        components: [{ type: "I", role: "current_source", order: 1, required: true, idOverride: "I_s" }] },
+      { id: "br_R3", role: "top_rail", orientation: "horizontal", fromNode: "top_mid", toNode: "top_right",
+        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R3" }] },
+      { id: "br_V2", role: "right_source_leg", orientation: "vertical", fromNode: "top_right", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V2" }] },
     ],
-    ground: "GND",
-    measurementMarks: [
-      { kind: "current", refs: [target], label: `I_${target}` },
+    values: [
+      { branchId: "br_V1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R1}Ω` },
+      { branchId: "br_Is", componentRole: "current_source", type: "I", value: `${Is}A` },
+      { branchId: "br_R3", componentRole: "resistor", type: "R", value: `${R3}Ω` },
+      { branchId: "br_V2", componentRole: "voltage_source", type: "V", value: `${V2}V` },
     ],
-  };
+    metadata: {
+      measurementMarks: [{ kind: "current", refs: [target], label: `I_${target}` }],
+    },
+  });
 
   return {
     netlist,
