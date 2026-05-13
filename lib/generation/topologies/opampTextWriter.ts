@@ -12,6 +12,7 @@ const ARCHETYPE_LABEL: Record<OpampGeneration["archetype"], string> = {
   summing: "가산 증폭기 (summing amplifier)",
   difference: "차동 증폭기 (difference amplifier, 균형형)",
   voltage_follower: "전압 추종기 (voltage follower / unity-gain buffer)",
+  cascade: "2단 OPAMP cascade (첫 단 반전 증폭 → 둘째 단 가산형 반전)",
 };
 
 export type OpampTextOutput = {

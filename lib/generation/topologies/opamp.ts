@@ -25,7 +25,8 @@ export type OpampArchetype =
   | "non_inverting"
   | "summing"
   | "difference"
-  | "voltage_follower";
+  | "voltage_follower"
+  | "cascade";   // 2-OPAMP 직렬 — 임용 5번 (가) 패턴
 
 export type OpampGeneration = {
   netlist: CircuitNetlist;
@@ -63,7 +64,164 @@ export function generateOpamp(args: {
     case "summing":          return buildSumming(rand);
     case "difference":       return buildDifference(rand);
     case "voltage_follower": return buildVoltageFollower(rand);
+    case "cascade":          return buildCascade(rand);
   }
+}
+
+// =====================================================================
+// Archetype 6: 2-OPAMP cascade (임용 5번 (가) 패턴)
+//   첫 OPAMP: V_2 → R_in1 → U1.vn (V+ = GND), R_f1 feedback → V_u1out = -R_f1/R_in1·V_2
+//   둘째 OPAMP: U1.vo → R_a → U2.vn; V_1 → R_b → U2.vn (V+ = GND), R_f2 feedback
+//     → V_o = -R_f2·(V_u1out/R_a + V_1/R_b)
+//   = (R_f2·R_f1)/(R_a·R_in1) · V_2 - R_f2/R_b · V_1
+// =====================================================================
+function buildCascade(rand: () => number): OpampGeneration {
+  const V_1 = pick([1, 2, 3], rand);
+  const V_2 = pick([1, 2, 3], rand);
+  const R_in1_k = pick([1, 2], rand);
+  const R_f1_k = pick([1, 2, 4], rand);
+  const R_a_k = pick([1, 2], rand);
+  const R_b_k = pick([1, 2], rand);
+  const R_f2_k = pick([2, 4, 5], rand);
+
+  const R_in1 = R_in1_k * 1000;
+  const R_f1 = R_f1_k * 1000;
+  const R_a = R_a_k * 1000;
+  const R_b = R_b_k * 1000;
+  const R_f2 = R_f2_k * 1000;
+
+  const solverNet: SolverNetwork = {
+    nodeIds: ["V2", "V1", "u1in", "u1out", "u2in", "Vo"],
+    groundId: "GND",
+    resistors: [
+      { id: "R_in1", a: "V2",    b: "u1in",  R: R_in1 },
+      { id: "R_f1",  a: "u1in",  b: "u1out", R: R_f1 },
+      { id: "R_a",   a: "u1out", b: "u2in",  R: R_a },
+      { id: "R_b",   a: "V1",    b: "u2in",  R: R_b },
+      { id: "R_f2",  a: "u2in",  b: "Vo",    R: R_f2 },
+    ],
+    vsources: [
+      { id: "Vs1", a: "V1", b: "GND", V: V_1 },
+      { id: "Vs2", a: "V2", b: "GND", V: V_2 },
+    ],
+    isources: [],
+    opamps: [
+      { id: "U1", vp: "GND", vn: "u1in", vo: "u1out" },
+      { id: "U2", vp: "GND", vn: "u2in", vo: "Vo" },
+    ],
+  };
+
+  const sol = solveMNA(solverNet);
+  const Vout = round3(sol.nodeVoltages.Vo);
+
+  const netlist: CircuitNetlist = {
+    components: [
+      {
+        id: "Vs1", type: "V", value: `${V_1}V`,
+        pins: [
+          { id: "p1", node: "V1", side: "top", role: "positive" },
+          { id: "p2", node: "GND", side: "bottom", role: "negative" },
+        ],
+      },
+      {
+        id: "Vs2", type: "V", value: `${V_2}V`,
+        pins: [
+          { id: "p1", node: "V2", side: "top", role: "positive" },
+          { id: "p2", node: "GND", side: "bottom", role: "negative" },
+        ],
+      },
+      {
+        id: "R_in1", type: "R", value: `${R_in1_k}kΩ`,
+        pins: [
+          { id: "p1", node: "V2", side: "left" },
+          { id: "p2", node: "u1in", side: "right" },
+        ],
+      },
+      {
+        id: "R_f1", type: "R", value: `${R_f1_k}kΩ`,
+        pins: [
+          { id: "p1", node: "u1in", side: "left" },
+          { id: "p2", node: "u1out", side: "right" },
+        ],
+      },
+      {
+        id: "U1", type: "OPAMP",
+        pins: [
+          { id: "p1", node: "GND", side: "left", role: "non_inverting" },
+          { id: "p2", node: "u1in", side: "left", role: "inverting" },
+          { id: "p3", node: "u1out", side: "right" },
+        ],
+      },
+      {
+        id: "R_a", type: "R", value: `${R_a_k}kΩ`,
+        pins: [
+          { id: "p1", node: "u1out", side: "left" },
+          { id: "p2", node: "u2in", side: "right" },
+        ],
+      },
+      {
+        id: "R_b", type: "R", value: `${R_b_k}kΩ`,
+        pins: [
+          { id: "p1", node: "V1", side: "left" },
+          { id: "p2", node: "u2in", side: "right" },
+        ],
+      },
+      {
+        id: "R_f2", type: "R", value: `${R_f2_k}kΩ`,
+        pins: [
+          { id: "p1", node: "u2in", side: "left" },
+          { id: "p2", node: "Vo", side: "right" },
+        ],
+      },
+      {
+        id: "U2", type: "OPAMP",
+        pins: [
+          { id: "p1", node: "GND", side: "left", role: "non_inverting" },
+          { id: "p2", node: "u2in", side: "left", role: "inverting" },
+          { id: "p3", node: "Vo", side: "right" },
+        ],
+      },
+    ],
+    ground: "GND",
+    nodeAnnotations: [
+      { node: "V1", label: "V_1", style: "label_only" },
+      { node: "V2", label: "V_2", style: "label_only" },
+      { node: "Vo", label: "V_o", style: "label_only" },
+    ],
+    measurementMarks: [
+      { kind: "voltage", refs: ["Vo", "GND"], label: "V_o" },
+    ],
+    // ★ cascade 전용 layout hint — node 좌표 + component(특히 OPAMP·V source) 좌표 명시.
+    //   pin 위치는 component body 기준 자동 (OPAMP: 좌측 ±14에 vp/vn, 우측 tip에 vo).
+    positions: {
+      // ── 노드 좌표 ──
+      V2:     { x: 120, y: 200 },
+      V1:     { x: 120, y: 380 },
+      u1in:   { x: 360, y: 200 },
+      u1out:  { x: 600, y: 200 },
+      u2in:   { x: 760, y: 200 },
+      Vo:     { x: 1000, y: 200 },
+      GND:    { x: 560, y: 540 },
+      // ── component 좌표 (OPAMP body 등) ──
+      U1:     { x: 480, y: 280 },   // U1 body — vp(GND, 위에서 위로 내려옴) / vn(u1in, 좌상) / vo(u1out, 우)
+      U2:     { x: 880, y: 280 },   // U2 body — 수평으로 U1 옆에
+      Vs1:    { x: 200, y: 460 },   // V_1 source — V1 node와 GND 사이
+      Vs2:    { x: 240, y: 340 },   // V_2 source — V2 node와 GND 사이
+    },
+  };
+
+  const gainV2 = (R_f2 * R_f1) / (R_a * R_in1);
+  const gainV1 = -R_f2 / R_b;
+  const gainFormula = `V_o = (R_{f2}·R_{f1})/(R_a·R_{in1})·V_2 − (R_{f2}/R_b)·V_1 = ${round3(gainV2)}·V_2 + ${round3(gainV1)}·V_1`;
+
+  return {
+    netlist, solverNet,
+    Vout, Vminus: 0, Vplus: 0,
+    target: "Vout", targetValue: Vout, targetLabel: "V_o",
+    archetype: "cascade",
+    gainFormula,
+    values: { V_1, V_2, R_in1_k, R_f1_k, R_a_k, R_b_k, R_f2_k },
+  };
 }
 
 // =====================================================================

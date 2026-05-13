@@ -201,7 +201,28 @@ function buildPrompt(subject: SubjectKey): string {
 → 잘못된 추출 (절대 금지):
   - SW를 별도 leg로 빼고 R,I를 다른 leg로: GPT가 직렬 chain을 끊는 건 흔한 실수. 한 vertical chain은 한 branch.
   - dep source를 top_rail_resistor로 분류: dep는 source류 → dependent_source_leg.
-  - supermesh를 평탄화해서 ladder처럼 branches 6개로 만들고 hasSupermesh=false로 처리: topology_extracted 단계에서 mesh 수를 잘못 잡으면 이후 generation·validation 모두 망가짐.`;
+  - supermesh를 평탄화해서 ladder처럼 branches 6개로 만들고 hasSupermesh=false로 처리: topology_extracted 단계에서 mesh 수를 잘못 잡으면 이후 generation·validation 모두 망가짐.
+
+【electronics OPAMP 회로 추출 — 절대 규칙】
+- OPAMP component는 R/V/I와 동일하게 componentInventory에 모두 포함하고, topologySignature.branches에도 명시한다.
+- OPAMP가 회로에 K개 있으면 inventory에 "OPAMP" K번, branches에도 K개 별도 entry.
+- 단일 OPAMP / 2단 cascade / instrumentation amp / 차동입력 amp 등은 OPAMP 개수와 입력 연결로 식별 가능 → analyze가 정확히 카운트해야 generator가 올바른 archetype 선택.
+- structureSignature.componentCounts.OPAMP에도 카운트 명시.
+- interpretation 텍스트에 "OPAMP K단", "cascade", "두 단 OPAMP" 등 구조 묘사를 한 문장 포함시켜 키워드 기반 dispatch도 가능하게.
+
+【few-shot — 2-OPAMP cascade 5번 패턴 예시】
+원본이 다음과 같은 회로(임용 5번 (가)):
+  V_2 ─R1(1kΩ)─ U1(+/-) ─ U1.out ─R(1kΩ)─ V_1 (와 R(1kΩ) 통해 GND)
+  U1.out ─ U2(+/-) ─ V_o, feedback R_f(4kΩ)
+  → OPAMP 2개 직렬 (U1 → U2), 입력 V_1·V_2, 출력 V_o.
+
+→ 올바른 componentInventory:
+  [{type:"OPAMP"},{type:"OPAMP"},{type:"R"},{type:"R"},{type:"R"},{type:"R"},{type:"R"},{type:"V"},{type:"V"}]
+
+→ 올바른 structureSignature.componentCounts:
+  { OPAMP: 2, R: 5, V: 2 }
+
+→ interpretation 예: "OPAMP 두 단을 직렬 cascade한 회로로 두 입력 V_1·V_2로부터 V_o 출력 도출."`;
 }
 
 function isValidAnalysis(x: unknown, subject: SubjectKey): x is AnalysisResult {

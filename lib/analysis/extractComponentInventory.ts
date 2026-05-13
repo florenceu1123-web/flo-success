@@ -6,6 +6,7 @@ const log = createLogger("lib/analysis/extractComponentInventory");
 const ALLOWED_TYPES = new Set([
   "R", "V", "I", "C", "L", "SW",
   "VCVS", "VCCS", "CCVS", "CCCS", "D",
+  "OPAMP", "BJT", "MOSFET",   // 능동 소자 — 전자회로 archetype dispatch에 필요
 ]);
 
 export type ComponentInventoryItem = {
@@ -27,7 +28,8 @@ function buildPrompt(): string {
   ]
 }
 
-【허용 type enum】 R, V, I, C, L, SW, VCVS, VCCS, CCVS, CCCS, D
+【허용 type enum】 R, V, I, C, L, SW, VCVS, VCCS, CCVS, CCCS, D, OPAMP, BJT, MOSFET
+※ OPAMP(연산증폭기, U1·U2 등 삼각형 심볼)·BJT(npn/pnp 트랜지스터, Q1)·MOSFET(M1)도 반드시 추출. 회로에 N개 보이면 N개 항목으로.
 
 【규칙】
 - 그림에 명시된 소자만 카운트. 추측 금지.
@@ -49,20 +51,28 @@ function normalize(raw: unknown): ComponentInventoryItem[] | null {
 
   const out: ComponentInventoryItem[] = [];
   const seenIds = new Set<string>();
+  // unsupported(D/BJT 일부 등) 또는 잘못된 항목은 entire 폐기가 아니라 그 항목만 skip해서
+  // GPT가 한 두 항목을 잘못 추출해도 나머지는 보존. id 중복도 자동 rename으로 회피.
   for (const c of comps) {
-    if (!c || typeof c !== "object") return null;
+    if (!c || typeof c !== "object") continue;
     const o = c as Record<string, unknown>;
-    if (typeof o.id !== "string" || !o.id) return null;
-    if (typeof o.type !== "string") return null;
+    if (typeof o.type !== "string") continue;
     const t = o.type.toUpperCase();
-    if (!ALLOWED_TYPES.has(t)) return null;
-    if (seenIds.has(o.id)) return null;
-    seenIds.add(o.id);
-    const item: ComponentInventoryItem = { id: o.id, type: t };
+    if (!ALLOWED_TYPES.has(t)) continue;
+    // id가 비어있거나 중복이면 type + sequence로 auto-rename
+    let id = typeof o.id === "string" && o.id ? o.id : `${t}${out.length + 1}`;
+    if (seenIds.has(id)) {
+      let suffix = 2;
+      while (seenIds.has(`${id}_${suffix}`)) suffix++;
+      id = `${id}_${suffix}`;
+    }
+    seenIds.add(id);
+    const item: ComponentInventoryItem = { id, type: t };
     if (typeof o.value === "string" && o.value.length > 0) item.value = o.value;
     out.push(item);
   }
-  return out;
+  // 한 항목도 없으면 schema 진짜 실패
+  return out.length > 0 ? out : null;
 }
 
 export async function extractComponentInventory(args: { image: string }): Promise<ComponentInventoryItem[]> {
