@@ -127,9 +127,52 @@ function reconcileBranches(
   }
   insertedBranches.push(...otherExtras);
 
+  let mergedBranches = insertedBranches;
+  // ★ switching chain merge — switching_leg가 SW만 있고 별도 R·I가 떠 있으면 합쳐
+  //   원본 supermesh 8번 패턴(SW + R + I 직렬 chain)을 정확히 재현. GPT가 chain을
+  //   분리 추출한 케이스 자동 보정.
+  const hasSwitch = Boolean(analysis.topologySignature.features?.hasSwitch);
+  if (hasSwitch) {
+    const swBranchIdx = mergedBranches.findIndex(
+      (b) => b.role === "switching_leg" &&
+        b.components.length === 1 && b.components[0].type.toUpperCase() === "SW",
+    );
+    if (swBranchIdx >= 0) {
+      // SW 외 떠 있는 R·I 후보를 같은 chain에 끼우기
+      const swBranch = mergedBranches[swBranchIdx];
+      const danglingR = mergedBranches.findIndex(
+        (b, i) => i !== swBranchIdx && b.role === "load_leg" &&
+          b.components.length === 1 && b.components[0].type.toUpperCase() === "R",
+      );
+      const danglingI = mergedBranches.findIndex(
+        (b, i) => i !== swBranchIdx && b.role === "current_source_leg" &&
+          b.components.length === 1 && b.components[0].type.toUpperCase() === "I",
+      );
+      if (danglingR >= 0 || danglingI >= 0) {
+        const rComp = danglingR >= 0 ? mergedBranches[danglingR].components[0] : null;
+        const iComp = danglingI >= 0 ? mergedBranches[danglingI].components[0] : null;
+        const newComps = [
+          ...swBranch.components,
+          ...(rComp ? [rComp] : []),
+          ...(iComp ? [iComp] : []),
+        ];
+        const removeIdx = [danglingR, danglingI].filter((i) => i >= 0).sort((a, b) => b - a);
+        for (const i of removeIdx) mergedBranches.splice(i, 1);
+        const newSwIdx = mergedBranches.findIndex((b) => b === swBranch);
+        if (newSwIdx >= 0) {
+          mergedBranches[newSwIdx] = { ...swBranch, components: newComps };
+        }
+        log.info("switching_chain_merged", {
+          added: newComps.length - swBranch.components.length,
+          finalChainLength: newComps.length,
+        });
+      }
+    }
+  }
+
   const newTopology: TopologySignature = {
     ...analysis.topologySignature,
-    branches: insertedBranches,
+    branches: mergedBranches,
   };
   log.info("branches_reconciled", {
     original: branches.length,

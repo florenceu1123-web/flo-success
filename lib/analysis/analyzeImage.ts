@@ -103,7 +103,7 @@ function buildAnalysisSchema(subject: SubjectKey): Record<string, unknown> {
                         "voltage_source_leg/current_source_leg: vertical leg (top node↔GND)인 V/I. " +
                         "mesh_only_branch: top rail에 끼인 horizontal V/dep source (예: ─R1─⊕V─R2─). " +
                         "top_rail_resistor: top rail 위 horizontal R. " +
-                        "switching_leg: SW 포함 vertical chain. " +
+                        "switching_leg: SW 포함 vertical chain. ★ SW + R + I 같은 직렬 component가 한 vertical leg에 함께 있으면 모두 한 switching_leg branch의 components 배열에 직렬로 박을 것 — 각각 별도 branch로 분리 절대 금지. " +
                         "load_leg: 부하 R/I (vertical, top↔GND). " +
                         "dependent_source_leg: VCVS/VCCS/CCVS/CCCS 포함 leg.",
                     },
