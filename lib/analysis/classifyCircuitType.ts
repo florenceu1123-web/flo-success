@@ -57,6 +57,37 @@ export function classifyCircuitType(
         reasoning: "electronics + opamp 키워드/topic",
       };
     }
+    // ★ subject=electronics이지만 회로이론 패턴(SW·supermesh·dep source + R/V/I)이면
+    //   회로이론 결정론 archetype으로 redirect. 사용자 contract "GPT 회로 생성 금지"를
+    //   보호. (사용자가 subject를 잘못 선택한 케이스 또는 cross-subject hybrid 회로.)
+    const features = analysis.topologySignature?.features ?? {};
+    const hasCircuitTheoryHybrid =
+      Boolean(features.hasSwitch) || Boolean(features.hasSupermesh) ||
+      Boolean(features.hasDependentSource) || Boolean(features.hasMesh);
+    if (hasCircuitTheoryHybrid) {
+      if (features.hasSupermesh) {
+        return {
+          type: "dc_supermesh",
+          params: {},
+          confidence: "low",
+          reasoning: "electronics fallback: supermesh feature → 회로이론 dc_supermesh path",
+        };
+      }
+      if (features.hasDependentSource) {
+        return {
+          type: "dc_dependent_source",
+          params: {},
+          confidence: "low",
+          reasoning: "electronics fallback: dependent source → 회로이론 dc_dependent_source path",
+        };
+      }
+      return {
+        type: "dc_mesh",
+        params: {},
+        confidence: "low",
+        reasoning: "electronics fallback: SW/mesh → 회로이론 dc_mesh path",
+      };
+    }
     return {
       type: "unsupported",
       params: {},
