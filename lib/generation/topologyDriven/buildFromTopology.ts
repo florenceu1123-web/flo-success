@@ -71,17 +71,18 @@ export function buildFromTopology(args: {
   const rand = makeRand(seed);
 
   // ── 1) branches 분류 ────────────────────────────────────
-  const topRailResistors = topology.branches.filter((b) => b.role === "top_rail_resistor");
+  // horizontal branches: top_rail_resistor + mesh_only_branch (top rail에 끼인 V/R 등)
+  //   mesh_only_branch는 Thevenin·등가회로의 horizontal V source가 흔히 들어가는 자리.
+  const horizontalBranches = topology.branches.filter(
+    (b) => b.role === "top_rail_resistor" || b.role === "mesh_only_branch",
+  );
   const verticalLegs = topology.branches.filter((b) => VERTICAL_LEG_ROLES.has(b.role));
-  // mesh_only_branch (horizontal V 등)는 본 MVP에서 일반 vertical 처리 (추후 보강)
-  const meshOnly = topology.branches.filter((b) => b.role === "mesh_only_branch");
 
   // ── 2) 노드 라벨 결정 ───────────────────────────────────
-  // top rail R 개수 K → top node K+1개. 단 trailing(leg 없는) node는 GND로 alias —
+  // horizontal branches 개수 K → top node K+1개. 단 trailing(leg 없는) node는 GND로 alias —
   // 그 끝쪽에 ground rail로 떨어지는 wire가 있다는 ladder topology의 묵시적 가정.
-  // (GPT topology가 bottom_rail_wire를 일관되게 추출 못 함 — 안전한 휴리스틱)
   const railNodes: string[] = [];
-  for (let i = 0; i <= topRailResistors.length; i++) {
+  for (let i = 0; i <= horizontalBranches.length; i++) {
     railNodes.push(i < verticalLegs.length ? `${TOP_PREFIX}${i}` : GND);
   }
   // 단, leg가 한 개도 없는 극단 케이스(예: vertCount=0)는 fallback — 첫 node만 일반 node로
@@ -120,19 +121,27 @@ export function buildFromTopology(args: {
   // switching_leg가 만들어낸 mid 노드들 — open 상태에선 이 노드들도 nodeIds에서 제외해야 floating 방지
   const switchingLegNodes: Set<string> = new Set();
 
-  // 4a) top rail resistors
-  topRailResistors.forEach((b, i) => {
+  // 4a) horizontal branches — top_rail_resistor 또는 mesh_only_branch (horizontal V 등)
+  horizontalBranches.forEach((b, i) => {
     const a = railNodes[i];
     const c = railNodes[i + 1];
     b.components.forEach((comp, ci) => {
-      const id = `R_top${i + 1}${ci > 0 ? `_${ci + 1}` : ""}`;
-      const R = valueRand(comp.value, NICE_RESISTORS);
-      usedValues[id] = R;
-      components.push({
-        id, type: "R", value: `${R}Ω`,
-        pins: [{ id: "p1", node: a, side: "left" }, { id: "p2", node: c, side: "right" }],
-      });
-      solverComponents.resistors.push({ id, a, b: c, R });
+      const t = comp.type.toUpperCase();
+      if (t === "R" && b.role === "top_rail_resistor") {
+        // 기존 R_top 명명 유지
+        const id = `R_top${i + 1}${ci > 0 ? `_${ci + 1}` : ""}`;
+        const R = valueRand(comp.value, NICE_RESISTORS);
+        usedValues[id] = R;
+        components.push({
+          id, type: "R", value: `${R}Ω`,
+          pins: [{ id: "p1", node: a, side: "left" }, { id: "p2", node: c, side: "right" }],
+        });
+        solverComponents.resistors.push({ id, a, b: c, R });
+      } else {
+        // mesh_only_branch에 끼인 V·dep source 또는 R 외 component
+        const idBase = `${t}_horiz${i + 1}${ci > 0 ? `_${ci + 1}` : ""}`;
+        addComponent(comp, idBase, a, c, valueRand, usedValues, components, solverComponents, controlRefMap, false, switchingSolverIds);
+      }
     });
   });
 
@@ -156,9 +165,7 @@ export function buildFromTopology(args: {
     });
   });
 
-  // 4c) mesh_only_branch (horizontal V 등) — 현재 MVP: top rail의 인접 node 사이에 끼움
-  // 단순화: 무시 (추후 보강 — Thevenin 등)
-  void meshOnly;
+  // 4c) mesh_only_branch는 이제 horizontalBranches에 통합되어 4a 단계에서 처리됨.
 
   // ── 5) SolverNetwork 두 가지 (open / closed) ─────────────
   const allNodes = new Set<string>();
@@ -216,7 +223,7 @@ export function buildFromTopology(args: {
     values: usedValues,
     hasSwitch,
     hasDependentSource: solverComponents.vccs.length + solverComponents.vcvs.length > 0,
-    isSupermesh: Boolean(topology.features.hasSupermesh) && topRailResistors.length >= 2,
+    isSupermesh: Boolean(topology.features.hasSupermesh) && horizontalBranches.length >= 2,
   };
 }
 
