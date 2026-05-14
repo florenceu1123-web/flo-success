@@ -13,6 +13,155 @@ import {
 
 const log = createLogger("lib/analysis/analyzeImage");
 
+/**
+ * Structured Outputs strict schema for ImageAnalysis.
+ *  strict mode 제약: 모든 properties required + additionalProperties:false.
+ *  optional은 ["type","null"] union으로.
+ *  AnalysisResult의 일부 필드만 schema에 박음 (signals·figureRequirements·structureSignature·structuralEnvelope·subjectKey·family는 nullable).
+ */
+function buildAnalysisSchema(subject: SubjectKey): Record<string, unknown> {
+  const topicEnum = TOPICS_BY_SUBJECT[subject] as readonly string[];
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "topic", "interpretation", "relatedConcepts", "fillInTheBlanks",
+      "topicKey", "semantic", "topologySignature", "nodeAnnotations", "loadPlaceholders",
+    ],
+    properties: {
+      topic: { type: "string", description: "문제의 주제 (한 줄, 25자 이내)" },
+      interpretation: { type: "string", description: "문제 상황·구하는 미지수·해석 흐름의 한국어 해석 (3~5문장)" },
+      relatedConcepts: { type: "array", items: { type: "string" }, description: "관련 핵심 개념·법칙·공식 5~8개" },
+      fillInTheBlanks: {
+        type: "array",
+        description: "핵심 개념 빈칸 5개 ('____' 표기 + 정답).",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["sentence", "answer"],
+          properties: {
+            sentence: { type: "string" },
+            answer: { type: "string" },
+          },
+        },
+      },
+      topicKey: {
+        anyOf: [{ type: "string", enum: [...topicEnum] }, { type: "null" }],
+        description: `정확한 분류 안 되면 null. 가능 값: ${topicEnum.join(" | ")}`,
+      },
+      semantic: {
+        type: "object",
+        additionalProperties: false,
+        required: ["hasStateTransition", "hasEquivalentTransformation", "hasWaveformEvolution", "requiresMultiFigure"],
+        properties: {
+          hasStateTransition: { type: "boolean" },
+          hasEquivalentTransformation: { type: "boolean" },
+          hasWaveformEvolution: { type: "boolean" },
+          requiresMultiFigure: { type: "boolean" },
+        },
+      },
+      topologySignature: {
+        anyOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["subjectKey", "family", "features", "branches"],
+            properties: {
+              subjectKey: { type: "string", enum: ["digital_logic", "circuit_theory", "electronics"] },
+              family: { type: "string" },
+              features: {
+                type: "object",
+                additionalProperties: false,
+                required: ["hasSwitch", "hasDependentSource", "hasGround", "hasSupermesh", "hasMesh", "hasStateTransition", "meshCount"],
+                properties: {
+                  hasSwitch: { type: "boolean" },
+                  hasDependentSource: { type: "boolean" },
+                  hasGround: { type: "boolean" },
+                  hasSupermesh: { type: "boolean" },
+                  hasMesh: { type: "boolean" },
+                  hasStateTransition: { type: "boolean" },
+                  meshCount: { type: "number" },
+                },
+              },
+              branches: {
+                type: "array",
+                description: "회로의 모든 branch를 빠짐없이. 한 branch는 직렬 chain.",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["role", "components"],
+                  properties: {
+                    role: {
+                      type: "string",
+                      enum: [
+                        "voltage_source_leg", "current_source_leg", "dependent_source_leg",
+                        "switching_leg", "load_leg",
+                        "shared_supermesh_branch", "mesh_only_branch",
+                        "top_rail_resistor", "bottom_rail_wire",
+                      ],
+                    },
+                    components: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["type", "value"],
+                        properties: {
+                          type: { type: "string" },
+                          value: { anyOf: [{ type: "string" }, { type: "number" }, { type: "null" }] },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          { type: "null" },
+        ],
+      },
+      nodeAnnotations: {
+        anyOf: [
+          {
+            type: "array",
+            description: "단자 라벨(a/b/x/y 등). 발견되면 entry, 없으면 빈 배열.",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["node", "label", "style"],
+              properties: {
+                node: { type: "string" },
+                label: { type: "string" },
+                style: { type: "string", enum: ["terminal_dot", "label_only"] },
+              },
+            },
+          },
+          { type: "null" },
+        ],
+      },
+      loadPlaceholders: {
+        anyOf: [
+          {
+            type: "array",
+            description: "부하 placeholder (R_L 점선 박스). 없으면 빈 배열.",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["betweenNodes", "label", "emphasize"],
+              properties: {
+                betweenNodes: { type: "array", items: { type: "string" } },
+                label: { type: "string" },
+                emphasize: { type: "boolean" },
+              },
+            },
+          },
+          { type: "null" },
+        ],
+      },
+    },
+  };
+}
+
 function buildPrompt(subject: SubjectKey): string {
   const topicEnum = (TOPICS_BY_SUBJECT[subject] as readonly TopicKey[]).join(" | ");
   return `당신은 전자임용(중등 정보·전자) 출제·해설 전문가입니다.
@@ -314,6 +463,9 @@ export async function analyzeImage(args: {
 
   log.info("요청", { subject, imageBytes: image.length });
 
+  // Phase 2: Structured Outputs (json_schema strict) — 핵심 필드 schema 강제.
+  // GPT가 topologySignature.branches·nodeAnnotations·loadPlaceholders 같은
+  // 중요 필드를 누락하던 문제 해결. strict mode 제약 때문에 nullable은 ["type","null"].
   const completion = await openai.chat.completions.create({
     model: DEFAULT_MODEL,
     messages: [{
@@ -323,8 +475,15 @@ export async function analyzeImage(args: {
         { type: "text", text: prompt },
       ],
     }],
-    response_format: { type: "json_object" },
-    max_tokens: 1500,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "ImageAnalysis",
+        strict: true,
+        schema: buildAnalysisSchema(subject),
+      },
+    },
+    max_tokens: 2200,
   });
 
   const raw = completion.choices[0]?.message?.content ?? "{}";
