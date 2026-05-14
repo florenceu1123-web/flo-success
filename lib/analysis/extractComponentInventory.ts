@@ -82,6 +82,8 @@ export async function extractComponentInventory(args: { image: string }): Promis
 
   log.info("start");
 
+  // OpenAI Structured Outputs (json_schema strict): 모든 항목에 type·id·value 강제,
+  // type은 enum 강제 → GPT가 누락·잘못된 type 출력 못 함. nullable value는 ["string","null"].
   const completion = await openai.chat.completions.create({
     model: DEFAULT_MODEL,
     messages: [{
@@ -91,7 +93,47 @@ export async function extractComponentInventory(args: { image: string }): Promis
         { type: "text", text: prompt },
       ],
     }],
-    response_format: { type: "json_object" },
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "ComponentInventory",
+        strict: true,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["components"],
+          properties: {
+            components: {
+              type: "array",
+              description: "회로 이미지에서 보이는 모든 전기 회로 소자 (R_L 부하 placeholder 제외)",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["id", "type", "value"],
+                properties: {
+                  id: {
+                    type: "string",
+                    description: "그림 라벨 그대로 (예: R1·V2·I_s). 없으면 type+sequence (R1·R2…).",
+                  },
+                  type: {
+                    type: "string",
+                    enum: [
+                      "R", "V", "I", "C", "L", "SW",
+                      "VCVS", "VCCS", "CCVS", "CCCS", "D",
+                      "OPAMP", "BJT", "MOSFET",
+                    ],
+                  },
+                  value: {
+                    type: ["string", "null"],
+                    description: "단위 포함된 값 (예: 3kΩ·5V·2mA·22μF). 그림에 명시되지 않으면 null.",
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     max_tokens: 800,
   });
 
