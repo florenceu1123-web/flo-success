@@ -99,6 +99,13 @@ function buildAnalysisSchema(subject: SubjectKey): Record<string, unknown> {
                         "shared_supermesh_branch", "mesh_only_branch",
                         "top_rail_resistor", "bottom_rail_wire",
                       ],
+                      description:
+                        "voltage_source_leg/current_source_leg: vertical leg (top node↔GND)인 V/I. " +
+                        "mesh_only_branch: top rail에 끼인 horizontal V/dep source (예: ─R1─⊕V─R2─). " +
+                        "top_rail_resistor: top rail 위 horizontal R. " +
+                        "switching_leg: SW 포함 vertical chain. " +
+                        "load_leg: 부하 R/I (vertical, top↔GND). " +
+                        "dependent_source_leg: VCVS/VCCS/CCVS/CCCS 포함 leg.",
                     },
                     components: {
                       type: "array",
@@ -360,6 +367,32 @@ function buildPrompt(subject: SubjectKey): string {
   - SW를 별도 leg로 빼고 R,I를 다른 leg로: GPT가 직렬 chain을 끊는 건 흔한 실수. 한 vertical chain은 한 branch.
   - dep source를 top_rail_resistor로 분류: dep는 source류 → dependent_source_leg.
   - supermesh를 평탄화해서 ladder처럼 branches 6개로 만들고 hasSupermesh=false로 처리: topology_extracted 단계에서 mesh 수를 잘못 잡으면 이후 generation·validation 모두 망가짐.
+
+【few-shot — 6번 horizontal V (Thevenin·max_power) 패턴 예시】
+원본이 다음과 같은 회로 (임용 6번):
+  top rail: ─3kΩ─ ●V1 ─⊕7V─ ●V2 ─3kΩ─ ●a (단자 a)
+  V1node에서 GND로: 5V (좌측 vertical V), 2mA (vertical I)
+  V2node에서 GND로: 2mA (vertical I), 6kΩ (vertical R)
+  단자 a-b 사이: R_L (점선 박스 부하)
+  → 7V는 top rail 위 두 R 사이에 horizontal 끼임! V1·V2 vertical과 다름.
+
+→ 올바른 topologySignature.branches:
+  [
+    { "role": "voltage_source_leg",   "components":[{"type":"V","value":"5V"}] },     // 좌측 vertical 5V
+    { "role": "top_rail_resistor",    "components":[{"type":"R","value":"3kΩ"}] },    // 첫째 top rail R
+    { "role": "mesh_only_branch",     "components":[{"type":"V","value":"7V"}] },     // ★ horizontal 7V! mesh_only_branch
+    { "role": "top_rail_resistor",    "components":[{"type":"R","value":"3kΩ"}] },    // 둘째 top rail R
+    { "role": "current_source_leg",   "components":[{"type":"I","value":"2mA"}] },    // 첫째 vertical I
+    { "role": "current_source_leg",   "components":[{"type":"I","value":"2mA"}] },    // 둘째 vertical I
+    { "role": "load_leg",             "components":[{"type":"R","value":"6kΩ"}] }     // vertical 부하 R
+  ]
+  + nodeAnnotations: [{node:"<단자 a node>",label:"a",style:"terminal_dot"},{node:"GND",label:"b",style:"terminal_dot"}]
+  + loadPlaceholders: [{betweenNodes:["<a>","GND"],label:"R_L",emphasize:true}]
+
+→ 잘못된 추출 (절대 금지):
+  - 7V를 voltage_source_leg(vertical V)로 분류: 두 R 사이 top rail에 끼인 V는 vertical이 아니다. mesh_only_branch가 올바름.
+  - 6kΩ vertical R을 top_rail_resistor로: vertical leg면 load_leg.
+  - 단자 a/b·R_L 누락: nodeAnnotations·loadPlaceholders 필드에 반드시 명시.
 
 【electronics OPAMP 회로 추출 — 절대 규칙】
 - OPAMP component는 R/V/I와 동일하게 componentInventory에 모두 포함하고, topologySignature.branches에도 명시한다.
