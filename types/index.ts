@@ -529,6 +529,12 @@ export type CircuitComponent = {
   gain?: string | number;
   control?: string;
   pins: ComponentPin[];
+  /**
+   * vertical leg chain(SW+R+I 직렬 등)의 일부면 그 leg의 root top node id.
+   * renderer가 mid↔mid component(둘 다 non-ground)를 horizontal로 오분류하지 않고
+   * legRoot 아래 vertical chain으로 그리도록.
+   */
+  legRoot?: string;
 };
 
 /**

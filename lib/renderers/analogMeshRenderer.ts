@@ -64,6 +64,13 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     return renderNetlistEdgeSVG(netlist);
   }
 
+  // 0.2 multi-component vertical chain (legRoot 마킹된 SW+R+I 직렬 등)이 있으면
+  //     2-rail mesh layout이 chain 중간(mid↔mid) component를 horizontal로 오분류.
+  //     BFS-level layout을 쓰는 edge renderer로 fallback.
+  if (netlist.components.some((c) => c.legRoot)) {
+    return renderNetlistEdgeSVG(netlist);
+  }
+
   // 1. Ground / top 분류
   const { topNodes, groundIds } = classifyNodes(netlist);
 

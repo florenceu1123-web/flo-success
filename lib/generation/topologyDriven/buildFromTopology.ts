@@ -158,6 +158,7 @@ export function buildFromTopology(args: {
     const topNode = railNodes[attachIdx];
     const legIsSwitching = leg.role === "switching_leg";
     const chainLength = leg.components.length;
+    const componentsBeforeLeg = components.length;
 
     // chain: topNode → mid_1 → mid_2 → ... → GND
     let prevNode = topNode;
@@ -169,6 +170,15 @@ export function buildFromTopology(args: {
       addComponent(comp, idBase, prevNode, nextNode, valueRand, usedValues, components, solverComponents, controlRefMap, legIsSwitching, switchingSolverIds);
       prevNode = nextNode;
     });
+
+    // ★ chain이 2개 이상 component이면 (mid 노드 존재) 각 component에 legRoot 마킹.
+    //   renderer가 mid↔mid component를 horizontal로 오분류하지 않고 이 leg의 vertical
+    //   chain으로 그리도록.
+    if (chainLength >= 2) {
+      for (let k = componentsBeforeLeg; k < components.length; k++) {
+        components[k].legRoot = topNode;
+      }
+    }
   });
 
   // 4c) mesh_only_branch는 이제 horizontalBranches에 통합되어 4a 단계에서 처리됨.
