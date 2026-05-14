@@ -288,6 +288,10 @@ function classifyNodes(netlist: CircuitNetlist): {
   const topNodes: string[] = [];
   for (const c of netlist.components) {
     if (c.type === "GND") continue;
+    // ★ legRoot 마킹 component(vertical chain의 일부)의 pin node는 top rail node가 아님.
+    //   chain 내부 mid 노드가 topNodes에 등록되면 top rail wire가 그쪽으로 삐져나옴.
+    //   root top node는 어차피 다른 horizontal component가 등록하므로 안전.
+    if (c.legRoot) continue;
     for (const p of c.pins ?? []) {
       if (groundIds.has(p.node)) continue;
       if (!seen.has(p.node)) {

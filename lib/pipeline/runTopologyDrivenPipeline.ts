@@ -95,15 +95,12 @@ export async function runTopologyDrivenPipeline(args: {
       nodeAnnotations: analysis.nodeAnnotations?.length ?? 0,
       loadPlaceholders: analysis.loadPlaceholders?.length ?? 0,
     });
-    // 시각화 디버그용: 각 component의 type·id·pin 노드 dump
+    // 시각화 디버그용: 각 component의 type·id·pin 노드 dump (펼친 string)
     log.info("netlist_dump", {
       ground: gen.netlistOpen.ground,
-      components: gen.netlistOpen.components.map((c) => ({
-        id: c.id,
-        type: c.type,
-        pinNodes: c.pins.map((p) => p.node),
-        sides: c.pins.map((p) => p.side),
-      })),
+      components: gen.netlistOpen.components
+        .map((c) => `${c.id}(${c.type})[${c.pins.map((p) => p.node).join("↔")}]${c.legRoot ? ` legRoot=${c.legRoot}` : ""}`)
+        .join(" | "),
     });
 
     const text = await writeTopologyDrivenText({ generation: gen, mode, topicLabel, contextHint });
