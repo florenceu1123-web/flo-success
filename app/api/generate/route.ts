@@ -102,9 +102,20 @@ export async function POST(req: NextRequest) {
     if (
       subjectKey === "circuit_theory" &&
       analysis?.topologySignature &&
-      shouldUseTopologyDriven(circuitType, analysis.topologySignature.features)
+      shouldUseTopologyDriven(
+        circuitType,
+        analysis.topologySignature.features,
+        analysis.topologySignature.branches?.length ?? 0,
+      )
     ) {
-      log.info("dispatch", { route: "topology_driven_pipeline", count: n, mode, reason: "archetype/topology hybrid mismatch", features: analysis.topologySignature.features });
+      log.info("dispatch", {
+        route: "topology_driven_pipeline",
+        count: n,
+        mode,
+        reason: "archetype/topology mismatch (hybrid 또는 branchCount 초과)",
+        features: analysis.topologySignature.features,
+        branchCount: analysis.topologySignature.branches?.length ?? 0,
+      });
       problems = await runTopologyDrivenPipeline({
         analysis,
         mode: mode as GenerationMode,
@@ -338,6 +349,8 @@ export async function POST(req: NextRequest) {
 function shouldUseTopologyDriven(
   circuitType: string | undefined,
   features: { hasSwitch?: boolean; hasDependentSource?: boolean; hasSupermesh?: boolean },
+  branchCount: number = 0,
+  archetypeBranchAssumption: number = 5,
 ): boolean {
   const hasSwitch = Boolean(features.hasSwitch);
   const hasDep = Boolean(features.hasDependentSource);
@@ -351,5 +364,9 @@ function shouldUseTopologyDriven(
   if (hasDep && !archetypeSupportsDep) return true;
   // dc_supermesh archetype은 SW/dep 둘 다 못 다룸
   if (hasSupermesh && (hasSwitch || hasDep)) return true;
+  // ★ 원본 branches가 archetype hardcode 가정보다 많으면 topology-driven
+  //   (archetype 가정 ~5 branches: V/R 단순. 원본이 7+ branches면 horizontal V·
+  //    multiple sources·풍부한 R 등을 archetype hardcode가 못 재현 → 원본 구조 손실)
+  if (branchCount > archetypeBranchAssumption + 1) return true;
   return false;
 }
