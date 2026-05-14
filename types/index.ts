@@ -227,6 +227,16 @@ export type AnalysisResult = {
    * lib/analysis/classifyCircuitType.ts가 다른 분석 필드에서 derive (추가 GPT 호출 없음).
    */
   circuitType?: import("./circuitType").CircuitTypeClassification;
+  /**
+   * 원본의 단자 라벨 (a/b/x/y 등) — Thevenin·등가회로 문제의 측정점.
+   * analyzeImage가 명시 추출, topology-driven generator가 netlist.nodeAnnotations로 emit.
+   */
+  nodeAnnotations?: NodeAnnotation[];
+  /**
+   * 원본의 부하 placeholder (R_L 등 학생-채움 자리).
+   * analyzeImage가 점선 박스로 표시된 부하를 추출, generator가 netlist.loadPlaceholders로 emit.
+   */
+  loadPlaceholders?: LoadPlaceholder[];
 };
 
 export type FillInTheBlank = {

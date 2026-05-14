@@ -37,12 +37,24 @@ export async function runTopologyDrivenPipeline(args: {
 
   return generateInParallel(count, async (i, seed) => {
     const gen = buildFromTopology({ topology, mode, seed });
+    // ★ analysis의 단자 라벨·부하 placeholder를 netlist로 pass-through.
+    //   Thevenin·등가회로 문제의 단자 a/b·R_L이 시각화에 표시되도록.
+    if (analysis.nodeAnnotations?.length) {
+      gen.netlistOpen.nodeAnnotations = [...(gen.netlistOpen.nodeAnnotations ?? []), ...analysis.nodeAnnotations];
+      if (gen.netlistClosed) gen.netlistClosed.nodeAnnotations = [...(gen.netlistClosed.nodeAnnotations ?? []), ...analysis.nodeAnnotations];
+    }
+    if (analysis.loadPlaceholders?.length) {
+      gen.netlistOpen.loadPlaceholders = [...(gen.netlistOpen.loadPlaceholders ?? []), ...analysis.loadPlaceholders];
+      if (gen.netlistClosed) gen.netlistClosed.loadPlaceholders = [...(gen.netlistClosed.loadPlaceholders ?? []), ...analysis.loadPlaceholders];
+    }
     log.info("topology_driven_generated", {
       hasSwitch: gen.hasSwitch,
       hasDependentSource: gen.hasDependentSource,
       isSupermesh: gen.isSupermesh,
       components: gen.netlistOpen.components.length,
       values: gen.values,
+      nodeAnnotations: analysis.nodeAnnotations?.length ?? 0,
+      loadPlaceholders: analysis.loadPlaceholders?.length ?? 0,
     });
 
     const text = await writeTopologyDrivenText({ generation: gen, mode, topicLabel, contextHint });

@@ -151,11 +151,20 @@ function buildPrompt(subject: SubjectKey): string {
 - 추측 금지. 이미지에 없는 정보는 만들지 않는다.
 
 【annotation 추출 — circuit_theory/electronics 회로 한정】
-원본 회로 이미지에 다음 요소가 있으면 figureRequirements 또는 generation 단계에서 그대로 보존되도록 분석에 반영:
-- 단자 라벨 (a, b, x, y 등) — 회로 위에 점 + 알파벳으로 표시된 측정점/등가 단자
-- 부하 placeholder (R_L, Z_L 등) — 비어 있는 점선 박스나 "?" 자리
-- 측정 표시 (V_ab, I_x 등) — +/- 부호와 함께 표시된 전압/전류 측정
-- "단자 a-b를 개방"·"R_L에 최대 전력 전달"·"V_ab를 구하시오" 같은 문제 유형은 단자/부하 표시가 핵심 — interpretation에 명시 ("단자 a/b 사이에 R_L 부하를 두는 Thevenin 등가 문제")
+원본 회로 이미지에 다음 요소가 있으면 JSON에 별도 필드로 반드시 추출 (interpretation에만 적지 마라 — 코드가 이걸 읽어 generator에 전달):
+
+  "nodeAnnotations": [
+    { "node": "<node_id>", "label": "a", "style": "terminal_dot" },
+    { "node": "<node_id>", "label": "b", "style": "terminal_dot" }
+  ],
+  "loadPlaceholders": [
+    { "betweenNodes": ["<node_a>", "<node_b>"], "label": "R_L", "emphasize": true }
+  ]
+
+- 단자 라벨 (a, b, x, y 등) — 회로 위에 ● 표시 + 알파벳으로 표시된 측정점/등가 단자. 발견되면 nodeAnnotations 배열에 entry 추가, style="terminal_dot".
+- 부하 placeholder (R_L, Z_L 등) — 비어 있는 점선 박스나 "?" 자리. 발견되면 loadPlaceholders 배열에 entry 추가, emphasize=true. 두 단자 node id를 betweenNodes에 명시.
+- "단자 a-b를 개방"·"R_L에 최대 전력 전달"·"V_ab를 구하시오" 같은 문제 유형 — 단자/부하 추출이 핵심. interpretation에도 명시.
+- 위 두 필드는 풀이의 정답 단자/부하 위치 결정에 핵심 — 빠뜨리지 마라.
 
 【topologySignature 추출 가이드 — circuit_theory/electronics 회로 한정】
 회로의 visual 구조를 다음 두 패턴 중 어느 쪽인지 먼저 판별하고 branches를 추출:
