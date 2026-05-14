@@ -64,13 +64,6 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     return renderNetlistEdgeSVG(netlist);
   }
 
-  // 0.2 multi-component vertical chain (legRoot 마킹된 SW+R+I 직렬 등)이 있으면
-  //     2-rail mesh layout이 chain 중간(mid↔mid) component를 horizontal로 오분류.
-  //     BFS-level layout을 쓰는 edge renderer로 fallback.
-  if (netlist.components.some((c) => c.legRoot)) {
-    return renderNetlistEdgeSVG(netlist);
-  }
-
   // 1. Ground / top 분류
   const { topNodes, groundIds } = classifyNodes(netlist);
 
@@ -85,13 +78,23 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     topPos.set(n, { x: LEFT_X + i * X_PITCH, y: TOP_Y });
   });
 
-  // 3. Component 분류 → horizontal / vertical
+  // 3. Component 분류 → horizontal / vertical / vertical-chain
   const horizontals: HPlace[] = [];
   const verticalsByTopNode = new Map<string, CircuitComponent[]>();
+  // ★ legRoot 마킹된 multi-component vertical chain (SW+R+I 직렬 등)
+  const verticalChainsByRoot = new Map<string, CircuitComponent[]>();
 
   for (const c of netlist.components) {
     if (c.type === "GND") continue;
     if (!c.pins || c.pins.length < 2) continue;
+
+    // legRoot 있으면 그 root top node 아래 vertical chain
+    if (c.legRoot && topNodes.includes(c.legRoot)) {
+      if (!verticalChainsByRoot.has(c.legRoot)) verticalChainsByRoot.set(c.legRoot, []);
+      verticalChainsByRoot.get(c.legRoot)!.push(c);
+      continue;
+    }
+
     const [p1, p2] = c.pins;
     const p1G = groundIds.has(p1.node);
     const p2G = groundIds.has(p2.node);
@@ -151,11 +154,19 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     );
   }
 
-  // 5.3 Bottom rail wire
-  if (verticals.length >= 2) {
-    const xs = verticals.map(verticalX);
-    const xMin = Math.min(...xs);
-    const xMax = Math.max(...xs);
+  // 5.3 Bottom rail wire — vertical + vertical-chain 모든 x 포함
+  //   (chainXs는 5.5b에서 계산되지만 bottom rail은 그 전에 그려야 하므로 미리 계산)
+  const preChainXs: number[] = [];
+  for (const [rootNode, comps] of verticalChainsByRoot) {
+    void comps;
+    const existingSlots = verticalsByTopNode.get(rootNode)?.length ?? 0;
+    const tx = topPos.get(rootNode)?.x ?? 0;
+    preChainXs.push(tx + existingSlots * VERTICAL_PARALLEL_GAP);
+  }
+  const allVerticalXs = [...verticals.map(verticalX), ...preChainXs];
+  if (allVerticalXs.length >= 2) {
+    const xMin = Math.min(...allVerticalXs);
+    const xMax = Math.max(...allVerticalXs);
     if (xMax > xMin) {
       parts.push(
         `<path d="M ${xMin} ${BOT_Y} L ${xMax} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`,
@@ -180,13 +191,29 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     obstacles.push(bboxVertical(v.component, x));
   }
 
+  // 5.5b Vertical chains (legRoot 마킹된 SW+R+I 직렬 등) — root top node 아래 stack
+  const chainXs: number[] = [];
+  for (const [rootNode, comps] of verticalChainsByRoot) {
+    // 같은 root에 단일 vertical도 있으면 그 옆 slot, 없으면 root x 그대로
+    const existingSlots = verticalsByTopNode.get(rootNode)?.length ?? 0;
+    const tx = topPos.get(rootNode)?.x ?? 0;
+    const cx = tx + existingSlots * VERTICAL_PARALLEL_GAP;
+    chainXs.push(cx);
+    // offset된 경우 top rail에서 chain x까지 stub
+    if (cx !== tx) {
+      parts.push(`<path d="M ${tx} ${TOP_Y} L ${cx} ${TOP_Y}" stroke="black" fill="none" stroke-width="2"/>`);
+    }
+    parts.push(renderVerticalChain(comps, cx));
+    for (const c of comps) obstacles.push(bboxVertical(c, cx));
+  }
+
   // 5.6 Junction dots
   parts.push(renderJunctionDots(netlist, topPos, verticals, verticalX));
 
-  // 5.7 Ground symbol — bottom rail 가운데
-  if (verticals.length > 0) {
-    const xs = verticals.map(verticalX);
-    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  // 5.7 Ground symbol — bottom rail 가운데 (vertical + chain 모두 포함)
+  const groundXs = [...verticals.map(verticalX), ...chainXs];
+  if (groundXs.length > 0) {
+    const cx = (Math.min(...groundXs) + Math.max(...groundXs)) / 2;
     parts.push(renderGroundSymbol(cx, BOT_Y));
   }
 
@@ -198,6 +225,7 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   const allXs: number[] = [
     ...Array.from(topPos.values()).map((p) => p.x),
     ...verticals.map(verticalX),
+    ...chainXs,
   ];
   const xMin = Math.min(...allXs) - 80;
   const xMax = Math.max(...allXs) + 80;
@@ -320,6 +348,27 @@ function renderVerticalComponent(c: CircuitComponent, x: number): string {
   svg += `<path d="M ${x} ${TOP_Y} L ${x} ${cy - half}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += renderComponentOnEdge(c, { x, y: cy }, "vertical");
   svg += `<path d="M ${x} ${cy + half} L ${x} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  return svg;
+}
+
+/**
+ * Vertical chain — SW+R+I 직렬 등 multi-component leg를 root top node 아래
+ * TOP_Y → comp1 → comp2 → ... → BOT_Y(GND)로 순서대로 stack.
+ */
+function renderVerticalChain(comps: CircuitComponent[], x: number): string {
+  if (comps.length === 0) return "";
+  const span = BOT_Y - TOP_Y;
+  const slotH = span / comps.length;
+  let svg = "";
+  let prevY = TOP_Y;
+  comps.forEach((c, i) => {
+    const cy = TOP_Y + slotH * (i + 0.5);
+    const half = componentHalfWidth(c);
+    svg += `<path d="M ${x} ${prevY} L ${x} ${cy - half}" stroke="black" fill="none" stroke-width="2"/>`;
+    svg += renderComponentOnEdge(c, { x, y: cy }, "vertical");
+    prevY = cy + half;
+  });
+  svg += `<path d="M ${x} ${prevY} L ${x} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   return svg;
 }
 
