@@ -79,13 +79,19 @@ export function buildFromTopology(args: {
   const verticalLegs = topology.branches.filter((b) => VERTICAL_LEG_ROLES.has(b.role));
 
   // ── 2) 노드 라벨 결정 ───────────────────────────────────
-  // horizontal branches 개수 K → top node K+1개. 단 trailing(leg 없는) node는 GND로 alias —
-  // 그 끝쪽에 ground rail로 떨어지는 wire가 있다는 ladder topology의 묵시적 가정.
+  // horizontal branches 개수 K → top node K+1개. 마지막 1개만 GND alias (ladder의
+  // ground rail 묵시 가정). 이전엔 leg 부족분을 모두 GND alias로 만들어 horizontal
+  // branch 양 끝이 (GND, GND)가 되어 contradiction(singular) 발생 → 수정.
   const railNodes: string[] = [];
-  for (let i = 0; i <= horizontalBranches.length; i++) {
-    railNodes.push(i < verticalLegs.length ? `${TOP_PREFIX}${i}` : GND);
+  const topNodesCount = horizontalBranches.length + 1;
+  for (let i = 0; i < topNodesCount; i++) {
+    const isLast = i === topNodesCount - 1;
+    if (isLast && verticalLegs.length < topNodesCount) {
+      railNodes.push(GND);
+    } else {
+      railNodes.push(`${TOP_PREFIX}${i}`);
+    }
   }
-  // 단, leg가 한 개도 없는 극단 케이스(예: vertCount=0)는 fallback — 첫 node만 일반 node로
   if (verticalLegs.length === 0 && railNodes.length > 0) railNodes[0] = `${TOP_PREFIX}0`;
 
   // control ref 매핑 — "V1"·"V2" 등 leg attach node 라벨에 대응
