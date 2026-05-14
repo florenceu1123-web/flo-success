@@ -191,12 +191,14 @@ function buildCascade(rand: () => number): OpampGeneration {
       ],
       measurementMarks: [{ kind: "voltage", refs: ["Vo", "GND"], label: "V_o" }],
       positions: {
-        V2: { x: 120, y: 200 }, V1: { x: 120, y: 380 },
-        u1in: { x: 360, y: 200 }, u1out: { x: 600, y: 200 },
+        // node: top rail 좌→우 cascade flow. V_1은 u2in 아래쪽에 둬서 R_b(V1↔u2in)가
+        // U1 body를 가로지르지 않게 (V1을 좌하단에 두면 R_b 대각선이 U1과 겹침).
+        V2: { x: 120, y: 200 }, u1in: { x: 360, y: 200 }, u1out: { x: 600, y: 200 },
         u2in: { x: 760, y: 200 }, Vo: { x: 1000, y: 200 },
-        GND: { x: 560, y: 540 },
-        U1: { x: 480, y: 280 }, U2: { x: 880, y: 280 },
-        Vs1: { x: 200, y: 460 }, Vs2: { x: 240, y: 340 },
+        V1: { x: 760, y: 420 },  // u2in 바로 아래 — R_b는 짧은 vertical
+        GND: { x: 440, y: 560 },
+        U1: { x: 480, y: 300 }, U2: { x: 880, y: 300 },
+        Vs1: { x: 760, y: 490 }, Vs2: { x: 120, y: 340 },
       },
     },
   });
