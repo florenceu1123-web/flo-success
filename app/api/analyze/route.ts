@@ -114,9 +114,22 @@ function reconcileBranches(
     }
   }
 
+  // mesh_only_branch는 top_rail_resistor 사이에 삽입 (horizontal V가 마지막 GND alias node에
+  // 박히지 않도록). 나머지는 끝에 append.
+  const meshOnlyExtras = extraBranches.filter((b) => b.role === "mesh_only_branch");
+  const otherExtras = extraBranches.filter((b) => b.role !== "mesh_only_branch");
+  const insertedBranches = [...branches];
+  if (meshOnlyExtras.length > 0) {
+    // 첫 top_rail_resistor 다음에 삽입 (두 R 사이)
+    const firstTopRailIdx = insertedBranches.findIndex((b) => b.role === "top_rail_resistor");
+    const insertAt = firstTopRailIdx >= 0 ? firstTopRailIdx + 1 : insertedBranches.length;
+    insertedBranches.splice(insertAt, 0, ...meshOnlyExtras);
+  }
+  insertedBranches.push(...otherExtras);
+
   const newTopology: TopologySignature = {
     ...analysis.topologySignature,
-    branches: [...branches, ...extraBranches],
+    branches: insertedBranches,
   };
   log.info("branches_reconciled", {
     original: branches.length,
