@@ -50,8 +50,14 @@ export async function runTopologyDrivenPipeline(args: {
 
     // ★ Thevenin·max_power_transfer 자동 보강 — GPT가 단자 a/b·R_L 추출 누락했어도
     //   본문 키워드가 hit하면 자동으로 단자 a/b(=가장 오른쪽 top node·GND)·R_L 추가.
+    //   또한 circuitType이 thevenin/max_power_transfer로 분류돼도 trigger.
     const analysisText = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""} ${(analysis.relatedConcepts ?? []).join(" ")}`;
-    const isThevLike = /테브난|테브닌|thevenin|등가\s*회로|최대\s*전력|최대전력|R_L|RL|maximum\s*power/i.test(analysisText);
+    const isThevLike =
+      /테브난|테브닌|thevenin|등가\s*회로|최대\s*전력|최대전력|R_L|RL|maximum\s*power/i.test(analysisText) ||
+      analysis.circuitType?.type === "thevenin" ||
+      analysis.circuitType?.type === "max_power_transfer" ||
+      analysis.circuitType?.type === "norton";
+    log.info("thev_like_check", { isThevLike, circuitType: analysis.circuitType?.type, textSample: analysisText.slice(0, 120) });
     if (isThevLike) {
       // 가장 오른쪽 top node를 단자 a 후보로
       const topNodes = new Set<string>();
