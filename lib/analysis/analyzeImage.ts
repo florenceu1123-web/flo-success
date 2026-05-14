@@ -245,11 +245,19 @@ function isValidAnalysis(x: unknown, subject: SubjectKey): x is AnalysisResult {
       typeof (b as Record<string, unknown>).sentence === "string" &&
       typeof (b as Record<string, unknown>).answer === "string"
   )) return false;
-  // optional topicKey: 있으면 subject의 토픽 목록 안에 있어야 함
+  // optional topicKey: 있으면 subject의 토픽 목록 안에 있어야 함.
+  // ★ invalid topicKey (cross-subject 등)는 reject 대신 silently clear — analyze 통과시켜
+  //   classify가 키워드 기반 fallback으로 결정. 이 reject로 인해 generate가 GPT free path로
+  //   빠져 사용자 "GPT 회로 생성 금지" contract를 우회하던 결함 해결.
   if (o.topicKey !== undefined) {
-    if (typeof o.topicKey !== "string") return false;
-    const allowed = TOPICS_BY_SUBJECT[subject] as readonly string[];
-    if (!allowed.includes(o.topicKey)) return false;
+    if (typeof o.topicKey !== "string") {
+      delete o.topicKey;
+    } else {
+      const allowed = TOPICS_BY_SUBJECT[subject] as readonly string[];
+      if (!allowed.includes(o.topicKey)) {
+        delete o.topicKey;
+      }
+    }
   }
   // optional semantic: 있으면 4-flag boolean 객체여야 함
   if (o.semantic !== undefined) {
