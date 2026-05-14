@@ -106,15 +106,17 @@ export async function POST(req: NextRequest) {
         circuitType,
         analysis.topologySignature.features,
         analysis.topologySignature.branches?.length ?? 0,
+        analysis.componentInventory?.length ?? 0,
       )
     ) {
       log.info("dispatch", {
         route: "topology_driven_pipeline",
         count: n,
         mode,
-        reason: "archetype/topology mismatch (hybrid 또는 branchCount 초과)",
+        reason: "archetype/topology mismatch (hybrid·branchCount·inventory 중 하나)",
         features: analysis.topologySignature.features,
         branchCount: analysis.topologySignature.branches?.length ?? 0,
+        inventoryCount: analysis.componentInventory?.length ?? 0,
       });
       problems = await runTopologyDrivenPipeline({
         analysis,
@@ -350,6 +352,7 @@ function shouldUseTopologyDriven(
   circuitType: string | undefined,
   features: { hasSwitch?: boolean; hasDependentSource?: boolean; hasSupermesh?: boolean },
   branchCount: number = 0,
+  inventoryCount: number = 0,
   archetypeBranchAssumption: number = 5,
 ): boolean {
   const hasSwitch = Boolean(features.hasSwitch);
@@ -364,9 +367,12 @@ function shouldUseTopologyDriven(
   if (hasDep && !archetypeSupportsDep) return true;
   // dc_supermesh archetype은 SW/dep 둘 다 못 다룸
   if (hasSupermesh && (hasSwitch || hasDep)) return true;
-  // ★ 원본 branches가 archetype hardcode 가정보다 많으면 topology-driven
-  //   (archetype 가정 ~5 branches: V/R 단순. 원본이 7+ branches면 horizontal V·
-  //    multiple sources·풍부한 R 등을 archetype hardcode가 못 재현 → 원본 구조 손실)
+  // ★ branches 개수 초과 — analyze가 잘 추출한 경우 (한 branch 1 component 가정)
   if (branchCount > archetypeBranchAssumption + 1) return true;
+  // ★ inventory 풍부 — analyze가 한 branch에 multi-component 직렬로 압축한 경우 대비.
+  //   thevenin/max_power_transfer archetype의 vi_two_source는 5 component 가정.
+  //   inventory가 7+이면 horizontal V·multiple sources·풍부한 R을 archetype hardcode가
+  //   못 재현 → 원본 구조 손실. topology-driven으로 generic 재구성.
+  if (inventoryCount >= 7) return true;
   return false;
 }
