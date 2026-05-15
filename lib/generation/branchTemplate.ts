@@ -106,9 +106,10 @@ export const CONNECTION_LAYOUT_RULES = {
 
   /**
    * Rule-2 (소자 회피 라우팅): node→node wire는 소자(component body)와 겹치지 않고
-   *   우회하여 연결되어야 한다.
+   *   최단거리로 우회하여 연결되어야 한다.
    *   - wire가 component bounding box 내부를 가로지르지 않음.
    *   - 우회 라우팅: orthogonal (horizontal-vertical-horizontal 또는 vertical-horizontal-vertical) 사용.
+   *   - 가능한 candidate path(L-자, top-band 우회, 좌·우 외곽 우회 등) 중 segment 길이 합이 최소인 것 선택.
    *   - body 외곽까지만 wire 그리고, body 자체는 wire 위에 fill="white"로 덮음.
    */
   wireAvoidsComponentBody: true,

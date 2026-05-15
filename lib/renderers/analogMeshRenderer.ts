@@ -4,6 +4,7 @@ import {
   renderComponentOnEdge,
   renderNetlistEdgeSVG,
 } from "./netlistEdgeRenderer";
+import { hasOpAmp, renderOpAmpCircuit, validateOpAmpCircuit } from "./opampCircuitRenderer";
 
 // =====================================================================
 // analog mesh renderer — 2-rail layout
@@ -57,6 +58,17 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   const errors = validateBasic(netlist);
   if (errors.length > 0) {
     return `<pre>${escapeSvg(errors.join("\n"))}</pre>`;
+  }
+
+  // 0.05 OPAMP가 포함된 회로는 전용 renderer로 분리 (single OPAMP만; multi는 아래 fallback).
+  if (hasOpAmp(netlist)) {
+    const opampErrors = validateOpAmpCircuit(netlist);
+    if (opampErrors.length > 0) {
+      return `<pre>${escapeSvg(opampErrors.join("\n"))}</pre>`;
+    }
+    const svg = renderOpAmpCircuit(netlist);
+    if (svg) return svg;
+    // null → multi-OPAMP, 아래 generic fallback으로
   }
 
   // 0.1 3-pin 이상이면 mesh layout 적용 불가 — fallback
@@ -614,25 +626,71 @@ function renderOverlayLayer(
 }
 
 /**
- * Overlay 경로 라우팅 — start→end 점선 path를 그리되 obstacle 회피.
- *  - 직선 시도 (수직/수평/L자)
- *  - 충돌 시 ANNO_BAND_Y로 우회 (위로 올라갔다가 옆으로 가서 내려옴)
+ * Overlay 경로 라우팅 — start→end 점선 path를 obstacle 회피로 그림.
+ *  Rule-2 (wireAvoidsComponentBody): 회로 본체 통과 없이 **최단거리** 우회.
+ *
+ *  candidate 후보:
+ *   - L-자 (수직 후 수평)
+ *   - ANNO_BAND_Y 우회 (위→옆→아래)
+ *   - 좌측 외곽 우회 (회로 좌측 column으로 우회 후 위→옆→아래)
+ *   - 우측 외곽 우회
+ *  모든 segment가 obstacle 미통과 candidate들 중 segment 길이 합이 최소인 path 선택.
+ *  통과 가능 후보가 없으면 ANNO_BAND_Y 우회를 fallback (시각 깨짐 허용).
  */
 function routeOverlayPath(
   x1: number, y1: number, x2: number, y2: number,
   obstacles: Bbox[],
   color: string,
 ): string {
-  // 시도 1: L-자 (수직 후 수평)
-  const lShape1 = { vx: x1, hy: y2 };
-  const seg1a = !obstacles.some((o) => segmentIntersectsBbox(x1, y1, x1, y2, o));
-  const seg1b = !obstacles.some((o) => segmentIntersectsBbox(x1, y2, x2, y2, o));
-  if (seg1a && seg1b) {
-    return `<path d="M ${x1} ${y1} L ${x1} ${y2} L ${x2} ${y2}" stroke="${color}" fill="none" stroke-width="1.2" stroke-dasharray="3,3"/>`;
-  }
-  // 시도 2: ANNO_BAND_Y 우회 (위로 ↑ → 옆으로 → 아래로 ↓)
+  const dashed = (path: string) =>
+    `<path d="${path}" stroke="${color}" fill="none" stroke-width="1.2" stroke-dasharray="3,3"/>`;
+
+  const segOk = (sx: number, sy: number, ex: number, ey: number) =>
+    !obstacles.some((o) => segmentIntersectsBbox(sx, sy, ex, ey, o));
+
+  // path = [[x,y], ...]. segment 길이 합 계산.
+  const pathLen = (pts: Array<[number, number]>): number => {
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) {
+      len += Math.abs(pts[i][0] - pts[i - 1][0]) + Math.abs(pts[i][1] - pts[i - 1][1]);
+    }
+    return len;
+  };
+  const toD = (pts: Array<[number, number]>): string =>
+    pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0]} ${p[1]}`).join(" ");
+
+  // 각 candidate path를 모든 segment OK 체크 후 등록
+  const candidates: { pts: Array<[number, number]>; len: number }[] = [];
+  const add = (pts: Array<[number, number]>) => {
+    for (let i = 1; i < pts.length; i++) {
+      if (!segOk(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1])) return;
+    }
+    candidates.push({ pts, len: pathLen(pts) });
+  };
+
   const detourY = Math.min(ANNO_BAND_Y, y2);
-  return `<path d="M ${x1} ${y1} L ${x1} ${detourY} L ${x2} ${detourY} L ${x2} ${y2}" stroke="${color}" fill="none" stroke-width="1.2" stroke-dasharray="3,3"/>`;
+
+  // L-자
+  add([[x1, y1], [x1, y2], [x2, y2]]);
+  // ANNO_BAND_Y 직 우회
+  add([[x1, y1], [x1, detourY], [x2, detourY], [x2, y2]]);
+  // 좌·우 외곽 우회 — obstacle bbox의 xMin/xMax + 24 column 사용
+  const xs = obstacles.flatMap((o) => [o.x, o.x + o.w]);
+  if (xs.length > 0) {
+    const xLeftDetour = Math.min(...xs) - 24;
+    const xRightDetour = Math.max(...xs) + 24;
+    add([[x1, y1], [xLeftDetour, y1], [xLeftDetour, detourY], [x2, detourY], [x2, y2]]);
+    add([[x1, y1], [xRightDetour, y1], [xRightDetour, detourY], [x2, detourY], [x2, y2]]);
+  }
+
+  // 최단거리 candidate 선택
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => a.len - b.len);
+    return dashed(toD(candidates[0].pts));
+  }
+
+  // Fallback (모든 candidate가 obstacle 통과)
+  return dashed(toD([[x1, y1], [x1, detourY], [x2, detourY], [x2, y2]]));
 }
 
 function renderGroundSymbol(cx: number, cy: number): string {
