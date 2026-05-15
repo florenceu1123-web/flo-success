@@ -250,6 +250,18 @@ function buildCascade(rand: () => number): OpampGeneration {
         { node: "Vob", label: "V_o", style: "label_only" },
       ],
       measurementMarks: [{ kind: "voltage", refs: ["Vob", "GND"], label: "V_o" }],
+      // (나) positions: V_2를 OPAMP V+ (위)·V_1을 V- (아래)에 맞춰 표준 OPAMP 표기 따름.
+      //   OPAMP body 우측. R_fixed(2kΩ)는 V_1→V_minus 하단, R_1는 V_2→V_plus 상단.
+      //   R_2 두 곳: feedback (V_minus↔V_o)·load (V_plus↔GND).
+      positions: {
+        V2b: { x: 120, y: 200 }, V1b: { x: 120, y: 400 },
+        Vplusb: { x: 430, y: 286 }, Vminusb: { x: 430, y: 414 },
+        Vob: { x: 800, y: 350 }, GND: { x: 430, y: 560 },
+        U1: { x: 560, y: 350 },
+        Vs1: { x: 120, y: 500 }, Vs2: { x: 120, y: 290 },
+        R_fixed: { x: 275, y: 414 }, R_1: { x: 275, y: 286 },
+        R_2: { x: 600, y: 200 },  // feedback 위쪽
+      },
     },
   });
 
