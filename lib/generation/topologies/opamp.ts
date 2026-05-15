@@ -228,9 +228,9 @@ function buildCascade(rand: () => number): OpampGeneration {
       { id: "br_R1b", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V2b", toNode: "Vplusb",
         components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_1" }] },
       { id: "br_R2pb", role: "load_leg", orientation: "vertical", fromNode: "Vplusb", toNode: "GND",
-        components: [{ type: "R", role: "ground_resistor", order: 1, required: true, idOverride: "R_2" }] },
+        components: [{ type: "R", role: "ground_resistor", order: 1, required: true, idOverride: "R_2p" }] },
       { id: "br_R2fb", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "Vminusb", toNode: "Vob",
-        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_2" }] },
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_2f" }] },
       { id: "br_U1b", role: "opamp_block", orientation: "horizontal", fromNode: "Vminusb", toNode: "Vob",
         opampNodes: { vp: "Vplusb", vn: "Vminusb", vo: "Vob" },
         components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
@@ -250,17 +250,19 @@ function buildCascade(rand: () => number): OpampGeneration {
         { node: "Vob", label: "V_o", style: "label_only" },
       ],
       measurementMarks: [{ kind: "voltage", refs: ["Vob", "GND"], label: "V_o" }],
-      // (나) positions: V_2를 OPAMP V+ (위)·V_1을 V- (아래)에 맞춰 표준 OPAMP 표기 따름.
-      //   OPAMP body 우측. R_fixed(2kΩ)는 V_1→V_minus 하단, R_1는 V_2→V_plus 상단.
-      //   R_2 두 곳: feedback (V_minus↔V_o)·load (V_plus↔GND).
+      // (나) positions — V_plus·V_minus를 다른 column에 두어 R_2p(V_plus↔GND) wire가
+      //   V_minus를 통과하지 않게.
+      //   V_2(좌상) ─ R_1 ─ V_plus(top, x=380)
+      //   V_1(좌하) ─ R_fixed ─ V_minus(bot, x=480)
+      //   OPAMP body (640, 300): vp pin은 V_plus 위쪽 lane으로, vn은 V_minus 아래쪽 lane.
+      //   R_2p: V_plus column vertical (x=380, V_plus→GND).
+      //   R_2f: V_minus → V_o feedback (horizontal at y≈400).
       positions: {
         V2b: { x: 120, y: 200 }, V1b: { x: 120, y: 400 },
-        Vplusb: { x: 430, y: 286 }, Vminusb: { x: 430, y: 414 },
-        Vob: { x: 800, y: 350 }, GND: { x: 430, y: 560 },
-        U1: { x: 560, y: 350 },
+        Vplusb: { x: 380, y: 200 }, Vminusb: { x: 480, y: 400 },
+        Vob: { x: 840, y: 300 }, GND: { x: 380, y: 560 },
+        U1: { x: 640, y: 300 },
         Vs1: { x: 120, y: 500 }, Vs2: { x: 120, y: 290 },
-        R_fixed: { x: 275, y: 414 }, R_1: { x: 275, y: 286 },
-        R_2: { x: 600, y: 200 },  // feedback 위쪽
       },
     },
   });
