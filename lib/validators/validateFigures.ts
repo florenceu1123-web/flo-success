@@ -9,6 +9,7 @@ import { validateNetlistRenderable } from "@/lib/renderers/netlist/validate";
 import { validateKmap } from "@/lib/renderers/kmapRenderer";
 import { validateLogicNetwork } from "@/lib/renderers/logicNetworkRenderer";
 import { CONNECTION_LAYOUT_RULES } from "@/lib/generation/branchTemplate";
+import { validateAnalogClosure } from "./validateAnalogClosure";
 import type { ValidationResult, ValidationIssue } from "./validateProblem";
 
 /**
@@ -40,6 +41,11 @@ export function validateFigures(figures: FigureVariant[]): ValidationResult {
         if (deg < CONNECTION_LAYOUT_RULES.minNodeDegree) {
           issues.push({ rule: "netlist_dangling_node", message: `${f.id}: node "${node}" — degree ${deg} (≥${CONNECTION_LAYOUT_RULES.minNodeDegree} 필요)` });
         }
+      }
+      // 회로 폐쇄성 검사 (회로이론 가이드 — 전원 포함 closed loop)
+      const closureErrors = validateAnalogClosure(d);
+      for (const e of closureErrors) {
+        issues.push({ rule: "analog_circuit_open", message: `${f.id}: ${e}` });
       }
     } else if (f.diagramType === "logic_network") {
       const d = f.diagram as LogicNetworkDiagram | null | undefined;
