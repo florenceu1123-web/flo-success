@@ -41,10 +41,20 @@ export async function runOpampPipeline(args: {
       values: gen.values,
     });
     const text = await writeOpampText({ generation: gen, mode, topicLabel, contextHint });
+    // cascade archetype은 (가)·(나) 두 figure — (나)는 단계 2의 등가 single OPAMP template.
+    const extraFigures = gen.secondaryNetlist
+      ? [{
+          id: `fig_secondary_${i + 1}`,
+          label: gen.secondaryLabel ?? "(나) 등가 회로",
+          role: "main_circuit",
+          diagramType: "analog_netlist" as const,
+          diagram: gen.secondaryNetlist,
+        }]
+      : undefined;
     return assembleProblem({
       text, netlist: gen.netlist,
-      figureLabel: `OPAMP 회로 (${gen.archetype})`, figureRole: "original_circuit",
-      figureIdSuffix: i + 1, topicKey,
+      figureLabel: `(가) OPAMP 회로 (${gen.archetype})`, figureRole: "original_circuit",
+      figureIdSuffix: i + 1, topicKey, extraFigures,
     });
   });
 }

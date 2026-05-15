@@ -79,6 +79,12 @@ export type OpampGeneration = {
   /** "이득" 표현 (한국어/수식 풀이용) */
   gainFormula: string;
   values: Record<string, number>;
+  /**
+   * cascade archetype 전용 — 단계 2의 (나) figure (single OPAMP difference amp template).
+   * R_1·R_2 값은 학생이 단계 2에서 (가)와 등가가 되도록 결정해야 할 unknown.
+   */
+  secondaryNetlist?: CircuitNetlist;
+  secondaryLabel?: string;
 };
 
 // kΩ 단위 — OPAMP에서 전형
@@ -207,6 +213,46 @@ function buildCascade(rand: () => number): OpampGeneration {
   const gainV1 = -R_f2 / R_b;
   const gainFormula = `V_o = (R_{f2}·R_{f1})/(R_a·R_{in1})·V_2 − (R_{f2}/R_b)·V_1 = ${round3(gainV2)}·V_2 + ${round3(gainV1)}·V_1`;
 
+  // ── (나) figure: single OPAMP difference amp template ──
+  //   원본 5번 (나) 패턴: V_1 → 2kΩ → V_minus, V_2 → R_1 → V_plus,
+  //                       R_2 (V_minus↔V_o feedback), R_2 (V_plus↔GND)
+  //   R_1·R_2는 학생이 단계 2에서 (가)와 등가가 되도록 결정 — 회로에는 라벨만, value 미명시.
+  const secondaryNetlist = assembleViaBranchTemplate({
+    branches: [
+      { id: "br_Vs1b", role: "input_source_leg", orientation: "vertical", fromNode: "V1b", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs1" }] },
+      { id: "br_Vs2b", role: "input_source_leg", orientation: "vertical", fromNode: "V2b", toNode: "GND",
+        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs2" }] },
+      { id: "br_Rfixed", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V1b", toNode: "Vminusb",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_fixed" }] },
+      { id: "br_R1b", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V2b", toNode: "Vplusb",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_1" }] },
+      { id: "br_R2pb", role: "load_leg", orientation: "vertical", fromNode: "Vplusb", toNode: "GND",
+        components: [{ type: "R", role: "ground_resistor", order: 1, required: true, idOverride: "R_2" }] },
+      { id: "br_R2fb", role: "opamp_feedback_resistor", orientation: "horizontal", fromNode: "Vminusb", toNode: "Vob",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_2" }] },
+      { id: "br_U1b", role: "opamp_block", orientation: "horizontal", fromNode: "Vminusb", toNode: "Vob",
+        opampNodes: { vp: "Vplusb", vn: "Vminusb", vo: "Vob" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
+    ],
+    values: [
+      { branchId: "br_Vs1b", componentRole: "voltage_source", type: "V", value: `${V_1}V` },
+      { branchId: "br_Vs2b", componentRole: "voltage_source", type: "V", value: `${V_2}V` },
+      { branchId: "br_Rfixed", componentRole: "input_resistor", type: "R", value: "2kΩ" },
+      { branchId: "br_R1b", componentRole: "input_resistor", type: "R", value: "R_1" },
+      { branchId: "br_R2pb", componentRole: "ground_resistor", type: "R", value: "R_2" },
+      { branchId: "br_R2fb", componentRole: "feedback_resistor", type: "R", value: "R_2" },
+    ],
+    metadata: {
+      nodeAnnotations: [
+        { node: "V1b", label: "V_1", style: "label_only" },
+        { node: "V2b", label: "V_2", style: "label_only" },
+        { node: "Vob", label: "V_o", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vob", "GND"], label: "V_o" }],
+    },
+  });
+
   return {
     netlist, solverNet,
     Vout, Vminus: 0, Vplus: 0,
@@ -214,6 +260,8 @@ function buildCascade(rand: () => number): OpampGeneration {
     archetype: "cascade",
     gainFormula,
     values: { V_1, V_2, R_in1_k, R_f1_k, R_a_k, R_b_k, R_f2_k },
+    secondaryNetlist,
+    secondaryLabel: "(나) 등가 single OPAMP — R_1·R_2를 (가)와 등가가 되도록 결정",
   };
 }
 
