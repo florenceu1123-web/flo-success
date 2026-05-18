@@ -41,6 +41,7 @@ export async function runFlipflopMixedPipeline(args: {
 
     const text = await writeFfMixedText({ generation: gen, mode, topicLabel, contextHint });
 
+    // (가) 회로 + (나) 상태표(ㄱ/ㄴ/ㄷ blank) + (다) 파형 템플릿(Q_A·Q_B blank)
     const figureVariants: FigureVariant[] = [
       {
         id: `fig_impl_${i + 1}`,
@@ -61,7 +62,18 @@ export async function runFlipflopMixedPipeline(args: {
         label: "(다) 입력 X·클럭 및 상태 Q_A·Q_B 파형",
         role: "waveform",
         diagramType: "waveform",
-        diagram: gen.waveform,
+        diagram: gen.waveformTemplate,
+      },
+    ];
+
+    // 정답·풀이 영역: Q_A·Q_B 채워진 파형
+    const solutionFigures: FigureVariant[] = [
+      {
+        id: `fig_waveform_solution_${i + 1}`,
+        label: "(다) 파형 — 정답 (Q_A·Q_B 채워진 형태)",
+        role: "solution_waveform",
+        diagramType: "waveform",
+        diagram: gen.waveformSolution,
       },
     ];
 
@@ -74,6 +86,7 @@ export async function runFlipflopMixedPipeline(args: {
       solution: text.solution,
       topicKey,
       figureVariants,
+      solutionFigures,
     };
   });
 }

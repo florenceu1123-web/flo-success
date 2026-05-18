@@ -27,7 +27,10 @@ import { makeRand, pick } from "./_helpers";
 export type FfMixedGeneration = {
   logicNetworkDiagram: LogicNetworkDiagram;
   stateTable: TruthTableDiagram;
-  waveform: WaveformDiagram;
+  /** (다) 문제 템플릿 — X·CLK는 채워지고, 학생 도출 대상(Q_A·Q_B)은 blank */
+  waveformTemplate: WaveformDiagram;
+  /** (다) 정답 — 모든 신호 채워짐 */
+  waveformSolution: WaveformDiagram;
   /** 빈칸 (ㄱ, ㄴ, ㄷ, ㄹ, ㅁ, ㅂ) → 정답값 매핑 */
   blankAnswers: Array<{ symbol: string; answer: string }>;
   /** T_A, J_B, K_B 함수 식 (사람 읽기용) */
@@ -158,13 +161,19 @@ export function generateFfMixedApplication(args: {
   // logicNetworkDiagram 생성
   const logicNetworkDiagram = buildLogicNetwork(TA.expr, JB.expr, KB.expr);
 
-  // waveform: X 입력 패턴 8 클럭 (또는 4 클럭) + 시뮬레이션
-  const waveform = buildWaveform(TA.eval, JB.eval, KB.eval, rand);
+  // waveform: X 입력 패턴 + 시뮬레이션. template은 Q_A·Q_B blank, solution은 전체 채움.
+  const { template: waveformTemplate, solution: waveformSolution } = buildWaveform(
+    TA.eval,
+    JB.eval,
+    KB.eval,
+    rand,
+  );
 
   return {
     logicNetworkDiagram,
     stateTable,
-    waveform,
+    waveformTemplate,
+    waveformSolution,
     blankAnswers,
     expressions: { TA: TA.expr, JB: JB.expr, KB: KB.expr },
   };
@@ -251,7 +260,7 @@ function buildWaveform(
   jbFn: Signal3,
   kbFn: Signal3,
   rand: () => number,
-): WaveformDiagram {
+): { template: WaveformDiagram; solution: WaveformDiagram } {
   const CYCLES = 6; // 6 클럭 주기
   // X 입력 패턴 — 무작위 0/1 시퀀스 (단조 단조 회피 위해 변화 포함)
   const xPattern: number[] = [];
@@ -292,7 +301,25 @@ function buildWaveform(
   for (let i = 0; i < CYCLES; i++) xSamples.push({ t: i, v: xPattern[i] });
   xSamples.push({ t: CYCLES, v: xPattern[CYCLES - 1] });
 
-  return {
+  const markers = Array.from({ length: Math.min(4, CYCLES) }, (_, i) => ({
+    t: i + 1,
+    label: `t_${i + 1}`,
+  }));
+
+  // 문제 템플릿 — Q_A·Q_B는 학생이 도출할 출력이므로 blank.
+  const template: WaveformDiagram = {
+    signals: [
+      { name: "X", samples: xSamples, shape: "step" },
+      { name: "CLK", samples: clkSamples, shape: "step" },
+      { name: "Q_A", samples: [], shape: "step", blank: true, vRange: { min: 0, max: 1 } },
+      { name: "Q_B", samples: [], shape: "step", blank: true, vRange: { min: 0, max: 1 } },
+    ],
+    unit: { time: "s" },
+    markers,
+  };
+
+  // 정답 — 모든 신호 채워짐.
+  const solution: WaveformDiagram = {
     signals: [
       { name: "X", samples: xSamples, shape: "step" },
       { name: "CLK", samples: clkSamples, shape: "step" },
@@ -300,9 +327,8 @@ function buildWaveform(
       { name: "Q_B", samples: stepSamples(qbSeq), shape: "step" },
     ],
     unit: { time: "s" },
-    markers: Array.from({ length: Math.min(4, CYCLES) }, (_, i) => ({
-      t: i + 1,
-      label: `t_${i + 1}`,
-    })),
+    markers,
   };
+
+  return { template, solution };
 }
