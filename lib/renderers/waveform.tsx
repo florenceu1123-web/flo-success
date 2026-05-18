@@ -26,6 +26,10 @@ type Signal = {
   shape?: WaveformShape;
   /** 시간상수 τ (exponential_* shape에서 사용) */
   tau?: number;
+  /** true이면 lane(이름+0/1 축)은 그리되 신호 polyline은 생략 — 학생이 채울 빈칸 트랙 */
+  blank?: boolean;
+  /** blank=true에서 lane v 범위 명시 (samples 없이도 0/1 라벨 표시) */
+  vRange?: { min: number; max: number };
 };
 
 type Marker = { t: number; label: string };
@@ -51,12 +55,18 @@ export function renderWaveform(figure: FigureVariant) {
   if (!figure.diagram) return <DiagramMissing figure={figure} />;
 
   const d = figure.diagram as WaveformDiagram;
-  const signals = Array.isArray(d?.signals) ? d.signals.filter((s) => Array.isArray(s?.samples) && s.samples.length > 0) : [];
+  // blank 신호는 samples 없이도 lane 유지. 그 외는 sample이 있어야 표시.
+  const signals = Array.isArray(d?.signals)
+    ? d.signals.filter((s) =>
+        s?.blank ? true : Array.isArray(s?.samples) && s.samples.length > 0,
+      )
+    : [];
   if (signals.length === 0) return <PlaceholderFigure figure={figure} />;
 
-  // 시간 축 범위 — 모든 신호 합산
+  // 시간 축 범위 — 채워진(non-blank) 신호의 sample에서만 계산
   let tMin = Number.POSITIVE_INFINITY, tMax = Number.NEGATIVE_INFINITY;
   for (const sig of signals) {
+    if (sig.blank) continue;
     for (const s of sig.samples) {
       if (typeof s?.t === "number" && Number.isFinite(s.t)) {
         if (s.t < tMin) tMin = s.t;
@@ -77,10 +87,15 @@ export function renderWaveform(figure: FigureVariant) {
     const bottom = top + LANE_H;
     // 신호의 v range — 디지털(0/1)이거나 정해진 범위. 자동 계산.
     let vMin = Number.POSITIVE_INFINITY, vMax = Number.NEGATIVE_INFINITY;
-    for (const s of sig.samples) {
-      if (typeof s.v === "number" && Number.isFinite(s.v)) {
-        if (s.v < vMin) vMin = s.v;
-        if (s.v > vMax) vMax = s.v;
+    if (sig.blank && sig.vRange) {
+      vMin = sig.vRange.min;
+      vMax = sig.vRange.max;
+    } else {
+      for (const s of sig.samples ?? []) {
+        if (typeof s.v === "number" && Number.isFinite(s.v)) {
+          if (s.v < vMin) vMin = s.v;
+          if (s.v > vMax) vMax = s.v;
+        }
       }
     }
     if (!Number.isFinite(vMin)) { vMin = 0; vMax = 1; }
@@ -135,8 +150,10 @@ export function renderWaveform(figure: FigureVariant) {
   const xUnitLabel = `<text x="${PAD_L + PLOT_W}" y="${plotBottom + 32}" text-anchor="end" font-size="12" fill="#1e3a8a">t${tUnit ? ` [${tUnit}]` : ""}</text>`;
 
   // 신호별 polyline — 자기 lane의 yOf 사용. 모두 같은 색.
+  // blank=true 신호는 polyline 생략 (학생이 직접 채울 빈칸 트랙)
   const signalLines = lanes
     .map((L) => {
+      if (L.sig.blank) return "";
       const points = buildSignalPoints(L.sig, xOf, L.yOf);
       return `<polyline points="${points}" fill="none" stroke="${STROKE}" stroke-width="1.8"/>`;
     })

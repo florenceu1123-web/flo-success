@@ -161,11 +161,18 @@ function ProblemCard({
 
       <details className="text-xs text-slate-600">
         <summary className="cursor-pointer text-blue-500 hover:text-blue-700">정답·풀이 보기</summary>
-        <div className="mt-2 space-y-1">
+        <div className="mt-2 space-y-2">
           <p><span className="font-semibold">정답:</span> <MathText>{problem.answer}</MathText></p>
           <p className="whitespace-pre-line">
             <span className="font-semibold">풀이:</span> <MathText>{problem.solution}</MathText>
           </p>
+          {(problem.solutionFigures?.length ?? 0) > 0 && (
+            <div className="space-y-2 pt-1">
+              {(problem.solutionFigures ?? []).map((f) => (
+                <div key={f.id}>{renderFigure(f)}</div>
+              ))}
+            </div>
+          )}
         </div>
       </details>
     </li>

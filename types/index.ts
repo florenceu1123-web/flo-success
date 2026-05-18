@@ -270,8 +270,10 @@ export type GeneratedProblem = {
   topicKey?: TopicKey;
   /** SemanticStructure 분류 결과 */
   semantic?: SemanticStructure;
-  /** 회로·다이어그램 figure 셋 (renderer가 SVG로 변환) */
+  /** 회로·다이어그램 figure 셋 (renderer가 SVG로 변환) — 문제 본문 영역 */
   figureVariants?: FigureVariant[];
+  /** 정답·풀이 영역에 표시할 figure (예: 채워진 파형, 답안용 회로) — 문제 영역에는 표시되지 않음 */
+  solutionFigures?: FigureVariant[];
 };
 
 // =====================================================================
@@ -771,6 +773,10 @@ export type WaveformDiagram = {
     /** 신호 표시 스타일 — "step"이면 디지털 로직(0/1) 사각파. 미지정 시 linear. */
     shape?: "linear" | "step" | "square" | "exponential_rise" | "exponential_decay";
     tau?: number;
+    /** true이면 lane(이름+0/1 축)만 그리고 신호 polyline은 생략 — 학생이 채울 빈칸 트랙 */
+    blank?: boolean;
+    /** blank=true에서 lane v 범위 명시 (samples 없이도 0/1 라벨 표시) */
+    vRange?: { min: number; max: number };
   }>;
   unit?: { time?: string; value?: string };
   /** 시간축 기준점 마커 — 학생이 답해야 할 구간 표시 (예: t₁, t₂, t₃, t₄). */
