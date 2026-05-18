@@ -25,7 +25,10 @@ import { makeRand, pick } from "./_helpers";
 
 export type FfWithWaveformGeneration = {
   logicNetworkDiagram: LogicNetworkDiagram;
-  waveformDiagram: WaveformDiagram;
+  /** (나) 문제 템플릿 — 입력 A·B·C·CLK는 채워지고, 학생 도출 대상(X·Y·Q)은 blank */
+  waveformTemplate: WaveformDiagram;
+  /** (나) 정답 — 모든 신호 채워짐 */
+  waveformSolution: WaveformDiagram;
   /** FF 종류 — 임용 8번은 D-FF로 고정. params.ffTypes가 다르게 들어와도 무시. */
   ffType: "D";
   /** X = SOP(A, B, C) 식 (사람 읽기용) */
@@ -198,7 +201,29 @@ export function generateFfWithWaveform(args: {
     return out;
   };
 
-  const waveformDiagram: WaveformDiagram = {
+  const markers = [
+    { t: 2, label: "t_p" },
+    { t: 5, label: "t_p" },
+  ];
+
+  // (나) 문제 템플릿 — 학생이 도시할 X·Y·Q는 blank, 나머지(A·B·C·CLK)는 filled.
+  // 단계 1: X 도시 / 단계 2: Y와 Q 도시.
+  const waveformTemplate: WaveformDiagram = {
+    signals: [
+      { name: "A",   samples: stepSamples(aSeq),   shape: "step" },
+      { name: "B",   samples: stepSamples(bSeq),   shape: "step" },
+      { name: "C",   samples: stepSamples(cSeq),   shape: "step" },
+      { name: "CLK", samples: stepSamples(clkSeq), shape: "step" },
+      { name: "X",   samples: [], shape: "step", blank: true, vRange: { min: 0, max: 1 } },
+      { name: "Y",   samples: [], shape: "step", blank: true, vRange: { min: 0, max: 1 } },
+      { name: "Q",   samples: [], shape: "step", blank: true, vRange: { min: 0, max: 1 } },
+    ],
+    unit: { time: "T" },
+    markers,
+  };
+
+  // (나) 정답 — 전체 채워짐.
+  const waveformSolution: WaveformDiagram = {
     signals: [
       { name: "A",   samples: stepSamples(aSeq),   shape: "step" },
       { name: "B",   samples: stepSamples(bSeq),   shape: "step" },
@@ -209,15 +234,13 @@ export function generateFfWithWaveform(args: {
       { name: "Q",   samples: stepSamples(qSeq),   shape: "step" },
     ],
     unit: { time: "T" },
-    markers: [
-      { t: 2, label: "t_p" },
-      { t: 5, label: "t_p" },
-    ],
+    markers,
   };
 
   return {
     logicNetworkDiagram,
-    waveformDiagram,
+    waveformTemplate,
+    waveformSolution,
     ffType: "D",
     xExpression: xForm.expr,
     yExpression: yForm.expr,

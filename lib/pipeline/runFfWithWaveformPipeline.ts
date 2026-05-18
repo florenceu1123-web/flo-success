@@ -35,6 +35,7 @@ export async function runFfWithWaveformPipeline(args: {
 
     const text = await writeFfWithWaveformText({ generation: gen, mode, topicLabel, contextHint });
 
+    // (가) 회로 + (나) 파형 템플릿 (X·Y·Q blank, 학생이 단계 1·2에서 도시)
     const figureVariants: FigureVariant[] = [
       {
         id: `fig_impl_${i + 1}`,
@@ -48,7 +49,18 @@ export async function runFfWithWaveformPipeline(args: {
         label: "(나) 입력·출력 파형",
         role: "waveform",
         diagramType: "waveform",
-        diagram: gen.waveformDiagram,
+        diagram: gen.waveformTemplate,
+      },
+    ];
+
+    // 정답·풀이 영역: X·Y·Q 채워진 파형
+    const solutionFigures: FigureVariant[] = [
+      {
+        id: `fig_waveform_solution_${i + 1}`,
+        label: "(나) 파형 — 정답 (X·Y·Q 채워진 형태)",
+        role: "solution_waveform",
+        diagramType: "waveform",
+        diagram: gen.waveformSolution,
       },
     ];
 
@@ -61,6 +73,7 @@ export async function runFfWithWaveformPipeline(args: {
       solution: text.solution,
       topicKey,
       figureVariants,
+      solutionFigures,
     };
   });
 }
