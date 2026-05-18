@@ -27,6 +27,7 @@ import { runKmapSopPipeline } from "@/lib/pipeline/runKmapSopPipeline";
 import { runKmapPosPipeline } from "@/lib/pipeline/runKmapPosPipeline";
 import { runFlipflopCounterPipeline } from "@/lib/pipeline/runFlipflopCounterPipeline";
 import { runFfWithWaveformPipeline } from "@/lib/pipeline/runFfWithWaveformPipeline";
+import { runFlipflopMixedPipeline } from "@/lib/pipeline/runFlipflopMixedPipeline";
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
@@ -290,6 +291,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "kmap_pos" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "kmap_pos_pipeline", count: n, mode });
       problems = await runKmapPosPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "flipflop_mixed_app" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "flipflop_mixed_pipeline", count: n, mode });
+      problems = await runFlipflopMixedPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
