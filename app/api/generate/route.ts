@@ -21,6 +21,7 @@ import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitP
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
 import { runOpampTimeDomainPipeline } from "@/lib/pipeline/runOpampTimeDomainPipeline";
 import { runBjtSmallSignalPipeline } from "@/lib/pipeline/runBjtSmallSignalPipeline";
+import { runBjtBiasPipeline } from "@/lib/pipeline/runBjtBiasPipeline";
 import { runKmapSopPipeline } from "@/lib/pipeline/runKmapSopPipeline";
 import { runKmapPosPipeline } from "@/lib/pipeline/runKmapPosPipeline";
 import { runFlipflopCounterPipeline } from "@/lib/pipeline/runFlipflopCounterPipeline";
@@ -247,6 +248,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "opamp_time_domain" && subjectKey === "electronics") {
       log.info("dispatch", { route: "opamp_time_domain_pipeline", count: n, mode });
       problems = await runOpampTimeDomainPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "bjt_bias" && subjectKey === "electronics") {
+      log.info("dispatch", { route: "bjt_bias_pipeline", count: n, mode });
+      problems = await runBjtBiasPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
