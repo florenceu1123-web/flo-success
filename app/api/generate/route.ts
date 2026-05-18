@@ -26,6 +26,7 @@ import { runCounterDacComparatorPipeline } from "@/lib/pipeline/runCounterDacCom
 import { runKmapSopPipeline } from "@/lib/pipeline/runKmapSopPipeline";
 import { runKmapPosPipeline } from "@/lib/pipeline/runKmapPosPipeline";
 import { runFlipflopCounterPipeline } from "@/lib/pipeline/runFlipflopCounterPipeline";
+import { runFfWithWaveformPipeline } from "@/lib/pipeline/runFfWithWaveformPipeline";
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
@@ -289,6 +290,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "kmap_pos" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "kmap_pos_pipeline", count: n, mode });
       problems = await runKmapPosPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "ff_with_waveform" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "ff_with_waveform_pipeline", count: n, mode });
+      problems = await runFfWithWaveformPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
