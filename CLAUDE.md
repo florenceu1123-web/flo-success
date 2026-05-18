@@ -182,6 +182,125 @@ JSON만 출력한다.
 0. **구조·원리 유사성** — 생성하는 모든 문제는 원본의 구조와 원리를 반드시 유지한다. 같은 학습 목표를 시험. 모드는 변형 강도만 조절.
 0. **규칙 기반 생성 (예시 기반 금지)** — 박혀 있는 "문제 예시"를 베끼지 말 것. 출제 규칙(KVL, 등가변환, 노드해석 등)을 원본에 적용해서 새로 만든다. 양식·포맷의 "적용 예시"는 참고 가능.
 
+# Layout 절대 규칙 (모든 회로 공통, node 연결 규칙)
+
+generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준수한다.
+
+## 규칙 #1 — wire와 소자 비겹침
+- wire는 다른 component의 box 영역을 가로지를 수 없다.
+- wire 라우팅 시 모든 component bbox를 obstacle로 인식하고 회피.
+
+## 규칙 #2 — 소자 간 비겹침
+- 두 component box는 서로 겹칠 수 없다.
+- 같은 노드에 연결되는 두 component는 충분한 거리를 두고 배치 (positions hint 또는 layout 알고리즘으로 분리).
+
+## 규칙 #3 — xlane·ylane 간격 분리
+- 인접 wire의 vertical column(xlane) 또는 horizontal row(ylane)는 최소 간격(LANE step) 이상 분리.
+- 같은 lane에 두 wire가 겹쳐 그려지면 식별 불가 → 별도 lane으로 stagger.
+
+## 규칙 #4 — 같은 신호 분기 dot
+- 한 신호(node)에 여러 component가 연결되면 source 분기점에 dot 표시.
+- degree ≥ 3 노드는 명시적 junction dot.
+
+## 규칙 #5 — 외부 단자/ground는 degree 면제
+- label_only annotation 노드(외부 입력/출력 단자)와 ground 노드는 degree ≥ 2 검사 면제.
+- 외부에서 들어오는 신호는 dangling이 아님.
+
+## 규칙 #6 — 라벨 간 최소 간격
+- component 라벨(R_1, R_2, V_s, 1kΩ 등)은 다른 component·OPAMP pin 표시(+/−)·node label과 최소 `LABEL_MIN_GAP`(~14px) 이상 떨어진다.
+- OPAMP body의 핀 표시("+", "−", "Q", "D" 등)는 box 안쪽(body interior)에 표기. body 가장자리에 두지 마라 — 인접 wire/component 라벨과 시각적 합쳐짐("+R_2" 같은 잘못된 결합).
+- component 라벨은 항상 그 component box의 한쪽 side(위·아래·좌·우)에만 표기, 다른 component box 영역으로 침범 금지.
+- renderer는 라벨을 그리기 전 누적된 obstacle bbox(component box + 이전 라벨)와 충돌 검사해서 충돌 시 작은 offset(±16px)으로 자동 회피.
+
+## 규칙 #7 — node 사용 최소화
+- 회로 생성 시 동일한 전기적 node에 3개 이상의 component가 만나면, 그 node를 **wire의 분기점**이 아니라 **chain의 한 끝점**으로 배치한다.
+- 같은 node를 공유하는 component들은 가능한 한 직렬 chain으로 연결해서 별도 wire 분기·stub 수를 최소화.
+- 적용 예 (positive_feedback): OPAMP V+ pin · R_1(V+→GND) · R_2(V_out→V+)가 같은 V+ 노드 → R_2 좌측 끝과 R_1 top이 같은 column에서 chain 연결, V+ pin에서 그 chain의 junction으로 한 wire만 인입.
+- 결과: junction dot 1곳, wire 분기 1회, 시각적 정렬 명확. 분기 wire가 component box를 통과할 위험도 자동 감소.
+
+## 규칙 #8 — OPAMP open-loop 비교기 케이스 인정
+- OPAMP는 두 가지 동작 모드를 갖는다:
+  1. **closed-loop 증폭기** (반전·비반전·가산·차동·정귀환): output → input(V− 또는 V+) feedback resistor 필수.
+  2. **open-loop 비교기** (comparator): feedback resistor 없음. V+·V−에 입력 신호, V_o는 V_CC 또는 GND 디지털 출력.
+- validator는 OPAMP를 분류해서:
+  - V_o가 외부 단자(label_only annotation)에 직접 연결되고 다른 R/C와 closed loop를 안 형성하면 → 비교기로 인정 → feedback branch 검사 면제.
+  - 그 외에는 closed-loop으로 가정 → feedback resistor 필수.
+
+## 규칙 #9 — RuleSet subject 일관성
+- `resolveRules(subject, ...)`는 항상 `ruleSet.subject = subject`를 보존한다.
+- 다른 subject base 규칙을 차용하더라도(예: mixed_signal이 electronics base 사용) subject 라벨은 원본 subject 유지.
+- validator의 subject_mismatch 검사는 `ruleSet.subject === expected.subject`만 확인하므로 base 차용은 그 검사를 통과한다.
+
+## 규칙 #11 — FF levelize는 FF끼리 의존성으로 column 분리
+- `logicNetworkRenderer`의 `levelizeLogicGates`는 FF(flip-flop)를 단순히 마지막 column에 모두 stack하지 않고, **FF의 입력 의존성**을 따라 column 분리한다.
+- 한 FF의 `inputs` 또는 `clockSignal`이 다른 FF의 `output`에 의존하면 의존되는 FF가 먼저 column에 배치 → 직렬 chain layout.
+- 자기 자신의 output에 의존(feedback)하는 FF는 cycle-breaker로 인정 (ffWithWaveform의 Q_n → D 패턴 유지).
+- 적용 예 (counter_dac_comparator): JK_B.inputs=[Q_A, Q_A]이고 Q_A=JK_A.output → JK_B는 JK_A 다음 column에. 결과: JK_A → JK_B 수평 직렬.
+- 일반화: 모든 multi-FF 회로(카운터·shift register·FSM 등)에 자동 적용 — 직렬 의존이면 직렬 layout, 병렬 독립이면 stack.
+
+## 규칙 #10 — 복합형은 단일 mixed_circuit figure
+- mixed_signal subject의 회로(예: 임용 8번 2-bit 카운터 + DAC + 비교기)는 logic part(JK-FF·게이트)와 analog part(R·OPAMP)를 **하나의 mixed_circuit figure로 통합** 표기한다.
+- 두 part를 별도 figure로 분리하지 마라 — 원본 임용 문제는 단일 회로도.
+- `MixedCircuitDiagram = { logic: LogicNetworkDiagram, analog: CircuitNetlist, bridgeNodes: Record<logicSignal, analogNode> }`.
+- `mixedCircuitRenderer`가 좌측(logic) + 우측(analog) + bridge wire를 단일 SVG로 통합 렌더.
+- bridge wire는 logic의 output(예: Q_A·Q_B)이 analog의 외부 입력 핀(R_QA·R_QB의 좌측)으로 들어가는 라벨된 connection.
+
+# 복합형 (mixed_signal) — 전자회로 + 디지털논리회로 혼합
+
+복합형 subject는 단일 분야로 분류 어려운 하이브리드 회로를 모음:
+- 전자회로 소자(OPAMP·비교기·트랜지스터)와 디지털 논리(FF·게이트·카운터)가 한 회로에 공존
+- 시간영역 파형과 디지털 출력을 함께 분석
+- TopicKey: `counter_dac_comparator`, `adc_sample_hold`, `logic_opamp_hybrid`
+
+## counter_dac_comparator (임용 8번 — 2-bit 동기식 카운터 + R-2R DAC + 비교기)
+- JK 플립플롭 2개(Q_A, Q_B)로 2-bit 카운터 (동기식, J=K=1, Q_A·Q_B 출력)
+- R-2R 저항망으로 디지털→아날로그 변환 (Q_A·Q_B → V_DAC)
+- OPAMP 비교기 (V_DAC vs V_REF) → V_o 출력 (V_CC or GND 디지털 출력)
+- (가) figure: logic + analog 통합 회로도 (JK-FF·DAC 저항망·비교기·클럭·V_CC)
+- (나) figure: 파형 — 클럭, Q_A_bar, Q_B_bar, V_o
+- 학생 단계:
+  1. (가)의 Q_A_bar·Q_B_bar 파형 도시
+  2. (나)의 특정 시점 t에서 비교기 입력 단자 중앙(+) 전압
+  3. (가)의 V_o 출력 파형 도시
+
+# 회로 유형별 생성 규칙 (Circuit-Type Rules)
+
+## RL/RC 스위칭 과도응답 (예: 임용 2번 — V_s+SW+R+L 직렬, v_L(t) 측정)
+- **L 또는 C는 회로 내부에 명시적으로 그려야 함**. 외부 placeholder 박스(R_L·L_? 같은)로 분리 금지.
+- 모든 component(V_s·SW·R·L/C)는 같은 직렬 loop의 일부 — 한 component만 따로 빼지 마라.
+- **단자 a·b**: 측정 대상(v_L, v_C) component의 양 끝 노드에 표기. a=위쪽(+), b=아래쪽(−/GND).
+- **Figure 의무 셋**: (가) SW 열림 회로 또는 SW 동작 명시된 회로, (나) i(t) 또는 v(t) 파형 figure. hasWaveformEvolution=true면 waveform figure 누락 금지.
+- 학생이 풀어야 할 것은 component "값"(L[H], v_L[V])이지 component의 "존재 여부"가 아니다. component 자체를 placeholder로 추상화하지 마라.
+
+## AC 다중 전원 + 중첩의 원리 (예: 임용 10번 — AC V_s + AC I_s + R/L/C, phasor)
+- 입력 전원 표기는 phasor 형식(`20∠-90°V`, `4∠0°A`) 또는 시간영역(`v_s(t)=20cos(ωt-90°)`) 둘 다 가능.
+- 리액티브 소자는 임피던스 표기(`j15Ω`, `-j5Ω`)로 표시.
+- 단자 a·b는 수직 평행 정렬 (Thevenin 단자 같이 같은 vertical line).
+
+## OPAMP finite open-loop gain + 블록도 (예: 임용 11번)
+- (가) 회로: V_in 외부 핀(전압원 박스 없이) + R_1(입력) + A(s) OPAMP + R_2(피드백). V+=GND, V_out 단자.
+- (나) 블록도(signal flow graph): V_in→α→Σ→A(s)→V_out, V_out→β→Σ 피드백. diagramType="block_diagram".
+- A(s) 블록은 **삼각형(OPAMP 심볼)** 으로, α·β는 사각형(gain block).
+- OPAMP V+ pin이 GND에 연결되면 V+ stub 끝에 ground symbol 자동 표시.
+
+## BJT DC bias 회로 — 임용 7번 형식 (small signal 분리)
+- **bjt_bias ≠ bjt_small_signal**: DC bias 회로는 R + V_CC + BJT(V_BE=0.7V 가정) DC 분석. hybrid-π 등가(r_π + VCCS)는 별개 archetype.
+- 회로: V_CC(예 10V) + R_A(베이스 위 분압, 외부 placeholder 가능) + R_B(베이스 아래 분압) + R_C(컬렉터 저항) + R_E(이미터 저항) + BJT.
+- 가정: V_BE = 0.7V, I_E ≈ I_C, 베이스단 부하 효과 무시.
+- 학생이 풀 것: (1) R_A 알 때 V_E → R_B 도출, (2) 저항률 ρ + 단면적 A + 길이 ℓ로 R_A' = ρℓ/A 계산, (3) R_A 교체 후 I_C·V_O 도출.
+- 단자/측정: V_E, V_BE, V_O, I_C, I_E 마크.
+- placeholder: R_A를 점선 박스로 그릴 수 있음 (학생이 단계 2에서 도출하는 변수).
+
+## OPAMP positive feedback (정귀환) — 임용 6번 형식
+- 회로: V_in(SW 통해) → V−, V+ → R_1 → GND, V_out → R_2 → V+ (★ V_out이 V+로 피드백, V−가 아님).
+- A(s) = A_0·ω_0/(s+ω_0). 입력은 V−에 인가.
+- **β = R_1/(R_1+R_2)** — V+ 전압 분배비. V+ = β·V_out.
+- closed-loop transfer V_out/V−(s) = B·ω_0/(s + D·ω_0) 형태. B·D는 β·A_0로 표현.
+- A_0 > 0, D < 0 (예: D = -A_0·β + 1 같은 음수)이면 우반평면 극점 → 시간영역에서 발산하는 응답.
+- 단계별 풀이: (1) β=R_1/(R_1+R_2), (2) B·D를 β·A_0로 표현, (3) 라플라스 역변환으로 V_out(t) 도출 + K 상수.
+- validator 인정 범위: V_out → V+ 피드백도 정상 OPAMP 회로 (V_out → V− 외에).
+- 임용 6번은 SW가 t=0에 닫혀 V−(s) = 1/s 단위 step 입력으로 응답을 보는 형식.
+
 # Important Notes
 1. **AI 모델**: OpenAI GPT-4o (`lib/openai.ts` 싱글톤, `DEFAULT_MODEL`)
 2. **디자인**: 흰 배경 + 파란 글씨(indigo/blue 계열), 모던·미니멀

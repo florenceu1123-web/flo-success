@@ -45,10 +45,9 @@ function isStateTransitionProblem(args: ResolveFigureRolesArgs): boolean {
   // switching_circuit topic — 항상 state pair (이건 정의가 두 상태 비교)
   if (args.topicKey === "switching_circuit") return true;
 
-  // digital_logic — semantic.hasStateTransition (FSM/플립플롭) 신뢰
-  if (args.subjectKey === "digital_logic" && args.semantic.hasStateTransition === true) {
-    return true;
-  }
+  // digital_logic은 state_before/after 트리거에서 제외.
+  //   · state_before/after는 analog switching (t<0 vs t>0) 의미 전용.
+  //   · FSM/플립플롭의 "상태 전이"는 implementation_circuit + (필요 시 concept_diagram 상태도)로 표현.
 
   // analog (circuit_theory/electronics) — semantic 단독 신뢰 안 함.
   //  · GPT가 transient_rc/RL 응답을 "상태 변화"로 misclassify하는 경우 잦음.

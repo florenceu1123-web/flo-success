@@ -375,16 +375,16 @@ export function validateBranchTemplate(branches: BranchTemplate[]): BranchTempla
     }
   }
 
-  // Rule 4: top_rail은 horizontal, vertical leg-류는 vertical
+  // Rule 4: top_rail/bottom_return은 horizontal, vertical leg-류는 vertical
   // dependent_source_leg는 의미상 leg지만 CCVS in series처럼 horizontal로도 들어감 — 제외.
   const VERTICAL_ROLES: TemplateBranchRole[] = [
     "left_source_leg", "right_source_leg", "input_source_leg",
     "switching_leg", "load_leg",
-    "bottom_return",
   ];
+  const HORIZONTAL_ROLES: TemplateBranchRole[] = ["top_rail", "bottom_return"];
   for (const b of branches) {
-    if (b.role === "top_rail" && b.orientation !== "horizontal") {
-      issues.push({ branchId: b.id, rule: "top_rail_orientation", message: `${b.id}: top_rail은 horizontal (현재 ${b.orientation})` });
+    if (HORIZONTAL_ROLES.includes(b.role) && b.orientation !== "horizontal") {
+      issues.push({ branchId: b.id, rule: `${b.role}_orientation`, message: `${b.id}: ${b.role}은 horizontal (현재 ${b.orientation})` });
     }
     if (VERTICAL_ROLES.includes(b.role) && b.orientation !== "vertical") {
       issues.push({ branchId: b.id, rule: "leg_orientation", message: `${b.id} (role=${b.role}): vertical 필요 (현재 ${b.orientation})` });
@@ -521,8 +521,9 @@ export function instantiateAnalogTemplate(
     ...branch,
     instantiated: branch.components.map((req) => {
       const id = req.idOverride ?? makeComponentId(req.type, req.role);
-      // WIRE·OPAMP·BJT·MOSFET — value 없는 component. value lookup skip.
-      if (req.type === "WIRE" || req.type === "OPAMP" || req.type === "BJT" || req.type === "MOSFET") {
+      // WIRE·OPAMP·BJT·MOSFET·SW — value 없는 component. value lookup skip.
+      //   SW: 시각적으로 스위치 심볼만 그려지면 됨. value 대신 state(open/closed)만 의미.
+      if (req.type === "WIRE" || req.type === "OPAMP" || req.type === "BJT" || req.type === "MOSFET" || req.type === "SW") {
         return { id, type: req.type, role: req.role };
       }
       const v = values.find(

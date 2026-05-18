@@ -1,29 +1,37 @@
-import type { SemanticStructure, TopicKey, FigureRole } from "@/types";
+import type { CircuitType, SemanticStructure, TopicKey, FigureRole } from "@/types";
 import type { RuleSet } from "./types";
 
 /**
  * 디지털논리회로 RuleSet 결정.
- * 1차 stub: kmap 토픽이면 kmap+implementation, waveform 토픽이면 waveform 강제.
+ * circuitType이 주어지면 그것을 우선 사용 (flipflop_mixed_app 같은 specialized family).
  */
 export function resolveDigitalRules(args: {
   topicKey?: TopicKey;
   semantic: SemanticStructure;
+  circuitType?: CircuitType;
 }): RuleSet {
   const required: FigureRole[] = [];
-  if (args.topicKey === "kmap_sop" || args.topicKey === "kmap_pos") {
-    required.push("kmap", "implementation_circuit");
-  }
-  if (args.topicKey === "flipflop_counter") {
-    required.push("kmap", "implementation_circuit");
-  }
-  if (args.topicKey === "combinational_gate") {
-    required.push("kmap", "implementation_circuit");
-  }
-  if (args.topicKey === "fsm") {
-    required.push("implementation_circuit");   // state_diagram은 trigger 기반으로 추가
-  }
-  if (args.topicKey === "waveform_analysis" || args.semantic.hasWaveformEvolution) {
-    required.push("waveform");
+  // ff_with_waveform: 단일 FF + 조합부 + 파형 (임용 8번 형식) — implementation_circuit + waveform
+  if (args.circuitType === "ff_with_waveform") {
+    required.push("implementation_circuit", "waveform");
+  } else if (args.circuitType === "flipflop_mixed_app") {
+    required.push("implementation_circuit", "truth_table", "waveform");
+  } else {
+    if (args.topicKey === "kmap_sop" || args.topicKey === "kmap_pos") {
+      required.push("kmap", "implementation_circuit");
+    }
+    if (args.topicKey === "flipflop_counter") {
+      required.push("kmap", "implementation_circuit");
+    }
+    if (args.topicKey === "combinational_gate") {
+      required.push("kmap", "implementation_circuit");
+    }
+    if (args.topicKey === "fsm") {
+      required.push("implementation_circuit");   // state_diagram은 trigger 기반으로 추가
+    }
+    if (args.topicKey === "waveform_analysis" || args.semantic.hasWaveformEvolution) {
+      required.push("waveform");
+    }
   }
   return {
     subject: "digital_logic",

@@ -63,7 +63,9 @@ export type OpampArchetype =
   | "summing"
   | "difference"
   | "voltage_follower"
-  | "cascade";   // 2-OPAMP 직렬 — 임용 5번 (가) 패턴
+  | "cascade"               // 2-OPAMP 직렬 — 임용 5번 (가) 패턴
+  | "inverting_finite_gain" // finite open-loop gain A(s) + (나) 블록도 — 임용 11번
+  | "positive_feedback";    // V_out → V+ 피드백 + SW step 입력 — 임용 6번 형식
 
 export type OpampGeneration = {
   netlist: CircuitNetlist;
@@ -85,6 +87,11 @@ export type OpampGeneration = {
    */
   secondaryNetlist?: CircuitNetlist;
   secondaryLabel?: string;
+  /**
+   * inverting_finite_gain archetype 전용 — (나) 블록도(signal flow graph).
+   * V_in →α→ ⊕ →A(s)→ V_out, V_out →β→ ⊕ (피드백)
+   */
+  secondaryBlockDiagram?: import("@/types").BlockDiagram;
 };
 
 // kΩ 단위 — OPAMP에서 전형
@@ -102,12 +109,14 @@ export function generateOpamp(args: {
       rand,
     );
   switch (archetype) {
-    case "inverting":        return buildInverting(rand);
-    case "non_inverting":    return buildNonInverting(rand);
-    case "summing":          return buildSumming(rand);
-    case "difference":       return buildDifference(rand);
-    case "voltage_follower": return buildVoltageFollower(rand);
-    case "cascade":          return buildCascade(rand);
+    case "inverting":             return buildInverting(rand);
+    case "non_inverting":         return buildNonInverting(rand);
+    case "summing":               return buildSumming(rand);
+    case "difference":            return buildDifference(rand);
+    case "voltage_follower":      return buildVoltageFollower(rand);
+    case "cascade":               return buildCascade(rand);
+    case "inverting_finite_gain": return buildInvertingFiniteGain(rand);
+    case "positive_feedback":     return buildPositiveFeedback(rand);
   }
 }
 
@@ -453,10 +462,7 @@ function buildSumming(rand: () => number): OpampGeneration {
 
   const netlist = assembleViaBranchTemplate({
     branches: [
-      { id: "br_Vs1", role: "input_source_leg", orientation: "vertical", fromNode: "V1n", toNode: "GND",
-        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs1" }] },
-      { id: "br_Vs2", role: "input_source_leg", orientation: "vertical", fromNode: "V2n", toNode: "GND",
-        components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "Vs2" }] },
+      // input 전압원은 외부 핀(V_1, V_2 라벨)으로 대체 — 회로도 단순화. 정답값은 solverNet에서 사용.
       { id: "br_R1", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V1n", toNode: "Vminus",
         components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R1" }] },
       { id: "br_R2", role: "opamp_input_resistor", orientation: "horizontal", fromNode: "V2n", toNode: "Vminus",
@@ -468,15 +474,27 @@ function buildSumming(rand: () => number): OpampGeneration {
         components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "U1" }] },
     ],
     values: [
-      { branchId: "br_Vs1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
-      { branchId: "br_Vs2", componentRole: "voltage_source", type: "V", value: `${V2}V` },
       { branchId: "br_R1", componentRole: "input_resistor", type: "R", value: `${R1_k}kΩ` },
       { branchId: "br_R2", componentRole: "input_resistor", type: "R", value: `${R2_k}kΩ` },
       { branchId: "br_Rf", componentRole: "feedback_resistor", type: "R", value: `${Rf_k}kΩ` },
     ],
     metadata: {
-      nodeAnnotations: [{ node: "Vout", label: "V_out", style: "label_only" }],
+      nodeAnnotations: [
+        // 외부 input 핀 라벨 — 전압원 박스 대신 V_1·V_2 단자 표기
+        { node: "V1n", label: `V_1 = ${V1}V`, style: "label_only" },
+        { node: "V2n", label: `V_2 = ${V2}V`, style: "label_only" },
+        { node: "Vout", label: "V_out", style: "label_only" },
+      ],
       measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+      // 외부 input 단자가 좌측에 위치하도록 V1n·V2n을 좌측 끝에 배치.
+      //   y 간격은 200px 이상으로 분리해 "V_1 = ..." 라벨과 "V_2 = ..." 라벨이 시각적으로 겹치지 않게.
+      positions: {
+        V1n:    { x: 60,  y: 140 },
+        V2n:    { x: 60,  y: 340 },
+        Vminus: { x: 520, y: 240 },
+        Vout:   { x: 760, y: 240 },
+        GND:    { x: 300, y: 440 },
+      },
     },
   });
 
@@ -559,6 +577,19 @@ function buildDifference(rand: () => number): OpampGeneration {
     metadata: {
       nodeAnnotations: [{ node: "Vout", label: "V_out", style: "label_only" }],
       measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+      // 명시적 positions — Vs1·Vs2가 서로 다른 column에 그려지도록 (auto-layout 겹침 방지).
+      // Vs1 (V- 경로): 좌측 column
+      // Vs2 (V+ 경로): 그 우측 column
+      // Vplus·Vminus: OPAMP 좌측 입력 column
+      // Vout: OPAMP 우측 출력 column
+      positions: {
+        V1n:    { x: 120, y: 220 },
+        V2n:    { x: 300, y: 220 },
+        Vminus: { x: 520, y: 180 },
+        Vplus:  { x: 520, y: 260 },
+        Vout:   { x: 760, y: 220 },
+        GND:    { x: 300, y: 400 },
+      },
     },
   });
 
@@ -630,5 +661,237 @@ function buildVoltageFollower(rand: () => number): OpampGeneration {
     archetype: "voltage_follower",
     gainFormula: `V_out = V_in = ${Vin} V (단일 이득 버퍼 — 임피던스 변환용)`,
     values: { V_in: Vin },
+  };
+}
+
+// =====================================================================
+// Archetype 7: Inverting OPAMP with finite open-loop gain A(s) — 임용 11번
+//   V_in → R1 → V- → A(s) → V_out, V_out → R2 → V- (피드백)
+//   V+ = GND. A(s) = A_0·ω_0/(s+ω_0).
+//   α = R2/(R1+R2), β = R1/(R1+R2)
+//   A_v = V_out/V_in = -α·A(s)/(1+β·A(s))
+//   DC 극한 (s→0, A(s)→A_0): A_v ≈ -α·A_0/(1+β·A_0)
+//   ideal 한계 (A_0→∞): A_v → -α/β = -R2/R1
+//
+//   (가) figure: 회로도 (analog_netlist) — V_in 외부 핀, R1, R2, OPAMP A(s), V_out
+//   (나) figure: 블록도 (block_diagram) — V_in →α→ ⊕ →A(s)→ V_out, V_out →β→ ⊕
+// =====================================================================
+function buildInvertingFiniteGain(rand: () => number): OpampGeneration {
+  // 임용 11번 단계 3 값을 default로 사용, exam_variant도 동일 구조 (값만 변형 가능)
+  const R1_k = pick([1, 2, 5], rand);
+  const R2_k = pick([99, 50, 20, 10], rand);
+  const A0 = pick([1e5, 5e4, 2e5], rand);
+  const Vin = pick([0.1, 0.2, 0.5], rand);
+
+  const R1 = R1_k * 1000;
+  const R2 = R2_k * 1000;
+  const alpha = R2 / (R1 + R2);
+  const beta_ = R1 / (R1 + R2);
+  // DC 극한 closed-loop gain
+  const Av_dc = -alpha * A0 / (1 + beta_ * A0);
+  const Vout = round3(Av_dc * Vin);
+
+  const solverNet: SolverNetwork = {
+    nodeIds: ["V_in_node", "Vminus", "Vout"],
+    groundId: "GND",
+    resistors: [
+      { id: "R1", a: "V_in_node", b: "Vminus", R: R1 },
+      { id: "R2", a: "Vminus", b: "Vout", R: R2 },
+    ],
+    vsources: [{ id: "Vs_internal", a: "V_in_node", b: "GND", V: Vin }], // 정답 계산용 (그리지 않음)
+    isources: [],
+    opamps: [{ id: "U1", vp: "GND", vn: "Vminus", vo: "Vout" }],
+  };
+  // ideal OPAMP solver 사용 (V_out_ideal = -R2/R1·V_in). 표시용 값은 finite-gain Av_dc 사용.
+  // 솔버 결과는 V_out_ideal로 검증/내부, 표시 V_out은 Av_dc 기반.
+
+  const netlist = assembleViaBranchTemplate({
+    branches: [
+      // V_in 외부 핀 (전압원 박스 안 그림). label_only annotation으로 V_in 표기.
+      { id: "br_R1", role: "opamp_input_resistor", orientation: "horizontal",
+        fromNode: "V_in_node", toNode: "Vminus",
+        components: [{ type: "R", role: "input_resistor", order: 1, required: true, idOverride: "R_1" }] },
+      { id: "br_R2", role: "opamp_feedback_resistor", orientation: "horizontal",
+        fromNode: "Vminus", toNode: "Vout",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_2" }] },
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal",
+        fromNode: "Vminus", toNode: "Vout",
+        opampNodes: { vp: "GND", vn: "Vminus", vo: "Vout" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "A(s)" }] },
+    ],
+    values: [
+      { branchId: "br_R1", componentRole: "input_resistor", type: "R", value: `${R1_k}kΩ` },
+      { branchId: "br_R2", componentRole: "feedback_resistor", type: "R", value: `${R2_k}kΩ` },
+    ],
+    metadata: {
+      nodeAnnotations: [
+        { node: "V_in_node", label: `V_in`, style: "label_only" },
+        { node: "Vminus", label: "V−", style: "label_only" },
+        { node: "Vout", label: "V_out", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+      positions: {
+        V_in_node: { x: 80,  y: 220 },
+        Vminus:    { x: 360, y: 220 },
+        Vout:      { x: 720, y: 220 },
+        GND:       { x: 520, y: 400 },
+      },
+    },
+  });
+
+  // (나) 블록도: V_in →α→ Σ →A(s)→ V_out, V_out →β→ Σ
+  const secondaryBlockDiagram: import("@/types").BlockDiagram = {
+    nodes: [
+      { id: "in",  kind: "input",    label: "V_in",  x: 60,  y: 100 },
+      { id: "sum", kind: "junction",                  x: 220, y: 100 },
+      { id: "out", kind: "output",   label: "V_out", x: 540, y: 100 },
+    ],
+    blocks: [
+      { id: "alpha", label: "α",    x: 140, y: 100 },
+      { id: "As",    label: "A(s)", x: 380, y: 100, shape: "triangle", width: 90, height: 60 },
+      { id: "beta",  label: "β",    x: 380, y: 200 },
+    ],
+    edges: [
+      { from: "in",    to: "alpha", routeHint: "direct" },
+      { from: "alpha", to: "sum",   routeHint: "direct" },
+      { from: "sum",   to: "As",    routeHint: "direct" },
+      { from: "As",    to: "out",   routeHint: "direct" },
+      // 피드백: V_out → β → Σ (아래 채널로 우회)
+      { from: "out",   to: "beta",  routeHint: "below" },
+      { from: "beta",  to: "sum",   routeHint: "below" },
+    ],
+  };
+
+  return {
+    netlist,
+    solverNet,
+    Vout,
+    Vminus: 0,
+    Vplus: 0,
+    target: "Vout",
+    targetValue: Vout,
+    targetLabel: "V_{out}",
+    archetype: "inverting_finite_gain",
+    gainFormula:
+      `A_v = -α·A(s)/(1+β·A(s)), α=R_2/(R_1+R_2)=${alpha.toFixed(4)}, β=R_1/(R_1+R_2)=${beta_.toFixed(4)}. ` +
+      `DC 극한: A_v ≈ -α·A_0/(1+β·A_0) = ${Av_dc.toFixed(3)} ⇒ V_out ≈ ${Vout} V (V_in=${Vin}V).`,
+    values: {
+      R_1_kohm: R1_k,
+      R_2_kohm: R2_k,
+      A_0: A0,
+      V_in: Vin,
+      alpha,
+      beta: beta_,
+      Av_dc,
+    },
+    secondaryBlockDiagram,
+    secondaryLabel: "(나) 블록도",
+  };
+}
+
+// =====================================================================
+// Archetype 8: Positive feedback OPAMP (정귀환) — 임용 6번
+//   V_in → SW → V−, V+ → R_1 → GND, V_out → R_2 → V+
+//   A(s) = A_0·ω_0/(s+ω_0)
+//   β = R_1/(R_1+R_2)
+//   V_out/V−(s) = -A(s)/(1 - β·A(s)) = B·ω_0/(s + D·ω_0)
+//   B = -A_0, D = 1 - β·A_0  (β·A_0 > 1이면 D<0 → 발산 응답)
+//   V−(s) = 1/s → V_out(s) = K·(1/s − 1/(s+D·ω_0)), K = B/D
+// =====================================================================
+function buildPositiveFeedback(rand: () => number): OpampGeneration {
+  // 임용 6번 default: R_1=1kΩ, R_2=9kΩ → β=0.1, A_0=10^5, D=-10^4, K=10
+  const R1_k = pick([1, 2, 5], rand);
+  const R2_k = pick([9, 18, 45, 99], rand);
+  const A0 = pick([1e5, 5e4, 2e5], rand);
+  // 입력은 SW step 1V (V−(s) = 1/s in Laplace domain)
+  const Vin = 1;
+
+  const R1 = R1_k * 1000;
+  const R2 = R2_k * 1000;
+  const beta_ = R1 / (R1 + R2);
+  const B = -A0;
+  const D = 1 - beta_ * A0; // D < 0 (positive feedback)
+  const K_const = B / D;
+  // DC limit (s→0): V_out_dc = K·(1 − 1) = 0. 시간영역 응답은 K·(1 − e^(-D·ω_0·t))이지만
+  // D<0이면 +∞로 발산. solverNet은 가짜 ideal 풀이로 placeholder 값 사용.
+  const Vout_dc = round3(K_const);
+
+  // solver (ideal로 풀이 안 됨 — positive feedback이면 ideal limit이 발산). placeholder solver 사용.
+  const solverNet: SolverNetwork = {
+    nodeIds: ["V_in_node", "Vplus", "Vminus", "Vout"],
+    groundId: "GND",
+    resistors: [
+      { id: "R_1", a: "Vplus", b: "GND",   R: R1 },
+      { id: "R_2", a: "Vout",  b: "Vplus", R: R2 },
+    ],
+    vsources: [{ id: "Vs_internal", a: "V_in_node", b: "GND", V: Vin }],
+    isources: [],
+    opamps: [{ id: "U1", vp: "Vplus", vn: "Vminus", vo: "Vout" }],
+  };
+
+  const netlist = assembleViaBranchTemplate({
+    branches: [
+      // 좌측 vertical chain: V_s(직류 전압원) + SW(t=0 닫힘) → V−.
+      //   switching_leg vertical 규칙 준수. V_s가 chain에 포함되어 V_in_node 별도 외부 핀 불필요.
+      //   chain: Vminus → mid → GND. ci=0 SW, ci=1 V_s (혹은 반대 순서).
+      { id: "br_Vs_SW", role: "switching_leg", orientation: "vertical",
+        fromNode: "Vminus", toNode: "GND",
+        components: [
+          { type: "SW", role: "switch", order: 1, required: true, idOverride: "SW" },
+          { type: "V",  role: "voltage_source", order: 2, required: true, idOverride: "V_s" },
+        ] },
+      // R_1: Vplus → GND (V+ 분배 leg, vertical)
+      { id: "br_R1", role: "load_leg", orientation: "vertical",
+        fromNode: "Vplus", toNode: "GND",
+        components: [{ type: "R", role: "ground_resistor", order: 1, required: true, idOverride: "R_1" }] },
+      // R_2: Vout → Vplus (★ V_out에서 V+로 피드백 — positive feedback)
+      { id: "br_R2", role: "opamp_feedback_resistor", orientation: "horizontal",
+        fromNode: "Vout", toNode: "Vplus",
+        components: [{ type: "R", role: "feedback_resistor", order: 1, required: true, idOverride: "R_2" }] },
+      // OPAMP A(s)
+      { id: "br_U1", role: "opamp_block", orientation: "horizontal",
+        fromNode: "Vminus", toNode: "Vout",
+        opampNodes: { vp: "Vplus", vn: "Vminus", vo: "Vout" },
+        components: [{ type: "OPAMP", role: "opamp", order: 1, required: false, idOverride: "A(s)" }] },
+    ],
+    values: [
+      { branchId: "br_Vs_SW", componentRole: "voltage_source", type: "V", value: `${Vin}V` },
+      { branchId: "br_R1", componentRole: "ground_resistor", type: "R", value: `${R1_k}kΩ` },
+      { branchId: "br_R2", componentRole: "feedback_resistor", type: "R", value: `${R2_k}kΩ` },
+    ],
+    metadata: {
+      nodeAnnotations: [
+        { node: "Vminus", label: "V−", style: "label_only" },
+        { node: "Vplus", label: "V+", style: "label_only" },
+        { node: "Vout", label: "V_out", style: "label_only" },
+      ],
+      measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_out" }],
+    },
+  });
+
+  return {
+    netlist,
+    solverNet,
+    Vout: Vout_dc,
+    Vminus: 0,
+    Vplus: 0,
+    target: "Vout",
+    targetValue: Vout_dc,
+    targetLabel: "V_{out}",
+    archetype: "positive_feedback",
+    gainFormula:
+      `β = R_1/(R_1+R_2) = ${beta_.toFixed(4)}. ` +
+      `V_out/V−(s) = B·ω_0/(s + D·ω_0), B = −A_0 = ${B.toExponential()}, D = 1 − β·A_0 = ${D.toExponential()}. ` +
+      `V−(s) = 1/s → V_out(s) = K·(1/s − 1/(s + D·ω_0)), K = B/D = ${K_const.toFixed(3)}.`,
+    values: {
+      R_1_kohm: R1_k,
+      R_2_kohm: R2_k,
+      A_0: A0,
+      V_in: Vin,
+      beta: beta_,
+      B,
+      D,
+      K: K_const,
+    },
   };
 }

@@ -6,6 +6,9 @@ import type {
   SubjectKey,
   TopicKey,
 } from "@/types";
+import { createLogger } from "@/lib/logger";
+
+const classifierLog = createLogger("lib/analysis/classifyCircuitType");
 
 /**
  * AnalysisResult에서 CircuitType과 generator-friendly params를 derive한다.
@@ -28,9 +31,54 @@ export function classifyCircuitType(
   analysis: AnalysisResult,
   subject: SubjectKey,
 ): CircuitTypeClassification {
+  // mixed_signal: 전자회로 + 디지털논리회로 혼합 — 임용 8번 (2-bit JK 카운터 + DAC + 비교기) 등
+  if (subject === "mixed_signal") {
+    const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    const counterDacComparatorKeywords = [
+      "2비트 카운터", "2-bit 카운터", "2비트 동기식", "2-bit 동기식",
+      "카운터와 d/a", "카운터 + d/a", "카운터·d/a",
+      "d/a 변환기", "dac", "디지털 아날로그",
+      "비교기", "comparator",
+      "jk 플립플롭", "jk-ff", "jk플립플롭",
+      "r-2r", "r2r",
+    ];
+    if (analysis.topicKey === "counter_dac_comparator" || matchesKeyword(text, counterDacComparatorKeywords)) {
+      return {
+        type: "counter_dac_comparator",
+        params: {},
+        confidence: "high",
+        reasoning: "mixed_signal + 카운터/DAC/비교기 키워드",
+      };
+    }
+    return {
+      type: "unsupported",
+      params: {},
+      confidence: "low",
+      reasoning: "mixed_signal subject지만 archetype 미지원",
+    };
+  }
   // electronics: opamp만 우선 처리, 나머지(BJT/MOSFET 등)는 후속
   if (subject === "electronics") {
     const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    const family = analysis.topologySignature?.family;
+    // BJT DC bias 회로 — small_signal보다 우선. DC bias 특유 키워드 또는 family="bjt_bias".
+    const bjtBiasKeywords = [
+      "직류 바이어스", "직류바이어스", "dc bias", "dc 바이어스",
+      "v_be = 0.7", "vbe = 0.7", "v_be=0.7", "vbe=0.7",
+      "이미터 전압 v_e", "이미터 전압",
+      "저항률", "resistivity",
+      "i_e = i_c", "ie = ic", "i_e≈i_c",
+      "동작점", "operating point",
+      "베이스단", "베이스 단",
+    ];
+    if (family === "bjt_bias" || matchesKeyword(text, bjtBiasKeywords)) {
+      return {
+        type: "bjt_bias",
+        params: {},
+        confidence: "high",
+        reasoning: "electronics + BJT DC bias 키워드/family",
+      };
+    }
     // BJT 소신호 등가
     if (analysis.topicKey === "bjt_amplifier" || matchesKeyword(text, ["BJT", "트랜지스터", "소신호", "small-signal", "small signal", "hybrid-π", "hybrid pi", "공통 에미터", "common emitter", "common-emitter", "공통에미터", "g_m", "r_π", "r_pi", "베이스", "컬렉터", "에미터"])) {
       return {
@@ -98,6 +146,45 @@ export function classifyCircuitType(
   // digital_logic: kmap_sop / kmap_pos / flipflop_counter, 나머지(FSM 등)는 후속
   if (subject === "digital_logic") {
     const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    // FF + 파형 + (선택)비동기 RESET — 임용 8번 형식 (waveform_analysis보다 우선).
+    // FF 검출은 키워드 외에도 (a) hasStateTransition flag, (b) signals.outputs에 Q 존재로도 추론.
+    const ffKwText = matchesKeyword(text, ["플립플롭", "flip-flop", "flipflop", "FF", "D-FF", "T-FF", "JK-FF"]);
+    const outputsHaveQ = (analysis.signals?.outputs ?? []).some((s) => /^Q\d*$|^Q_/.test(s) || s === "Q");
+    const ffInferred = ffKwText || Boolean(analysis.semantic?.hasStateTransition) || outputsHaveQ;
+    const waveformKw = matchesKeyword(text, ["입력 파형", "출력 파형", "타이밍도", "timing diagram", "사각파", "파형"]);
+    const resetKw = matchesKeyword(text, ["RESET", "리셋", "비동기 리셋", "비동기 RESET", "asynchronous reset"]);
+    const asyncKw = matchesKeyword(text, ["비동기", "asynchronous"]);
+    const propDelayKw = matchesKeyword(text, ["전파 지연", "propagation delay", "버퍼 지연", "버퍼의 전파", "tp"]);
+    // 입력 A·B·C + 출력 Q 또는 X·Y 패턴 — 임용 8번 시그니처
+    const inputs = analysis.signals?.inputs ?? [];
+    const hasInputsABC = ["A", "B", "C"].every((v) => inputs.includes(v));
+    const outputs = analysis.signals?.outputs ?? [];
+    const hasOutputsXY = outputs.includes("X") || outputs.includes("Y");
+    // ff_with_waveform 매치 — 파형 키워드 외에도 RESET/비동기/전파지연/입력ABC 시그니처로도 매치.
+    // 임용 8번 텍스트에서 "파형" 키워드가 빠진 경우에도 분류가 안정적이도록 조건 완화.
+    const ffWaveformMatch =
+      ffInferred && (waveformKw || resetKw || asyncKw || propDelayKw || (hasInputsABC && (outputsHaveQ || hasOutputsXY)));
+    if (ffWaveformMatch) {
+      const ffTypes: Array<"D" | "T" | "JK"> = [];
+      if (matchesKeyword(text, ["D 플립플롭", "D-FF", "D 플립"])) ffTypes.push("D");
+      if (matchesKeyword(text, ["T 플립플롭", "T-FF", "T 플립"])) ffTypes.push("T");
+      if (matchesKeyword(text, ["JK 플립플롭", "JK-FF", "JK 플립"])) ffTypes.push("JK");
+      // hasAsyncReset: RESET 키워드 명시 detect 시 true. 그 외엔 omit해서 archetype default(true)가 적용되도록.
+      const params: CircuitTypeParams = {};
+      if (ffTypes.length > 0) params.ffTypes = ffTypes;
+      if (resetKw || asyncKw) params.hasAsyncReset = true;
+      const reasons: string[] = ["FF"];
+      if (waveformKw) reasons.push("파형");
+      if (resetKw || asyncKw) reasons.push("RESET/비동기");
+      if (propDelayKw) reasons.push("전파지연(tp)");
+      if (hasInputsABC) reasons.push("입력 A·B·C");
+      return {
+        type: "ff_with_waveform",
+        params,
+        confidence: "high",
+        reasoning: `digital_logic + ${reasons.join(" + ")}`,
+      };
+    }
     if (analysis.topicKey === "waveform_analysis" || matchesKeyword(text, ["입력 파형", "출력 파형", "타이밍도", "timing diagram", "사각파", "파형 분석"])) {
       return {
         type: "waveform_analysis",
@@ -114,12 +201,38 @@ export function classifyCircuitType(
         reasoning: "digital_logic + FSM 키워드/topic",
       };
     }
-    if (analysis.topicKey === "flipflop_counter" || matchesKeyword(text, ["플립플롭", "flip-flop", "flipflop", "카운터", "counter", "순차", "동기식"])) {
+    // T·JK 또는 둘 이상 FF 타입 혼합 + 상태표/파형이 있는 응용회로는 flipflop_mixed_app로 분류 (flipflop_counter보다 우선)
+    const hasTFf = matchesKeyword(text, ["T 플립플롭", "T-FF", "T 플립", "T-플립", "T flip-flop", "T flipflop"]);
+    const hasJkFf = matchesKeyword(text, ["JK 플립플롭", "JK-FF", "JK 플립", "JK-플립", "JK flip-flop", "JK flipflop"]);
+    const hasStateTableKw = matchesKeyword(text, ["상태표", "상태 표", "다음 상태", "현재 상태", "state table"]);
+    const hasWaveformKw = matchesKeyword(text, ["파형", "타이밍도", "timing diagram", "waveform", "출력 파형"]);
+    if ((hasTFf && hasJkFf) || ((hasTFf || hasJkFf) && (hasStateTableKw || hasWaveformKw))) {
+      const ffTypes: Array<"D" | "T" | "JK"> = [];
+      if (hasTFf) ffTypes.push("T");
+      if (hasJkFf) ffTypes.push("JK");
+      if (ffTypes.length === 0) ffTypes.push("T");
+      return {
+        type: "flipflop_mixed_app",
+        params: {
+          ffTypes,
+          hasStateTable: hasStateTableKw,
+          hasWaveform: hasWaveformKw,
+        },
+        confidence: "high",
+        reasoning: `digital_logic + ${ffTypes.join("·")}-FF 혼합 응용회로 (상태표/파형 동반)`,
+      };
+    }
+    // flipflop_counter — "카운터" 의미가 명시적이어야 매치. 단순히 "플립플롭" 키워드만으로는 매치 안 됨.
+    //   임용 8번처럼 FF가 있지만 카운터가 아닌 응용회로가 잘못 잡히지 않도록.
+    if (
+      analysis.topicKey === "flipflop_counter" ||
+      matchesKeyword(text, ["카운터", "counter", "모듈로", "modulo", "분주", "분주기", "계수기", "동기식 카운터", "비동기식 카운터"])
+    ) {
       return {
         type: "flipflop_counter",
         params: {},
         confidence: "high",
-        reasoning: "digital_logic + 플립플롭/카운터 키워드/topic",
+        reasoning: "digital_logic + 카운터/계수기 키워드/topic",
       };
     }
     // K-map + 회로 빈칸 게이트 (ⓐ/ⓑ 등)이 함께 나오면 multi-output 조합회로로 분류 — kmap_sop보다 우선.
@@ -197,15 +310,35 @@ export function classifyCircuitType(
     hasLoadPlaceholder: matchesKeyword(text, LOAD_PLACEHOLDER_KEYWORDS),
   };
 
-  const { type, confidence, reasoning } = decideType({
+  // inventory의 V·I value/label에 phasor 패턴(∠, j숫자) 있는지 — GPT 텍스트 키워드가
+  // 부족할 때를 위한 안전망. 임용 10번처럼 텍스트에 키워드가 빠지더라도 inventory에서 매치.
+  const inv = analysis.componentInventory ?? [];
+  const hasACInventory = inv.some((c) => {
+    if (c.type !== "V" && c.type !== "I" && c.type !== "L" && c.type !== "C") return false;
+    const v = String(c.value ?? "");
+    return /∠|\bj\s*\d|페이저|phasor|cos\s*\(|sin\s*\(|ωt/i.test(v);
+  });
+
+  const decision = decideType({
     topicKey,
     features,
     semantic,
     counts,
     text,
+    hasACInventory,
   });
 
-  return { type, params, confidence, reasoning };
+  // decide가 추가 hint params를 줬으면 외부 base params에 merge.
+  const finalParams: CircuitTypeParams = { ...params, ...(decision.params ?? {}) };
+  classifierLog.info("classify_result", {
+    type: decision.type,
+    confidence: decision.confidence,
+    reasoning: decision.reasoning,
+    counts,
+    hasACInventory,
+    textPreview: text.slice(0, 200),
+  });
+  return { type: decision.type, params: finalParams, confidence: decision.confidence, reasoning: decision.reasoning };
 }
 
 // ─── 키워드 셋 ─────────────────────────────────
@@ -221,6 +354,17 @@ const NORTON_KEYWORDS = ["노턴", "norton"];
 const MAX_POWER_KEYWORDS = ["최대 전력", "최대전력", "max power transfer", "maximum power"];
 const SUPERMESH_KEYWORDS = ["슈퍼메시", "supermesh", "super mesh"];
 const SUPERNODE_KEYWORDS = ["슈퍼노드", "supernode", "super node"];
+// AC 중첩의 원리 — 임용 10번 형식
+const SUPERPOSITION_KEYWORDS = [
+  "중첩의 원리", "중첩원리", "중첩 원리", "superposition",
+];
+const AC_PHASOR_KEYWORDS = [
+  "페이저", "phasor", "∠", "교류 전압원", "교류 전류원", "교류 전압", "교류 전류",
+  "교류", "ac source", "ac 회로",
+  "정현파", "ωt", "sin(", "cos(", "ω t", "ω·t",
+  "v_s(t)", "i_s(t)", "v_s (t)", "i_s (t)",
+  "임피던스", "impedance",
+];
 
 // 디지털 — K-map 본문 키워드 (kmap_sop/pos·combinational_gate 분기 공용)
 const KMAP_KEYWORDS = ["k-map", "kmap", "카르노", "karnaugh"];
@@ -280,13 +424,52 @@ type DecideArgs = {
   features: Partial<NonNullable<AnalysisResult["topologySignature"]>["features"]>;
   semantic: Partial<NonNullable<AnalysisResult["semantic"]>>;
   counts: Counts;
+  hasACInventory?: boolean;
   text: string;
 };
 
-type DecideResult = { type: CircuitType; confidence: "high" | "medium" | "low"; reasoning: string };
+type DecideResult = {
+  type: CircuitType;
+  confidence: "high" | "medium" | "low";
+  reasoning: string;
+  /** decide 단계에서 결정되는 generator hint params (외부 기본 params에 merge). */
+  params?: CircuitTypeParams;
+};
 
 function decideType(args: DecideArgs): DecideResult {
-  const { topicKey, features, semantic, counts, text } = args;
+  const { topicKey, features, semantic, counts, text, hasACInventory } = args;
+
+  // 0. AC 중첩의 원리 — 모든 분류보다 우선 (임용 10번 형식).
+  //    트리거: (a) 명시적 "중첩" 키워드 OR
+  //            (b) AC/페이저 키워드 OR
+  //            (c) j임피던스/∠ 표기 매치 OR
+  //            (d) inventory의 V·I·L·C value에 phasor 패턴 (안전망 — 텍스트 키워드 부족 시) OR
+  //            (e) V·I 다중 + C 또는 L 존재 (임용 10번 시그니처)
+  const isSuperpositionText = matchesKeyword(text, SUPERPOSITION_KEYWORDS) || matchesKeyword(text, ["중첩"]);
+  const isACText = matchesKeyword(text, AC_PHASOR_KEYWORDS);
+  const hasJImpedancePattern = /[+\-]?\bj\s*\d+\s*[Ωohm]/i.test(text) || /∠/.test(text);
+  const hasBothSources = counts.V > 0 && counts.I > 0;
+  const hasReactive = counts.C > 0 || counts.L > 0;
+  const acSuperpositionMatch =
+    isSuperpositionText ||
+    isACText ||
+    hasJImpedancePattern ||
+    Boolean(hasACInventory) ||
+    (hasBothSources && hasReactive);
+  if (acSuperpositionMatch) {
+    const reasons: string[] = [];
+    if (isSuperpositionText) reasons.push("중첩 키워드");
+    if (isACText) reasons.push("AC/페이저 키워드");
+    if (hasJImpedancePattern) reasons.push("j임피던스 패턴");
+    if (hasACInventory) reasons.push("inventory phasor");
+    if (hasBothSources) reasons.push(`V·I 다중(V=${counts.V},I=${counts.I})`);
+    if (hasReactive) reasons.push(`C/L 존재(C=${counts.C},L=${counts.L})`);
+    return {
+      type: "ac_superposition",
+      confidence: "high",
+      reasoning: `AC 중첩 매치 — ${reasons.join(", ")}`,
+    };
+  }
 
   // 1. 과도응답 — 가장 우선 (capacitor/inductor가 있으면 다른 분류보다 우선)
   if (topicKey === "transient_rc" || (counts.C > 0 && semantic.hasWaveformEvolution)) {
@@ -313,7 +496,9 @@ function decideType(args: DecideArgs): DecideResult {
     return { type: "dc_supernode", confidence: "high", reasoning: "supernode 특징 또는 키워드" };
   }
 
-  // 3. 등가회로 — 텍스트 키워드 + topic 보조
+  // 3. 등가회로 — 텍스트 키워드 + topic 보조.
+  // 종속 전원이 함께 있어도 등가회로(Thevenin/Norton/max_power) 우선.
+  // params.hasDependentSource는 외부에서 features 기반으로 자동 전달되어 generator가 archetype 선택.
   const isEquivalent = semantic.hasEquivalentTransformation
     || matchesKeyword(text, EQUIVALENT_KEYWORDS);
   if (isEquivalent) {

@@ -9,6 +9,7 @@ const ALIAS_GROUPS: string[][] = [
   ["equivalent_circuit", "thevenin_equivalent", "norton_equivalent"],
   ["implementation_circuit", "logic_implementation"],
   ["waveform", "input_waveform", "output_waveform", "measurement_waveform"],
+  ["truth_table", "state_table"],
 ];
 
 /** role이 속한 alias 그룹 반환. 없으면 [role] 단일. */

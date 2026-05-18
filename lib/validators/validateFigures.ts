@@ -29,6 +29,12 @@ export function validateFigures(figures: FigureVariant[]): ValidationResult {
       const v = validateNetlistRenderable(d);
       for (const e of v.errors) issues.push({ rule: "netlist_renderable", message: `${f.id}: ${e}` });
       // dangling: 같은 node에 묶인 pin이 1개뿐이면
+      // 단, label_only annotation 노드(외부 입력/출력 단자) + ground는 면제
+      const externalTerminals = new Set<string>();
+      for (const ann of d.nodeAnnotations ?? []) {
+        if (ann.style === "label_only") externalTerminals.add(ann.node);
+      }
+      if (d.ground) externalTerminals.add(d.ground);
       const degree = new Map<string, number>();
       for (const c of d.components ?? []) {
         for (const p of c.pins ?? []) {
@@ -37,6 +43,7 @@ export function validateFigures(figures: FigureVariant[]): ValidationResult {
         }
       }
       for (const [node, deg] of degree) {
+        if (externalTerminals.has(node)) continue;
         // CONNECTION_LAYOUT_RULES.minNodeDegree = 2 (Rule-1: 회로 완결성)
         if (deg < CONNECTION_LAYOUT_RULES.minNodeDegree) {
           issues.push({ rule: "netlist_dangling_node", message: `${f.id}: node "${node}" — degree ${deg} (≥${CONNECTION_LAYOUT_RULES.minNodeDegree} 필요)` });

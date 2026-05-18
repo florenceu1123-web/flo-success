@@ -7,10 +7,10 @@ type Props = {
   onChange: (s: SubjectKey) => void;
 };
 
-/** 과목 3종 선택 (canonical key는 영어, 라벨은 SUBJECT_LABEL로 한국어 표시) */
+/** 과목 4종 선택 (전자회로·회로이론·디지털논리회로·복합형, canonical key는 영어, 라벨은 한국어) */
 export default function SubjectSelector({ selected, onChange }: Props) {
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
       {SUBJECT_KEYS.map((key) => {
         const active = selected === key;
         return (

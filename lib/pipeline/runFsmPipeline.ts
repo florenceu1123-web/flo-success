@@ -36,17 +36,31 @@ export async function runFsmPipeline(args: {
     const figureVariants: FigureVariant[] = [
       {
         id: `fig_state_diagram_${i + 1}`,
-        label: "Mealy 상태 전이도",
+        label: "(가) 상태 전이도",
         role: "state_diagram",
         diagramType: "concept_diagram",
         diagram: gen.stateDiagram,
       },
       {
         id: `fig_impl_${i + 1}`,
-        label: "FSM 통합 구현 회로 (조합부)",
+        label: "(나) FSM 구현 회로 (D 플립플롭 + 2×1 MUX)",
         role: "implementation_circuit",
         diagramType: "logic_network",
         diagram: gen.logicNetworkDiagram,
+      },
+      {
+        id: `fig_mux_table_${i + 1}`,
+        label: "(다) 2×1 MUX 동작 특성",
+        role: "truth_table",
+        diagramType: "truth_table",
+        diagram: {
+          variables: ["S"],
+          outputLabel: "F (출력)",
+          rows: [
+            { inputs: [0], output: "I₀" },
+            { inputs: [1], output: "I₁" },
+          ],
+        },
       },
     ];
 

@@ -5,6 +5,7 @@ import {
   renderNetlistEdgeSVG,
 } from "./netlistEdgeRenderer";
 import { hasOpAmp, renderOpAmpCircuit, validateOpAmpCircuit } from "./opampCircuitRenderer";
+import { hasBjt, renderBjtCircuit } from "./bjtCircuitRenderer";
 
 // =====================================================================
 // analog mesh renderer — 2-rail layout
@@ -69,6 +70,11 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     const svg = renderOpAmpCircuit(netlist);
     if (svg) return svg;
     // null → multi-OPAMP, 아래 generic fallback으로
+  }
+  // 0.06 BJT가 포함된 회로 (DC bias 회로 — 임용 7번 형식)는 전용 renderer로.
+  if (hasBjt(netlist)) {
+    const svg = renderBjtCircuit(netlist);
+    if (svg) return svg;
   }
 
   // 0.1 3-pin 이상이면 mesh layout 적용 불가 — fallback
@@ -205,6 +211,8 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
 
   // 5.5b Vertical chains (legRoot 마킹된 SW+R+I 직렬 등) — root top node 아래 stack
   const chainXs: number[] = [];
+  // chain 내 component 사이의 mid 노드 좌표를 저장 — overlay layer가 단자 dot/라벨에 사용.
+  const chainMidPositions = new Map<string, Point>();
   for (const [rootNode, comps] of verticalChainsByRoot) {
     // 같은 root에 단일 vertical도 있으면 그 옆 slot, 없으면 root x 그대로
     const existingSlots = verticalsByTopNode.get(rootNode)?.length ?? 0;
@@ -217,6 +225,25 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     }
     parts.push(renderVerticalChain(comps, cx));
     for (const c of comps) obstacles.push(bboxVertical(c, cx));
+    // chain 내 mid 노드 좌표 추출 — renderVerticalChain과 동일 공식으로.
+    // comps[i]의 top pin과 comps[i-1]의 bottom pin이 같은 노드 (mid 노드).
+    const span = BOT_Y - TOP_Y;
+    const slotH = span / comps.length;
+    let prevBotY = TOP_Y;
+    comps.forEach((c, i) => {
+      const cy = TOP_Y + slotH * (i + 0.5);
+      const half = componentHalfWidth(c);
+      const topPinY = cy - half;
+      if (i > 0) {
+        // 이전 component bottom과 이 component top 사이의 wire 가운데가 mid 노드 시각 위치
+        const midY = (prevBotY + topPinY) / 2;
+        const topPinNode = c.pins?.[0]?.node;
+        if (topPinNode && topPinNode !== netlist.ground && topPinNode !== rootNode) {
+          chainMidPositions.set(topPinNode, { x: cx, y: midY });
+        }
+      }
+      prevBotY = cy + half;
+    });
   }
 
   // 5.6 Junction dots
@@ -231,7 +258,7 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
 
   // ============ overlay layer (terminal/measurement/placeholder) ============
   // 회로 edge가 아니라 별도 layer. obstacles bbox 기반 collision avoidance.
-  parts.push(renderOverlayLayer(netlist, topPos, verticals, verticalX, obstacles));
+  parts.push(renderOverlayLayer(netlist, topPos, verticals, verticalX, obstacles, chainMidPositions));
 
   // 6. viewBox
   const allXs: number[] = [
@@ -527,10 +554,11 @@ function renderOverlayLayer(
   verticals: VPlace[],
   verticalX: (v: VPlace) => number,
   obstacles: Bbox[],
+  chainMidPositions?: Map<string, Point>,
 ): string {
   let svg = "";
 
-  // 모든 알려진 node의 좌표 수집 (top + ground)
+  // 모든 알려진 node의 좌표 수집 (top + ground + chain mid)
   const nodePositions = new Map<string, Point>();
   for (const [n, p] of topPos) nodePositions.set(n, p);
   if (netlist.ground) {
@@ -538,6 +566,12 @@ function renderOverlayLayer(
       const xs = verticals.map(verticalX);
       const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
       nodePositions.set(netlist.ground, { x: cx, y: BOT_Y });
+    }
+  }
+  // chain 내 mid 노드(예: R3+C1 직렬 사이의 단자 b)도 등록 — terminal_dot/라벨이 그려지도록.
+  if (chainMidPositions) {
+    for (const [n, p] of chainMidPositions) {
+      if (!nodePositions.has(n)) nodePositions.set(n, p);
     }
   }
 
@@ -619,7 +653,33 @@ function renderOverlayLayer(
       const labelCx = (a.x + b.x) / 2;
       svg += `<text x="${labelCx}" y="${labelY}" text-anchor="middle" font-size="13" font-weight="700" fill="#0891b2">${escapeSvg(m.label)}</text>`;
     }
-    // current는 component 좌표 추적이 필요해서 v1차는 skip
+    // current: refs[0] = component id. 해당 component의 두 pin node 중간점에
+    // 작은 화살표 + 라벨(i 등)을 그려 종속전원의 제어 변수가 어느 component를 흐르는지 표시.
+    if (m.kind === "current" && m.refs.length >= 1) {
+      const compId = m.refs[0];
+      const comp = (netlist.components ?? []).find((c) => c.id === compId);
+      if (!comp || (comp.pins ?? []).length < 2) continue;
+      const pa = nodePositions.get(comp.pins[0].node);
+      const pb = nodePositions.get(comp.pins[1].node);
+      if (!pa || !pb) continue;
+      const mx = (pa.x + pb.x) / 2;
+      const my = (pa.y + pb.y) / 2;
+      const isHorizontal = Math.abs(pa.x - pb.x) > Math.abs(pa.y - pb.y);
+      const COLOR = "#dc2626";
+      if (isHorizontal) {
+        // horizontal component: 위쪽에 좌→우 화살표 + 라벨
+        const arrowY = my - 16;
+        svg += `<path d="M ${mx - 14} ${arrowY} L ${mx + 14} ${arrowY}" stroke="${COLOR}" stroke-width="1.5" fill="none"/>`;
+        svg += `<path d="M ${mx + 14} ${arrowY} L ${mx + 9} ${arrowY - 4} M ${mx + 14} ${arrowY} L ${mx + 9} ${arrowY + 4}" stroke="${COLOR}" stroke-width="1.5" fill="none"/>`;
+        svg += `<text x="${mx}" y="${arrowY - 6}" text-anchor="middle" font-size="13" font-weight="700" fill="${COLOR}">${escapeSvg(m.label)}</text>`;
+      } else {
+        // vertical component: 우측에 위→아래 화살표 + 라벨
+        const arrowX = mx + 18;
+        svg += `<path d="M ${arrowX} ${my - 14} L ${arrowX} ${my + 14}" stroke="${COLOR}" stroke-width="1.5" fill="none"/>`;
+        svg += `<path d="M ${arrowX} ${my + 14} L ${arrowX - 4} ${my + 9} M ${arrowX} ${my + 14} L ${arrowX + 4} ${my + 9}" stroke="${COLOR}" stroke-width="1.5" fill="none"/>`;
+        svg += `<text x="${arrowX + 6}" y="${my + 5}" font-size="13" font-weight="700" fill="${COLOR}">${escapeSvg(m.label)}</text>`;
+      }
+    }
   }
 
   return svg;

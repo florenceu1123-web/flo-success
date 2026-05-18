@@ -28,20 +28,24 @@ type Signal = {
   tau?: number;
 };
 
+type Marker = { t: number; label: string };
+
 type WaveformDiagram = {
   signals: Signal[];
   unit?: { time?: string; value?: string };
+  /** 시간축 기준점 — 세로 점선 + 라벨 (예: t₁, t₂, t₃, t₄). */
+  markers?: Marker[];
 };
 
-const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2"];
-const PAD_L = 60;
+// 멀티 트랙(레인) 레이아웃 — 각 신호를 별도 lane으로 위·아래로 stack.
+const PAD_L = 70;   // 좌측 신호명 라벨 영역
 const PAD_R = 30;
-const PAD_T = 40;
+const PAD_T = 24;
 const PAD_B = 50;
-const PLOT_W = 620;
-const PLOT_H = 280;
-const SVG_W = PLOT_W + PAD_L + PAD_R;
-const SVG_H = PLOT_H + PAD_T + PAD_B;
+const PLOT_W = 640;
+const LANE_H = 50;        // 각 신호 lane 높이
+const LANE_GAP = 14;      // lane 간 간격
+const STROKE = "#111827"; // 모든 신호 동일 색 (검정 계열)
 
 export function renderWaveform(figure: FigureVariant) {
   if (!figure.diagram) return <DiagramMissing figure={figure} />;
@@ -50,86 +54,113 @@ export function renderWaveform(figure: FigureVariant) {
   const signals = Array.isArray(d?.signals) ? d.signals.filter((s) => Array.isArray(s?.samples) && s.samples.length > 0) : [];
   if (signals.length === 0) return <PlaceholderFigure figure={figure} />;
 
-  // 축 범위 계산
+  // 시간 축 범위 — 모든 신호 합산
   let tMin = Number.POSITIVE_INFINITY, tMax = Number.NEGATIVE_INFINITY;
-  let vMin = Number.POSITIVE_INFINITY, vMax = Number.NEGATIVE_INFINITY;
   for (const sig of signals) {
     for (const s of sig.samples) {
       if (typeof s?.t === "number" && Number.isFinite(s.t)) {
         if (s.t < tMin) tMin = s.t;
         if (s.t > tMax) tMax = s.t;
       }
-      if (typeof s?.v === "number" && Number.isFinite(s.v)) {
+    }
+  }
+  if (!Number.isFinite(tMin)) return <PlaceholderFigure figure={figure} />;
+  if (tMax <= tMin) tMax = tMin + 1;
+
+  const tUnit = d.unit?.time ?? "";
+  const tRange = tMax - tMin;
+  const xOf = (t: number) => PAD_L + ((t - tMin) / tRange) * PLOT_W;
+
+  // 각 신호의 lane 영역 (lane top/bottom y) 결정. lane은 위에서부터 stack.
+  const lanes = signals.map((sig, i) => {
+    const top = PAD_T + i * (LANE_H + LANE_GAP);
+    const bottom = top + LANE_H;
+    // 신호의 v range — 디지털(0/1)이거나 정해진 범위. 자동 계산.
+    let vMin = Number.POSITIVE_INFINITY, vMax = Number.NEGATIVE_INFINITY;
+    for (const s of sig.samples) {
+      if (typeof s.v === "number" && Number.isFinite(s.v)) {
         if (s.v < vMin) vMin = s.v;
         if (s.v > vMax) vMax = s.v;
       }
     }
-  }
-  if (!Number.isFinite(tMin) || !Number.isFinite(vMin)) return <PlaceholderFigure figure={figure} />;
-  if (tMax <= tMin) tMax = tMin + 1;
-  // y range padding
-  const vSpan = Math.max(vMax - vMin, 0.1);
-  const vLo = vMin - vSpan * 0.1;
-  const vHi = vMax + vSpan * 0.1;
+    if (!Number.isFinite(vMin)) { vMin = 0; vMax = 1; }
+    if (vMax - vMin < 1e-9) { vMax = vMin + 1; }
+    // lane 안쪽 padding (위·아래 6px 여유) — 디지털 신호가 lane 천장에 닿지 않게
+    const innerTop = top + 6;
+    const innerBottom = bottom - 6;
+    const yOf = (v: number) =>
+      innerBottom - ((v - vMin) / (vMax - vMin)) * (innerBottom - innerTop);
+    return { sig, top, bottom, innerTop, innerBottom, vMin, vMax, yOf };
+  });
 
-  const tUnit = d.unit?.time ?? "";
-  const vUnit = d.unit?.value ?? "";
+  const totalLanesH = signals.length * LANE_H + (signals.length - 1) * LANE_GAP;
+  const plotTop = PAD_T;
+  const plotBottom = plotTop + totalLanesH;
+  const SVG_W = PLOT_W + PAD_L + PAD_R;
+  const SVG_H = plotBottom + PAD_B;
 
-  const tRange = tMax - tMin;
-  const vRange = vHi - vLo;
-  const xOf = (t: number) => PAD_L + ((t - tMin) / tRange) * PLOT_W;
-  const yOf = (v: number) => PAD_T + PLOT_H - ((v - vLo) / vRange) * PLOT_H;
-
-  // grid + axes
-  const tTicks = niceTicks(tMin, tMax, 5);
-  const vTicks = niceTicks(vLo, vHi, 4);
-
-  const gridLines = [
-    ...tTicks.map((t) => `<line x1="${xOf(t)}" y1="${PAD_T}" x2="${xOf(t)}" y2="${PAD_T + PLOT_H}" stroke="#e5e7eb" stroke-width="1"/>`),
-    ...vTicks.map((v) => `<line x1="${PAD_L}" y1="${yOf(v)}" x2="${PAD_L + PLOT_W}" y2="${yOf(v)}" stroke="#e5e7eb" stroke-width="1"/>`),
-  ].join("");
-
-  const xAxis = `<line x1="${PAD_L}" y1="${PAD_T + PLOT_H}" x2="${PAD_L + PLOT_W}" y2="${PAD_T + PLOT_H}" stroke="#374151" stroke-width="1.5"/>`;
-  const yAxis = `<line x1="${PAD_L}" y1="${PAD_T}" x2="${PAD_L}" y2="${PAD_T + PLOT_H}" stroke="#374151" stroke-width="1.5"/>`;
-
-  const tLabels = tTicks
-    .map((t) => `<text x="${xOf(t)}" y="${PAD_T + PLOT_H + 16}" text-anchor="middle" font-size="11" fill="#374151">${formatNumber(t)}</text>`)
-    .join("");
-  const vLabels = vTicks
-    .map((v) => `<text x="${PAD_L - 8}" y="${yOf(v) + 4}" text-anchor="end" font-size="11" fill="#374151">${formatNumber(v)}</text>`)
+  // 시간축 grid (전체 lane 영역을 가로지르는 vertical lines)
+  const tTicks = niceTicks(tMin, tMax, 6);
+  const gridLines = tTicks
+    .map((t) => `<line x1="${xOf(t)}" y1="${plotTop}" x2="${xOf(t)}" y2="${plotBottom}" stroke="#e5e7eb" stroke-width="1"/>`)
     .join("");
 
-  // 축 라벨 (단위 표기)
-  const xUnitLabel = `<text x="${PAD_L + PLOT_W}" y="${PAD_T + PLOT_H + 32}" text-anchor="end" font-size="12" fill="#1e3a8a">t${tUnit ? ` [${tUnit}]` : ""}</text>`;
-  const yUnitLabel = `<text x="${PAD_L - 4}" y="${PAD_T - 12}" text-anchor="end" font-size="12" fill="#1e3a8a">v${vUnit ? ` [${vUnit}]` : ""}</text>`;
-
-  // 신호별 polyline (shape에 따라 보간 다르게)
-  const signalLines = signals
-    .map((sig, i) => {
-      const color = COLORS[i % COLORS.length];
-      const points = buildSignalPoints(sig, xOf, yOf);
-      return `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2"/>`;
+  // 각 lane의 baseline (0-level)과 박스 — lane 분리 시각화
+  const laneFrames = lanes
+    .map((L) => {
+      const yZero = L.yOf(L.vMin); // lane 하단 (0)
+      const yOne = L.yOf(L.vMax);  // lane 상단 (1 또는 max)
+      return `<line x1="${PAD_L}" y1="${yZero}" x2="${PAD_L + PLOT_W}" y2="${yZero}" stroke="#d1d5db" stroke-width="1"/>` +
+        `<line x1="${PAD_L}" y1="${yOne}" x2="${PAD_L + PLOT_W}" y2="${yOne}" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 3"/>`;
     })
     .join("");
 
-  // legend (오른쪽 상단)
-  const legendItems = signals.map((sig, i) => {
-    const color = COLORS[i % COLORS.length];
-    const lx = PAD_L + PLOT_W - 110;
-    const ly = PAD_T - 22 + i * 16;
-    return `<g>
-      <line x1="${lx}" y1="${ly}" x2="${lx + 18}" y2="${ly}" stroke="${color}" stroke-width="2.5"/>
-      <text x="${lx + 24}" y="${ly + 4}" font-size="11" fill="#1e3a8a">${escapeSvg(sig.name)}</text>
-    </g>`;
-  }).join("");
+  // 좌측 신호명 라벨 + 0/1 눈금
+  const laneLabels = lanes
+    .map((L) => {
+      const labelY = (L.top + L.bottom) / 2 + 4;
+      const yZero = L.yOf(L.vMin);
+      const yOne = L.yOf(L.vMax);
+      return `<text x="${PAD_L - 12}" y="${labelY}" text-anchor="end" font-size="13" font-weight="600" fill="#111827">${escapeSvg(L.sig.name)}</text>` +
+        `<text x="${PAD_L - 4}" y="${yZero + 4}" text-anchor="end" font-size="10" fill="#6b7280">0</text>` +
+        `<text x="${PAD_L - 4}" y="${yOne + 4}" text-anchor="end" font-size="10" fill="#6b7280">${formatNumber(L.vMax)}</text>`;
+    })
+    .join("");
+
+  // x축 (가장 아래 lane 아래)
+  const xAxis = `<line x1="${PAD_L}" y1="${plotBottom}" x2="${PAD_L + PLOT_W}" y2="${plotBottom}" stroke="#374151" stroke-width="1.5"/>`;
+  const tLabels = tTicks
+    .map((t) => `<text x="${xOf(t)}" y="${plotBottom + 16}" text-anchor="middle" font-size="11" fill="#374151">${formatNumber(t)}</text>`)
+    .join("");
+  const xUnitLabel = `<text x="${PAD_L + PLOT_W}" y="${plotBottom + 32}" text-anchor="end" font-size="12" fill="#1e3a8a">t${tUnit ? ` [${tUnit}]` : ""}</text>`;
+
+  // 신호별 polyline — 자기 lane의 yOf 사용. 모두 같은 색.
+  const signalLines = lanes
+    .map((L) => {
+      const points = buildSignalPoints(L.sig, xOf, L.yOf);
+      return `<polyline points="${points}" fill="none" stroke="${STROKE}" stroke-width="1.8"/>`;
+    })
+    .join("");
+
+  // 시간 마커 (t₁, t₂, ...) — 전체 lane 영역 가로지르는 점선 + 축 아래 라벨
+  const markers = Array.isArray(d.markers) ? d.markers : [];
+  const markerLines = markers
+    .map((m) => {
+      const mx = xOf(m.t);
+      return `<line x1="${mx}" y1="${plotTop}" x2="${mx}" y2="${plotBottom}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3"/>` +
+        `<text x="${mx}" y="${plotBottom + 30}" text-anchor="middle" font-size="11" fill="#1e3a8a" font-weight="600">${escapeSvg(m.label)}</text>`;
+    })
+    .join("");
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${SVG_H}" viewBox="0 0 ${SVG_W} ${SVG_H}">
 ${gridLines}
-${xAxis}${yAxis}
-${tLabels}${vLabels}
-${xUnitLabel}${yUnitLabel}
+${laneFrames}
+${markerLines}
+${laneLabels}
 ${signalLines}
-${legendItems}
+${xAxis}
+${tLabels}
+${xUnitLabel}
 </svg>`;
 
   return (

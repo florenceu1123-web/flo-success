@@ -169,6 +169,71 @@ analysis.figureRequirements는 반드시 보존한다. 각 requirement의 의미
 - question 필드도 단계별 묻는 형태면 동일 라벨로.
 - 원본에 ㉠/㉡/ⓒ/ⓓ/(가)/(나)/(다) 같은 한국어 라벨이 있으면 가능한 그대로 보존 (○로 추상화 금지).
 
+[BJT_BIAS_CONTRACT — 임용 7번 형식]
+직류 바이어스된 BJT 회로(DC bias analysis)는 다음 규칙을 따른다.
+
+회로 구성:
+- V_CC(예 10V) 전압원, R_A(베이스 위), R_B(베이스 아래), R_C(컬렉터 위), R_E(이미터 아래), BJT.
+- 베이스 분압기: R_A와 R_B가 베이스 전위 V_B를 결정.
+- BJT: V_BE = 0.7V 가정, I_E ≈ I_C (β·I_B ≪ 1 무시).
+- V_O는 컬렉터 출력 (V_CC − I_C·R_C).
+- V_E는 이미터 전압 (I_E·R_E).
+
+학생 단계 (임용 7번 표준):
+- [단계 1] R_A 알 때 V_E 주어짐 → V_B = V_E + 0.7 → R_B 도출 (분압기 공식 또는 베이스 전류 0 가정).
+- [단계 2] 저항률 ρ, 단면적 A, 길이 ℓ 주어짐 → R_A' = ρℓ/A 계산.
+- [단계 3] R_A를 R_A'으로 교체 → 단계 1의 R_B 사용 → V_B 재계산 → I_C·V_O 도출.
+
+금지:
+- small signal hybrid-π 모델로 풀지 마라. DC bias는 동작점(operating point) 분석.
+- VCCS(g_m·v_be) 사용 금지. 단순 V_BE=0.7V로 BJT 모델링.
+- A_v(전압 이득) 같은 AC 개념 출력 금지. DC 값(V_E[V], R_B[kΩ], I_C[mA], V_O[V])만.
+
+[OPAMP_POSITIVE_FEEDBACK_CONTRACT — 임용 6번 형식]
+정귀환(positive feedback) OPAMP 응용회로는 다음 규칙을 반드시 따른다.
+
+회로 구성:
+- 입력 V_in이 SW를 거쳐 V−에 인가 (SW는 t=0에 닫힘).
+- V+ → R_1 → GND (V+ 전압 분배 leg).
+- V_out → R_2 → V+ (★ V_out이 V+로 피드백 — V−가 아님. 정귀환의 핵심).
+- A(s) = A_0·ω_0/(s+ω_0) finite open-loop gain.
+
+수식:
+- β = R_1/(R_1+R_2) (V+ 전압 분배비, V+ = β·V_out)
+- V_out/V−(s) = B·ω_0/(s + D·ω_0) (closed-loop, B·D를 β·A_0로 표현)
+- 시간영역에서 D < 0이면 발산 응답 (정귀환의 특성).
+
+답안 단계:
+- [단계 1] β를 R_1·R_2로 구함.
+- [단계 2] B·D를 β·A_0로 표현.
+- [단계 3] V−(s) = 1/s (step 입력) → V_out(s) = K·(1/s − 1/(s+D·ω_0)) 형태, 상수 K 구함.
+
+금지:
+- 출력을 V−로 피드백하지 마라 (그건 부귀환 negative feedback이고 별도 archetype).
+- V+를 GND로 직접 연결하지 마라 (R_1 분배 leg가 V+를 GND와 연결).
+- ideal OPAMP 가정으로 풀지 마라 (open-loop gain A_0가 finite).
+
+[RL_RC_SWITCHING_CIRCUIT_CONTRACT — 임용 2번 형식]
+RL/RC 스위칭 과도응답 회로 (예: V_s + SW + R + L 직렬 loop, v_L(t) 측정)는 다음 규칙을 반드시 따른다.
+
+회로 구성:
+- 직류 전압원 V_s + 스위치 SW + 저항 R + 리액티브 소자(L 또는 C) → 단일 닫힌 loop.
+- L 또는 C는 반드시 회로 "내부에 명시적으로 그려야 함". 외부 placeholder 박스(R_L 같은)로 분리 금지.
+- 회로 내부의 모든 component는 같은 직렬 loop의 일부 — 한 component만 따로 떼어내서 외부에 두지 마라.
+
+단자 표기:
+- 측정 대상(v_L(t), v_C(t))이 있으면, 그 component의 양 끝 노드에 단자 a, b 표기.
+- a는 위쪽(전위 +), b는 아래쪽(전위 -, 또는 ground와 연결되는 쪽).
+
+Figure 구성 (hasSwitch=true + hasWaveformEvolution=true 케이스):
+- (가) SW 열림 상태 회로도 또는 (가) 전체 회로도 + SW 닫힘 시점 명시 (t=0).
+- (나) i(t) 또는 v(t) 파형 figure 의무. 가로축 t[s], 세로축 i[A] 또는 v[V].
+- L 또는 C 누락 금지. SW 누락 금지. R 누락 금지.
+
+placeholder 금지:
+- "R_L"·"L_?" 같은 학생-채움 placeholder 박스를 회로 외부에 그리지 마라. 모든 component는 회로의 일부.
+- 학생이 풀어야 할 것은 component 값(L[H], 또는 v_L(t)[V])이지 component 자체의 존재 여부가 아니다.
+
 [ANALOG_TEMPLATE_GENERATION_CONTRACT]
 analog mesh/switch 문제(features.hasSwitch=true 또는 hasSupermesh=true 또는 hasMesh=true)에서는 자유 netlist를 생성하지 않는다.
 주어진 branchTemplate의 component value만 채운다.

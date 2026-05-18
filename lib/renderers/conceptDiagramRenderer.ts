@@ -37,17 +37,20 @@ export function renderConceptDiagramSVG(diagram: ConceptDiagram | undefined | nu
 
   let svg = "";
 
-  // edges (먼저, node 아래로)
-  for (const e of diagram.edges ?? []) {
-    const src = nodeMap.get(e.from);
-    const dst = nodeMap.get(e.to);
+  // 평행 간선 coalesce — 같은 from→to에 여러 transition이 있으면 라벨을 합쳐서 한 번만 그린다.
+  // FSM에서 X=0, X=1이 같은 next state로 가는 경우(e.g. s2→s2 self-loop "0/0"과 "1/0")가 흔한데,
+  // 그대로 덧그리면 마지막 한 줄만 보여 다른 입력의 transition이 누락된 것처럼 표시됨.
+  const groupedEdges = groupParallelEdges(diagram.edges ?? []);
+  for (const g of groupedEdges) {
+    const src = nodeMap.get(g.from);
+    const dst = nodeMap.get(g.to);
     if (!src || !dst || src.x === undefined || src.y === undefined || dst.x === undefined || dst.y === undefined) continue;
 
-    if (e.from === e.to) {
-      // self-loop
-      svg += renderSelfLoop(src.x!, src.y!, edgeLabel(e));
+    const label = g.labels.join(", ");
+    if (g.from === g.to) {
+      svg += renderSelfLoop(src.x!, src.y!, label);
     } else {
-      svg += renderEdge(src.x!, src.y!, dst.x!, dst.y!, edgeLabel(e));
+      svg += renderEdge(src.x!, src.y!, dst.x!, dst.y!, label);
     }
   }
 
@@ -84,6 +87,26 @@ function autoLayoutNodes(nodes: ConceptNode[], layout: string): ConceptNode[] {
     const theta = (-Math.PI / 2) + (2 * Math.PI * i) / nodes.length;
     return { ...n, x: cx + r * Math.cos(theta), y: cy + r * Math.sin(theta) };
   });
+}
+
+/** 같은 from→to를 가지는 edge들을 한 그룹으로 모아 라벨 배열로 묶음. 입력 순서 유지. */
+function groupParallelEdges(
+  edges: ConceptEdge[],
+): Array<{ from: string; to: string; labels: string[] }> {
+  const order: string[] = [];
+  const groups = new Map<string, { from: string; to: string; labels: string[] }>();
+  for (const e of edges) {
+    const key = `${e.from}${e.to}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { from: e.from, to: e.to, labels: [] };
+      groups.set(key, g);
+      order.push(key);
+    }
+    const lbl = edgeLabel(e);
+    if (lbl) g.labels.push(lbl);
+  }
+  return order.map((k) => groups.get(k)!);
 }
 
 function edgeLabel(e: ConceptEdge): string {

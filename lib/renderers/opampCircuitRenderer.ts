@@ -76,16 +76,31 @@ export function validateOpAmpCircuit(netlist: CircuitNetlist): string[] {
     if (!pins[1]?.node) errors.push(`${op.id}: − input pin 누락`);
     if (!pins[2]?.node) errors.push(`${op.id}: output pin 누락`);
     if (pins.length < 3) continue;
+    const vpNode = pins[0].node;
     const vnNode = pins[1].node;
     const voNode = pins[2].node;
+    // 규칙 #8: V_o가 외부 단자(label_only annotation)이고 다른 R/C와 closed loop를 안 만들면
+    //   open-loop 비교기로 인정 → feedback branch 검사 면제.
+    const isExternalTerminal = (netlist.nodeAnnotations ?? []).some(
+      (a) => a.node === voNode && a.style === "label_only",
+    );
+    const voConsumers = (netlist.components ?? []).filter((c) => {
+      if (c.id === op.id) return false;
+      return (c.pins ?? []).some((p) => p.node === voNode);
+    });
+    const isComparator = isExternalTerminal && voConsumers.length === 0;
+    if (isComparator) continue; // open-loop 비교기: feedback 검사 면제
+    // closed-loop 증폭기: feedback 의무 (V_out → V− 또는 V+ 2-pin component)
     const hasFeedback = (netlist.components ?? []).some((c) => {
       if (c.id === op.id) return false;
       if (!c.pins || c.pins.length !== 2) return false;
       const [a, b] = [c.pins[0].node, c.pins[1].node];
-      return (a === voNode && b === vnNode) || (a === vnNode && b === voNode);
+      const toVn = (a === voNode && b === vnNode) || (a === vnNode && b === voNode);
+      const toVp = (a === voNode && b === vpNode) || (a === vpNode && b === voNode);
+      return toVn || toVp;
     });
     if (!hasFeedback) {
-      errors.push(`${op.id}: OPAMP feedback branch 누락 (output → − input)`);
+      errors.push(`${op.id}: OPAMP feedback branch 누락 (output → − or + input)`);
     }
   }
   return errors;
@@ -353,14 +368,50 @@ export function renderOpAmpCircuit(netlist: CircuitNetlist): string | null {
     const isNoninv = b.kind === "ref_noninv";
     const pin = isNoninv ? opAnc.plus : opAnc.minus;
     const i = isNoninv ? counter.plus++ : counter.minus++;
-    const detourX = pin.x - REF_FIRST_OFFSET - i * DETOUR_GAP;
-    const topY = pin.y;
-    const botY = 400;
-    const symY = (topY + botY) / 2;
+    // 규칙 #7 (node 사용 최소화): 같은 OPAMP의 feedback_noninv가 V+ junction을 공유하면
+    //   R_1 column을 feedback wire의 좌측 stub column(pin.x - 88)과 일치시켜 chain 연결.
+    //   그러면 V+ junction 1곳(R_2 좌측 stub 끝 = R_1 top)에서 모든 component가 만남.
+    const hasFbNoninvSameOp = isNoninv && branches.some(
+      (br) => br.kind === "feedback_noninv" && br.opampIndex === b.opampIndex,
+    );
+    const detourX = hasFbNoninvSameOp
+      ? pin.x - (REF_FIRST_OFFSET + DETOUR_GAP) - i * DETOUR_GAP // feedback stub과 같은 column (pin.x-88)
+      : pin.x - REF_FIRST_OFFSET - i * DETOUR_GAP;
+    // ground rail
+    const botY = 440;
+    // hasFbNoninvSameOp이면 R_1 top을 feedback wire 끝(335)에 직접 잇고, R_1 component은 그 아래에.
+    //   topY = feedback detourY (335), R_1 cy = (335 + 440)/2 ≈ 387.
+    //   그 외에는 V+ pin → R_1 → GND chain의 가운데 (botY-30).
+    const topY = hasFbNoninvSameOp ? 335 : pin.y;
+    const symY = hasFbNoninvSameOp ? (topY + botY) / 2 : botY - 30;
     svg += `<path d="M ${pin.x} ${pin.y} L ${detourX} ${pin.y} L ${detourX} ${symY - HALF_R}" stroke="black" fill="none" stroke-width="2"/>`;
     svg += renderComponentOnEdge(b.component, { x: detourX, y: symY }, "vertical");
     svg += `<path d="M ${detourX} ${symY + HALF_R} L ${detourX} ${botY}" stroke="black" fill="none" stroke-width="2"/>`;
     localGndPoints.push({ x: detourX, y: botY, up: false });
+  }
+
+  // 4-5.b OPAMP vp/vn pin이 GND에 직접 연결된 경우 (component 없는 short) — stub + ground symbol
+  //   branchTemplate가 OPAMP pins에 role "non_inverting"/"inverting"을 설정하므로 그것으로 식별.
+  for (let opIdx = 0; opIdx < opamps.length; opIdx++) {
+    const op = opamps[opIdx];
+    const anc = anchors[opIdx];
+    if (!anc) continue;
+    const vpPin = op.pins?.find((p) => p.role === "non_inverting");
+    const vnPin = op.pins?.find((p) => p.role === "inverting");
+    if (vpPin && isGnd(vpPin.node)) {
+      const pinX = anc.plus.x;
+      const pinY = anc.plus.y;
+      const stubY = pinY + 40;
+      svg += `<path d="M ${pinX} ${pinY} L ${pinX} ${stubY}" stroke="black" fill="none" stroke-width="2"/>`;
+      localGndPoints.push({ x: pinX, y: stubY, up: false });
+    }
+    if (vnPin && isGnd(vnPin.node)) {
+      const pinX = anc.minus.x;
+      const pinY = anc.minus.y;
+      const stubY = pinY - 40;
+      svg += `<path d="M ${pinX} ${pinY} L ${pinX} ${stubY}" stroke="black" fill="none" stroke-width="2"/>`;
+      localGndPoints.push({ x: pinX, y: stubY, up: true });
+    }
   }
 
   // 4-6. Feedback branches
@@ -388,9 +439,21 @@ export function renderOpAmpCircuit(netlist: CircuitNetlist): string | null {
       svg += `<path d="M ${rcx - HALF_R} ${detourY} L ${xLeft} ${detourY} L ${xLeft} ${opAnc.minus.y} L ${opAnc.minus.x} ${opAnc.minus.y}" stroke="black" fill="none" stroke-width="2"/>`;
     } else {
       const i = counter.noninv++;
-      const detourY = opAnc.bodyBot + FB_VERT_OFFSET + i * FB_STACK_V;
+      // ref_noninv R 컴포넌트가 V+ leg에 있으면 layout 두 차원으로 분리:
+      //   (1) detourY: R_1 component 위쪽(OPAMP body 직후)에 R_2 horizontal wire 배치
+      //   (2) xLeft: R_1 column보다 더 좌측으로 — R_2 vertical stub이 R_1 component box를 통과 안 함
+      //   node 연결 규칙: wire가 component box를 가로지르지 않음.
+      const hasRefNoninv = branches.some((br) => br.kind === "ref_noninv" && br.opampIndex === b.opampIndex);
+      // 규칙 #6: feedback_noninv R component이 OPAMP body 내부 침범 금지 (현재 bodyBot=285).
+      //   R component height ±28, detourY≥335이면 R top≥307 — body bottom 22px 아래로 분리.
+      //   동시에 ref_noninv R_1 top(=382, cy=410)과도 분리 (R_2 bottom=363 vs R_1 top=382 = 19px gap).
+      const detourY = hasRefNoninv
+        ? opAnc.bodyBot + 50 + i * FB_STACK_V
+        : opAnc.bodyBot + FB_VERT_OFFSET + i * FB_STACK_V;
       const xRight = opAnc.out.x + FB_LAT_OFFSET + i * FB_STACK_H;
-      const xLeft = opAnc.plus.x - (FB_LEFT_OFFSET + i * FB_LEFT_STACK);
+      // hasRefNoninv면 R_1 column(pin.x - 40) 더 좌측으로 (pin.x - 88) — R_1 box(x≈pin.x-40) 회피
+      const xLeftBaseOffset = hasRefNoninv ? FB_LEFT_OFFSET + DETOUR_GAP : FB_LEFT_OFFSET;
+      const xLeft = opAnc.plus.x - (xLeftBaseOffset + i * FB_LEFT_STACK);
       const rcx = (xRight + xLeft) / 2;
       svg += `<path d="M ${opAnc.out.x} ${opAnc.out.y} L ${xRight} ${opAnc.out.y} L ${xRight} ${detourY} L ${rcx + HALF_R} ${detourY}" stroke="black" fill="none" stroke-width="2"/>`;
       svg += renderComponentOnEdge(b.component, { x: rcx, y: detourY }, "horizontal");

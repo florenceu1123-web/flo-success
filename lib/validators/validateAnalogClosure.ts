@@ -14,15 +14,25 @@ import type { CircuitNetlist } from "@/types";
 export function validateAnalogClosure(netlist: CircuitNetlist): string[] {
   const errors: string[] = [];
   const components = netlist.components ?? [];
+  const hasOpamp = components.some((c) => c.type === "OPAMP");
 
-  // 1. 전원 존재 검사
+  // 1. 전원 존재 검사 — OPAMP가 있으면 active component로 인정 (V/I source 면제).
+  //    OPAMP의 V_in은 외부 단자 핀(label_only annotation)으로 표기되는 경우가 정상.
   const sources = components.filter((c) => c.type === "V" || c.type === "I");
-  if (sources.length === 0) {
+  if (sources.length === 0 && !hasOpamp) {
     errors.push("회로에 전원(V/I source)이 없음 — 정상상태에서 전류·전압 0이라 문제 무의미");
     return errors; // 전원 없으면 나머지 검사 의미 없음
   }
 
-  // 2. node degree ≥ 2 (floating pin)
+  // 외부 단자 노드 — label_only annotation이 있는 노드는 외부 입력/출력 핀이므로 degree 검사 면제.
+  const externalTerminalNodes = new Set<string>();
+  for (const ann of netlist.nodeAnnotations ?? []) {
+    if (ann.style === "label_only") externalTerminalNodes.add(ann.node);
+  }
+  // ground node도 reference라 degree 검사 면제 (OPAMP V+ 단독 연결 등 흔함)
+  if (netlist.ground) externalTerminalNodes.add(netlist.ground);
+
+  // 2. node degree ≥ 2 (floating pin) — 외부 단자/ground 제외
   const degree = new Map<string, number>();
   const nodeComponents = new Map<string, string[]>();
   for (const c of components) {
@@ -33,6 +43,7 @@ export function validateAnalogClosure(netlist: CircuitNetlist): string[] {
     }
   }
   for (const [node, d] of degree) {
+    if (externalTerminalNodes.has(node)) continue;
     if (d < 2) {
       const owners = nodeComponents.get(node)?.join(",") ?? "?";
       errors.push(`node "${node}"가 단 1개 component(${owners})에만 연결 — floating pin (Rule: minNodeDegree≥2)`);

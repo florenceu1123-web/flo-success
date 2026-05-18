@@ -3,19 +3,20 @@
 // =====================================================================
 
 /** 과목 캐널 키 (API·DB·로그) */
-export type SubjectKey = "digital_logic" | "electronics" | "circuit_theory";
+export type SubjectKey = "digital_logic" | "electronics" | "circuit_theory" | "mixed_signal";
 
 /** 과목 한국어 표시 라벨 */
-export type SubjectLabel = "디지털논리회로" | "전자회로" | "회로이론";
+export type SubjectLabel = "디지털논리회로" | "전자회로" | "회로이론" | "복합형";
 
 /** UI 노출 순서로 정렬한 키 목록 */
-export const SUBJECT_KEYS: SubjectKey[] = ["electronics", "circuit_theory", "digital_logic"];
+export const SUBJECT_KEYS: SubjectKey[] = ["electronics", "circuit_theory", "digital_logic", "mixed_signal"];
 
 /** SubjectKey → 한국어 라벨 */
 export const SUBJECT_LABEL: Record<SubjectKey, SubjectLabel> = {
   electronics: "전자회로",
   circuit_theory: "회로이론",
   digital_logic: "디지털논리회로",
+  mixed_signal: "복합형",
 };
 
 /** 한국어 라벨 → SubjectKey (역매핑, 외부 입력 정규화용) */
@@ -23,6 +24,7 @@ export const SUBJECT_KEY_BY_LABEL: Record<SubjectLabel, SubjectKey> = {
   전자회로: "electronics",
   회로이론: "circuit_theory",
   디지털논리회로: "digital_logic",
+  복합형: "mixed_signal",
 };
 
 // =====================================================================
@@ -61,14 +63,21 @@ export type CircuitTheoryTopic =
   | "dependent_source"
   | "switching_circuit";
 
+/** 복합형(전자+디지털 혼합) 세부 주제 */
+export type MixedSignalTopic =
+  | "counter_dac_comparator"   // 2-bit JK 카운터 + R-2R DAC + 비교기 — 임용 8번
+  | "adc_sample_hold"          // 샘플홀드 + ADC (잠재)
+  | "logic_opamp_hybrid";      // 그 외 일반 디지털+아날로그 혼합
+
 /** 모든 세부 주제 union */
-export type TopicKey = DigitalLogicTopic | ElectronicsTopic | CircuitTheoryTopic;
+export type TopicKey = DigitalLogicTopic | ElectronicsTopic | CircuitTheoryTopic | MixedSignalTopic;
 
 /** 과목별 토픽 묶음 */
 export const TOPICS_BY_SUBJECT: {
   digital_logic: DigitalLogicTopic[];
   electronics: ElectronicsTopic[];
   circuit_theory: CircuitTheoryTopic[];
+  mixed_signal: MixedSignalTopic[];
 } = {
   digital_logic: ["kmap_sop", "kmap_pos", "combinational_gate", "flipflop_counter", "fsm", "waveform_analysis"],
   electronics: ["opamp", "bjt_bias", "bjt_amplifier", "mosfet_bias", "mosfet_amplifier", "diode", "mixed_signal"],
@@ -77,6 +86,7 @@ export const TOPICS_BY_SUBJECT: {
     "transient_rc", "transient_rl", "rlc_response",
     "supermesh", "supernode", "dependent_source", "switching_circuit",
   ],
+  mixed_signal: ["counter_dac_comparator", "adc_sample_hold", "logic_opamp_hybrid"],
 };
 
 /** TopicKey → SubjectKey 역매핑 (validation·라우팅용) */
@@ -116,6 +126,10 @@ export const TOPIC_LABEL: Record<TopicKey, string> = {
   supernode: "슈퍼노드",
   dependent_source: "종속 전원",
   switching_circuit: "스위칭 회로",
+  // mixed_signal
+  counter_dac_comparator: "카운터 + DAC + 비교기 (임용 8번)",
+  adc_sample_hold: "샘플홀드 + ADC",
+  logic_opamp_hybrid: "디지털·아날로그 혼합",
 };
 
 // =====================================================================
@@ -273,7 +287,9 @@ export type DiagramType =
   | "kmap"
   | "waveform"
   | "truth_table"
-  | "concept_diagram";
+  | "concept_diagram"
+  | "block_diagram"
+  | "mixed_circuit";
 
 /**
  * 원본 회로 구조의 시그니처. exam_similar는 정확히 일치 강제, exam_variant는 ±1 허용.
@@ -581,6 +597,59 @@ export type CircuitNetlist = {
   positions?: Record<string, { x: number; y: number }>;
 };
 
+/**
+ * 블록도 (signal flow graph) — 임용 11번 (나) 같은 OPAMP 응용 시스템의 블록도 표현.
+ *  · nodes: 외부 input/output 단자 또는 summing junction (⊕)
+ *  · blocks: gain block (α, β, A(s) 등 — 박스 + 라벨)
+ *  · edges: source → target, 화살표 + 부호(+/-)
+ *  좌표는 좌측 input부터 우측 output까지 가로 흐름 + 피드백 wire는 박스 아래로 우회.
+ */
+export type BlockDiagram = {
+  nodes: Array<{
+    id: string;
+    /** "input" (외부 입력 단자) | "output" (외부 출력 단자) | "junction" (합산점 ⊕) */
+    kind: "input" | "output" | "junction";
+    label?: string; // V_in, V_out, Σ 등
+    x?: number;
+    y?: number;
+  }>;
+  blocks: Array<{
+    id: string;
+    label: string; // "α", "β", "A(s)"
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    /** 블록 모양 — "rect" (사각형, gain block 기본), "triangle" (OPAMP/증폭기 심볼). 미지정시 rect. */
+    shape?: "rect" | "triangle";
+  }>;
+  edges: Array<{
+    from: string; // node id 또는 block id
+    to: string;   // node id 또는 block id
+    /** junction에 진입할 때의 부호 (default "+") */
+    sign?: "+" | "-";
+    /** route hint — "above"|"below"는 직선 외 우회 방향 (피드백 wire용) */
+    routeHint?: "above" | "below" | "direct";
+  }>;
+};
+
+/**
+ * 복합형 회로 — logic part(JK-FF·게이트) + analog part(R·OPAMP) 단일 figure (임용 8번 등).
+ *  · logic part: LogicNetworkDiagram의 부분 (gates, inputs, outputs)
+ *  · analog part: CircuitNetlist의 부분 (components, ground)
+ *  · bridgeNodes: logic의 output이 analog의 외부 입력 핀으로 들어가는 노드명 매핑
+ *    (예: logic.Q_A → analog.Q_A_in 핀)
+ *  · 단일 viewBox에 좌측(logic) + 우측(analog) + 사이(bridge wire)로 통합 렌더.
+ */
+export type MixedCircuitDiagram = {
+  /** logic part — JK-FF·NOT·AND·OR 등 디지털 게이트와 입출력 */
+  logic: LogicNetworkDiagram;
+  /** analog part — R·OPAMP·V·I 등 아날로그 컴포넌트 */
+  analog: CircuitNetlist;
+  /** logic.outputs와 analog의 외부 입력 노드 매핑 (logic_signal → analog_node) */
+  bridgeNodes?: Record<string, string>;
+};
+
 /** Legacy — 직전 단계의 단순 netlist. CircuitNetlist로 대체. */
 export type NetlistDiagram = {
   nodes: string[];
@@ -610,8 +679,19 @@ export type KmapDiagram = {
 };
 
 // ─── Logic Network ──────────────────────────────────────────────────
+/**
+ * 조합 게이트 + 플립플롭(state register).
+ *  - DFF: 1-input(D) → 1-output(Q), clock edge에 D를 latch. 입력 [D] / 출력 Q.
+ *  - TFF: 1-input(T) → 1-output(Q), T=1이면 Q 토글. 입력 [T] / 출력 Q.
+ *  - JKFF: 2-input(J,K) → 1-output(Q). J=1,K=0 set / J=0,K=1 reset / J=K=0 hold / J=K=1 toggle.
+ *    입력 [J, K] / 출력 Q.
+ *  플립플롭은 cycle-breaker state register — renderer/validator는 Q output을 `inputs`와 동등하게
+ *  "초기에 produced된 신호"로 취급해 FSM 피드백 루프를 levelize 가능하게 한다.
+ */
 export type LogicGateType =
-  | "NOT" | "AND" | "OR" | "NAND" | "NOR" | "XOR" | "XNOR";
+  | "NOT" | "AND" | "OR" | "NAND" | "NOR" | "XOR" | "XNOR"
+  | "DFF" | "TFF" | "JKFF"
+  | "MUX";   // 2×1 multiplexer — inputs=[I0, I1, S], output=F (S=0→F=I0, S=1→F=I1)
 
 export type LogicGate = {
   id: string;
@@ -619,18 +699,27 @@ export type LogicGate = {
   inputs: string[];   // 신호 이름들 (다른 gate.output 또는 diagram.inputs 참조)
   output: string;     // 이 gate가 만들어내는 신호 이름
   shared?: boolean;
+  /**
+   * FF 전용 — CLK 핀(▷)에 연결할 신호 이름. 지정되면 외부 CLK bus 대신 이 신호의 source에서
+   * FF의 ▷ 핀으로 wire가 라우팅된다 (예: 임용 8번처럼 게이트 출력 X가 D-FF CLK 입력인 케이스).
+   * 미지정이면 기존 동작: diagram.inputs에 "CLK"가 있으면 그 CLK bus가 모든 FF ▷에 자동 연결.
+   */
+  clockSignal?: string;
 };
 
 /**
  * 학생이 채워야 할 빈칸 게이트 표현.
- *  - symbol: 라벨 (예: "ⓐ", "ⓑ")
- *  - gateIds: 빈칸으로 처리할 gate id 목록 (gates 배열에 정의된 id)
- *  - answer: 정답 게이트 종류 (학생이 맞춰야 할 값)
+ *  - symbol: 라벨 (예: "ⓐ", "ⓑ", "ㄱ", "ㄴ")
+ *  - gateIds: 빈칸으로 처리할 gate id 목록
+ *  - answer: 정답 (학생이 맞춰야 할 값)
+ *  - pinIndex: 정의되면 해당 gate의 특정 입력 핀만 빈칸 처리 (예: MUX의 I0 입력).
+ *              미정의면 gate 전체를 박스로 치환 (기존 동작).
  */
 export type LogicBlank = {
   symbol: string;
   gateIds: string[];
   answer: string;
+  pinIndex?: number;
 };
 
 /** logic_network diagram payload — analog_netlist와 별개. 신호 그래프. */
@@ -640,18 +729,52 @@ export type LogicNetworkDiagram = {
   gates: LogicGate[];
   /** 학생이 풀어야 할 빈칸. gates의 id를 참조. */
   blanks?: LogicBlank[];
+  /**
+   * 중간 wire 신호 라벨 — { signalName: displayLabel }. 회로 우측 외부 단자로 그려지지 않고
+   * 게이트 output 핀 바로 옆에 작은 텍스트로 표시. 학생이 "어느 게이트 출력이 X·Y인지" 식별 가능.
+   * (외부 단자가 필요한 신호는 outputs 배열 사용.)
+   */
+  signalLabels?: Record<string, string>;
 };
 
-/** truth_table diagram 권장 shape */
+/** truth_table diagram 권장 shape.
+ *  단일 출력: outputLabel + rows[i].output (legacy).
+ *  다중 출력: outputLabels + rows[i].outputs (상태표·여러 FF 입력/출력 등).
+ *  입력 셀도 string 허용 (빈칸 ㄱ/ㄴ/ㄷ 표기용).
+ */
 export type TruthTableDiagram = {
   variables: string[];
-  rows: Array<{ inputs: number[]; output: number | "X" }>;
+  rows: Array<{
+    inputs: (number | string)[];
+    /** legacy 단일 출력. outputs가 있으면 무시. */
+    output?: number | string;
+    /** 다중 출력 컬럼별 값 (outputs.length === outputLabels.length). */
+    outputs?: Array<number | string>;
+  }>;
+  /** 단일 출력 컬럼 라벨 (기본 "F"). outputLabels가 있으면 무시. */
+  outputLabel?: string;
+  /** 다중 출력 컬럼 라벨 — 상태표 등. */
+  outputLabels?: string[];
+  /** 입력 컬럼들을 의미 그룹으로 묶을 때 그룹 헤더 (예: "현재 상태" / "입력"). */
+  inputGroups?: Array<{ label: string; span: number }>;
+  /** 출력 컬럼들을 의미 그룹으로 묶을 때 그룹 헤더 (예: "플립플롭 입력" / "다음 상태"). */
+  outputGroups?: Array<{ label: string; span: number }>;
 };
 
-/** waveform diagram 권장 shape */
+/** waveform diagram 권장 shape.
+ *  markers: 시간축에 t₁, t₂, t₃ 같은 명시적 기준점 (세로 점선 + 라벨)을 그릴 때 사용.
+ */
 export type WaveformDiagram = {
-  signals: Array<{ name: string; samples: Array<{ t: number; v: number }> }>;
+  signals: Array<{
+    name: string;
+    samples: Array<{ t: number; v: number }>;
+    /** 신호 표시 스타일 — "step"이면 디지털 로직(0/1) 사각파. 미지정 시 linear. */
+    shape?: "linear" | "step" | "square" | "exponential_rise" | "exponential_decay";
+    tau?: number;
+  }>;
   unit?: { time?: string; value?: string };
+  /** 시간축 기준점 마커 — 학생이 답해야 할 구간 표시 (예: t₁, t₂, t₃, t₄). */
+  markers?: Array<{ t: number; label: string }>;
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

@@ -21,6 +21,9 @@ export type CircuitType =
   | "dc_supermesh"          // 슈퍼메시 (두 mesh 공유 source)
   | "dc_supernode"          // 슈퍼노드
   | "dc_dependent_source"   // 종속전원 포함 DC 회로
+  | "ac_superposition"      // AC 다중 전원 (V_ac + I_ac) + R/L/C 임피던스 + 중첩의 원리 (임용 10번)
+  | "bjt_bias"              // DC 바이어스된 BJT 회로 (임용 7번) — V_BE=0.7V 가정, V_E·I_C·V_O 계산, 저항률 ρ
+  | "counter_dac_comparator" // 복합형: 2-bit JK 카운터 + R-2R DAC + OPAMP 비교기 (임용 8번)
   // ── 과도응답 ─────────────────────────────────
   | "rc_step"               // RC step input 응답
   | "rl_step"               // RL step input 응답
@@ -37,6 +40,8 @@ export type CircuitType =
   | "kmap_sop"              // K-map → 최소 SOP → 구현 회로 (AND-OR)
   | "kmap_pos"              // K-map → 최소 POS → 구현 회로 (OR-AND, SOP dual)
   | "flipflop_counter"      // 2비트 D-FF 카운터 (상태 순서 → D 입력 K-map)
+  | "flipflop_mixed_app"    // T-FF + JK-FF 등 혼합 응용회로 — 상태표 + 파형도
+  | "ff_with_waveform"      // 단일 FF (D/T/JK) + 비동기 RESET + 조합부 + 파형도 (임용 8번 형식)
   | "combinational_gate"    // 3-입력 2-출력 조합 회로 (F, G 동시 설계)
   | "fsm"                   // Mealy 4-state FSM (상태 전이도 + 구현 회로)
   | "waveform_analysis"     // 디지털 입력 파형 → 출력 파형 분석
@@ -74,6 +79,13 @@ export type CircuitTypeParams = {
   // ── 디지털 K-map / 조합회로 전용 ──────────────
   /** 다중 출력 K-map / 회로의 회로 내 학생-채움 빈칸 게이트 수 (예: ⓐ, ⓑ → 2) */
   kmapBlankCount?: number;
+  // ── 플립플롭 응용회로 전용 ───────────────────
+  /** 사용 FF 종류 (예: ["T","JK"]). flipflop_mixed_app / ff_with_waveform에서 의미. */
+  ffTypes?: Array<"D" | "T" | "JK">;
+  /** 상태표(현재상태→입력→다음상태) figure 필요 */
+  hasStateTable?: boolean;
+  /** 비동기 RESET 입력 존재 (ff_with_waveform 등) */
+  hasAsyncReset?: boolean;
 };
 
 /**

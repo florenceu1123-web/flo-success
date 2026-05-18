@@ -1,4 +1,4 @@
-import type { FigureRole, SemanticStructure, SubjectKey, TopicKey } from "@/types";
+import type { CircuitType, FigureRole, SemanticStructure, SubjectKey, TopicKey } from "@/types";
 import { resolveDigitalRules } from "./digital";
 import { resolveElectronicsRules } from "./electronics";
 import { resolveCircuitTheoryRules } from "./circuitTheory";
@@ -19,12 +19,18 @@ export function resolveRules(args: {
   topicKey?: TopicKey;
   semantic: SemanticStructure;
   text?: string;
+  circuitType?: CircuitType;
 }): RuleSet {
   let base: RuleSet;
   switch (args.subject) {
     case "digital_logic":   base = resolveDigitalRules(args); break;
     case "electronics":     base = resolveElectronicsRules(args); break;
     case "circuit_theory":  base = resolveCircuitTheoryRules(args); break;
+    case "mixed_signal":
+      // 복합형: 전자회로 베이스 규칙 사용 (OPAMP·비교기 분석 + 디지털 출력 파형 포함).
+      //   counter_dac_comparator 등 고유 archetype은 후속 단계에서 별도 처리.
+      base = resolveElectronicsRules(args);
+      break;
   }
 
   // trigger 기반으로 requiredFigureRoles 재평가 — semantic flag만으로 자동 추가 방지
@@ -46,8 +52,10 @@ export function resolveRules(args: {
   }
   for (const r of triggered) baseSet.add(r);
 
+  // 규칙 #9: ruleSet.subject는 항상 원본 subject 유지 (mixed_signal이 electronics base를 차용해도 라벨은 mixed_signal).
   return {
     ...base,
+    subject: args.subject,
     requiredFigureRoles: [...baseSet],
   };
 }

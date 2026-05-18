@@ -38,6 +38,8 @@ export async function writeFlipflopCounterText(args: {
   const solutionStepsForFfType =
     ffType === "D"
       ? `D = Q+ (D 플립플롭의 특성 방정식). 각 출력 비트의 다음 상태를 K-map으로 최소화`
+      : ffType === "T"
+      ? `T = Q ⊕ Q+ (T 플립플롭의 특성 방정식 — XOR로 토글 여부 결정).\\n     · 0→0: T=0\\n     · 0→1: T=1\\n     · 1→0: T=1\\n     · 1→1: T=0\\n     각 출력 비트의 토글 조건을 K-map으로 최소화`
       : `JK 여기표 사용:\\n     · 0→0: J=0, K=X\\n     · 0→1: J=1, K=X\\n     · 1→0: J=X, K=1\\n     · 1→1: J=X, K=0\\n     don't-care(X)를 K-map 최소화에서 활용해 더 적은 게이트로 합성`;
 
   const userPrompt = `다음 정보로 임용 시험 스타일의 2비트 동기식 카운터 설계 문제를 작성하세요.
@@ -64,7 +66,7 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
   "conditions": ["2비트 동기식 카운터 (${ffType} 플립플롭 2개)", "현재 상태 Q1 Q0", "다음 상태 순서: ${sequenceText}"],
   "question":   "K-map을 이용해 ${ffInputs.map((f) => f.name).join(", ")} 입력 식을 최소화하고 구현 회로를 그리시오",
   "answer":     "${answerString}",
-  "solution":   "단계별 풀이:\\n  1) 상태 전이표 작성:\\n${transitionRows.map((r) => "       " + r).join("\\n")}\\n  2) ${solutionStepsForFfType}\\n  3) 각 입력의 최소 SOP:\\n${ffInputs.map((f) => "     · " + f.name + " = " + f.expression).join("\\n")}\\n  4) NOT/AND/OR 게이트로 조합부 합성 후 해당 FF의 ${ffType === "D" ? "D" : "J, K"} 입력으로 연결."
+  "solution":   "단계별 풀이:\\n  1) 상태 전이표 작성:\\n${transitionRows.map((r) => "       " + r).join("\\n")}\\n  2) ${solutionStepsForFfType}\\n  3) 각 입력의 최소 SOP:\\n${ffInputs.map((f) => "     · " + f.name + " = " + f.expression).join("\\n")}\\n  4) NOT/AND/OR 게이트로 조합부 합성 후 해당 FF의 ${ffType === "D" ? "D" : ffType === "T" ? "T" : "J, K"} 입력으로 연결."
 }
 
 [규칙]

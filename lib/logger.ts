@@ -15,7 +15,9 @@ function emit(level: Level, scope: string, args: unknown[]): void {
   const ts = new Date().toISOString().slice(11, 23);
   const tag = `[${ts}] [${level.toUpperCase()}] [${scope}]`;
   const fn = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
-  fn(tag, ...args);
+  // 진단을 위해 object args를 stringify (Next.js dev 로그가 객체를 안 직렬화하는 케이스 대응).
+  const formatted = args.map((a) => (a && typeof a === "object" ? JSON.stringify(a) : a));
+  fn(tag, ...formatted);
 }
 
 /**

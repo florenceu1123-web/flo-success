@@ -1,6 +1,7 @@
 import type {
   CircuitTypeParams,
   KmapDiagram,
+  LogicGate,
   LogicNetworkDiagram,
 } from "@/types";
 import {
@@ -13,16 +14,20 @@ import { minimizeSop } from "@/lib/digital/minimize";
 import { makeRand, pick } from "./_helpers";
 
 /**
- * 2비트 동기식 카운터 generator. D-FF 또는 JK-FF 사용.
+ * 2비트 동기식 카운터 generator. D-FF / JK-FF / T-FF 사용.
  *
  *  Archetypes:
  *   - "two_bit_d_ff_cyclic":  D 플립플롭. D = Q+. 2 K-map (D1, D0).
  *   - "two_bit_jk_ff_cyclic": JK 플립플롭. 여기표 사용, don't care 활용. 4 K-map (J1, K1, J0, K0).
+ *   - "two_bit_t_ff_cyclic":  T 플립플롭. T = Q ⊕ Q+ (XOR). 2 K-map (T1, T0).
  *
  *  4-state 순열을 next-state로 사용 (full-cycle 우선).
  */
 
-export type FlipflopArchetype = "two_bit_d_ff_cyclic" | "two_bit_jk_ff_cyclic";
+export type FlipflopArchetype =
+  | "two_bit_d_ff_cyclic"
+  | "two_bit_jk_ff_cyclic"
+  | "two_bit_t_ff_cyclic";
 
 export type FfInput = {
   /** "D1", "D0", "J1", "K1", "J0", "K0" */
@@ -40,8 +45,8 @@ export type FlipflopCounterGeneration = {
   logicNetworkDiagram: LogicNetworkDiagram;
   sequenceText: string;
   archetype: FlipflopArchetype;
-  /** "D" 또는 "JK" — 텍스트 라이터가 표현 선택 */
-  ffType: "D" | "JK";
+  /** "D" / "JK" / "T" — 텍스트 라이터가 표현 선택 */
+  ffType: "D" | "JK" | "T";
   values: Record<string, number>;
 };
 
@@ -78,7 +83,10 @@ export function generateFlipflopCounter(args: {
 }): FlipflopCounterGeneration {
   const rand = makeRand(args.seed);
   const archetype: FlipflopArchetype = args.archetype
-    ?? pick<FlipflopArchetype>(["two_bit_d_ff_cyclic", "two_bit_jk_ff_cyclic"], rand);
+    ?? pick<FlipflopArchetype>(
+      ["two_bit_d_ff_cyclic", "two_bit_jk_ff_cyclic", "two_bit_t_ff_cyclic"],
+      rand,
+    );
 
   // full-cycle 순열 뽑기
   let perm: number[] = [];
@@ -94,6 +102,9 @@ export function generateFlipflopCounter(args: {
 
   if (archetype === "two_bit_d_ff_cyclic") {
     return buildDArchetype(perm, sequenceText);
+  }
+  if (archetype === "two_bit_t_ff_cyclic") {
+    return buildTArchetype(perm, sequenceText);
   }
   return buildJkArchetype(perm, sequenceText);
 }
@@ -113,13 +124,18 @@ function buildDArchetype(perm: number[], sequenceText: string): FlipflopCounterG
   const d1 = makeFfInput("D1", d1Minterms, []);
   const d0 = makeFfInput("D0", d0Minterms, []);
 
-  const logicNetworkDiagram = buildLogicNetworkMulti({
+  const combinational = buildLogicNetworkMulti({
     sops: [
       { sop: d1.sop, outputName: "D1" },
       { sop: d0.sop, outputName: "D0" },
     ],
     varNames: VAR_NAMES,
   });
+
+  const logicNetworkDiagram = wrapWithFlipFlops(combinational, [
+    { id: "G_dff_Q1", type: "DFF", inputs: ["D1"], output: "Q1" },
+    { id: "G_dff_Q0", type: "DFF", inputs: ["D0"], output: "Q0" },
+  ]);
 
   return {
     nextState: perm,
@@ -184,7 +200,7 @@ function buildJkArchetype(perm: number[], sequenceText: string): FlipflopCounter
   const j0 = makeFfInput("J0", j0Minterms, j0DontCares);
   const k0 = makeFfInput("K0", k0Minterms, k0DontCares);
 
-  const logicNetworkDiagram = buildLogicNetworkMulti({
+  const combinational = buildLogicNetworkMulti({
     sops: [
       { sop: j1.sop, outputName: "J1" },
       { sop: k1.sop, outputName: "K1" },
@@ -193,6 +209,11 @@ function buildJkArchetype(perm: number[], sequenceText: string): FlipflopCounter
     ],
     varNames: VAR_NAMES,
   });
+
+  const logicNetworkDiagram = wrapWithFlipFlops(combinational, [
+    { id: "G_jkff_Q1", type: "JKFF", inputs: ["J1", "K1"], output: "Q1" },
+    { id: "G_jkff_Q0", type: "JKFF", inputs: ["J0", "K0"], output: "Q0" },
+  ]);
 
   return {
     nextState: perm,
@@ -205,6 +226,74 @@ function buildJkArchetype(perm: number[], sequenceText: string): FlipflopCounter
       j1Terms: j1.sop.length, k1Terms: k1.sop.length,
       j0Terms: j0.sop.length, k0Terms: k0.sop.length,
     },
+  };
+}
+
+// =====================================================================
+// T-FF: T_i = Q_i ⊕ Q_i+ (XOR). 토글하면 1, 유지하면 0.
+//   여기표:
+//     0 → 0 : T=0
+//     0 → 1 : T=1
+//     1 → 0 : T=1
+//     1 → 1 : T=0
+//   don't care 없음 (T가 transition을 완전 결정).
+// =====================================================================
+function buildTArchetype(perm: number[], sequenceText: string): FlipflopCounterGeneration {
+  const t1Minterms: number[] = [];
+  const t0Minterms: number[] = [];
+  for (let s = 0; s < 4; s++) {
+    const q1 = (s >> 1) & 1;
+    const q0 = s & 1;
+    const q1n = (perm[s] >> 1) & 1;
+    const q0n = perm[s] & 1;
+    if ((q1 ^ q1n) === 1) t1Minterms.push(s);
+    if ((q0 ^ q0n) === 1) t0Minterms.push(s);
+  }
+
+  const t1 = makeFfInput("T1", t1Minterms, []);
+  const t0 = makeFfInput("T0", t0Minterms, []);
+
+  const combinational = buildLogicNetworkMulti({
+    sops: [
+      { sop: t1.sop, outputName: "T1" },
+      { sop: t0.sop, outputName: "T0" },
+    ],
+    varNames: VAR_NAMES,
+  });
+
+  const logicNetworkDiagram = wrapWithFlipFlops(combinational, [
+    { id: "G_tff_Q1", type: "TFF", inputs: ["T1"], output: "Q1" },
+    { id: "G_tff_Q0", type: "TFF", inputs: ["T0"], output: "Q0" },
+  ]);
+
+  return {
+    nextState: perm,
+    ffInputs: [t1, t0],
+    logicNetworkDiagram,
+    sequenceText,
+    archetype: "two_bit_t_ff_cyclic",
+    ffType: "T",
+    values: { t1Terms: t1.sop.length, t0Terms: t0.sop.length },
+  };
+}
+
+// =====================================================================
+// 조합부 LogicNetwork + 플립플롭 gate들 합치기.
+//   · combinational.inputs는 [Q1, Q0]만 — 이걸 플립플롭 Q output으로 옮긴다.
+//   · 카운터는 외부 입력 없음 (자체 state 기반) → inputs=[].
+//   · outputs는 [Q1, Q0]만 — D1/D0 (또는 J/K)는 조합부→FF 사이 내부 wire,
+//     terminal label로 그리면 FF body·CLK ▷와 겹쳐 오해 유발.
+// =====================================================================
+function wrapWithFlipFlops(
+  combinational: LogicNetworkDiagram,
+  ffGates: LogicGate[],
+): LogicNetworkDiagram {
+  const ffOutputs = new Set(ffGates.map((g) => g.output));
+  const externalInputs = combinational.inputs.filter((s) => !ffOutputs.has(s));
+  return {
+    inputs: externalInputs,
+    outputs: [...ffOutputs],
+    gates: [...ffGates, ...combinational.gates],
   };
 }
 

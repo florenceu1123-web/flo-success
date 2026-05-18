@@ -1,16 +1,20 @@
 import type { ReactNode } from "react";
 import type {
+  BlockDiagram,
   CircuitNetlist,
   DiagramType,
   FigureVariant,
   KmapDiagram,
   LogicNetworkDiagram,
+  MixedCircuitDiagram,
 } from "@/types";
 import { DiagramMissing, FigureHeader, PlaceholderFigure } from "./_placeholder";
 import { renderAnalogMeshSVG } from "./analogMeshRenderer";
+import { renderBlockDiagramSVG } from "./blockDiagramRenderer";
 import { renderConceptDiagramSVG } from "./conceptDiagramRenderer";
 import { renderKmapSVG } from "./kmapRenderer";
 import { renderLogicNetworkSVG } from "./logicNetworkRenderer";
+import { renderMixedCircuitSVG } from "./mixedCircuitRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -40,6 +44,10 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return renderWaveform(figure);
     case "concept_diagram":
       return wrapSvg(figure, renderConceptDiagramSVG(figure.diagram as Parameters<typeof renderConceptDiagramSVG>[0]));
+    case "block_diagram":
+      return wrapSvg(figure, renderBlockDiagramSVG(figure.diagram as BlockDiagram));
+    case "mixed_circuit":
+      return wrapSvg(figure, renderMixedCircuitSVG(figure.diagram as MixedCircuitDiagram));
     default:
       return (
         <pre className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
