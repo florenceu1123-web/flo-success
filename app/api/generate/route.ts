@@ -15,6 +15,7 @@ import { runRlcStepPipeline } from "@/lib/pipeline/runRlcStepPipeline";
 import { runDcSupermeshPipeline } from "@/lib/pipeline/runDcSupermeshPipeline";
 import { runDcSupernodePipeline } from "@/lib/pipeline/runDcSupernodePipeline";
 import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourcePipeline";
+import { runAcSuperpositionPipeline } from "@/lib/pipeline/runAcSuperpositionPipeline";
 import { runMaxPowerTransferPipeline } from "@/lib/pipeline/runMaxPowerTransferPipeline";
 import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitPipeline";
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
@@ -82,15 +83,30 @@ export async function POST(req: NextRequest) {
     //    조건이 false-positive로 figure 누락 issue를 일으킴).
     const inventory = analysis?.componentInventory ?? [];
     const hasCapOrIndInCircuit = inventory.some((c) => c.type === "C" || c.type === "L");
+    const isAcSuperposition = analysis?.circuitType?.type === "ac_superposition";
+    const isSwStatePair =
+      rawSemantic.hasWaveformEvolution &&
+      !hasCapOrIndInCircuit &&
+      Boolean(analysis?.topologySignature?.features?.hasSwitch);
+    // ac_superposition은 phasor 정상상태 해석이라 waveform figure 불필요 → hasWaveformEvolution=false 강제
     const expectedSemantic: SemanticStructure =
-      rawSemantic.hasWaveformEvolution && !hasCapOrIndInCircuit && Boolean(analysis?.topologySignature?.features?.hasSwitch)
+      isSwStatePair || (rawSemantic.hasWaveformEvolution && isAcSuperposition)
         ? { ...rawSemantic, hasWaveformEvolution: false }
         : rawSemantic;
     if (expectedSemantic !== rawSemantic) {
-      log.info("semantic_normalized", { reason: "SW state pair without C/L → hasWaveformEvolution=false" });
+      log.info("semantic_normalized", {
+        reason: isAcSuperposition
+          ? "ac_superposition (phasor 정상상태) → hasWaveformEvolution=false"
+          : "SW state pair without C/L → hasWaveformEvolution=false",
+      });
     }
 
-    const ruleSet = resolveRules({ subject: subjectKey, topicKey: expectedTopicKey, semantic: expectedSemantic });
+    const ruleSet = resolveRules({
+      subject: subjectKey,
+      topicKey: expectedTopicKey,
+      semantic: expectedSemantic,
+      circuitType: analysis?.circuitType?.type,
+    });
 
     // ★ Circuit-type 기반 dispatch — 결정론 파이프라인을 가진 type은 그쪽으로.
     // 현 phase: thevenin, norton. 나머지는 기존 free/strict 경로.
@@ -183,6 +199,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "dc_supernode" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "dc_supernode_pipeline", count: n, mode });
       problems = await runDcSupernodePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "ac_superposition" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "ac_superposition_pipeline", count: n, mode });
+      problems = await runAcSuperpositionPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
@@ -358,6 +382,9 @@ function shouldUseTopologyDriven(
   const hasSwitch = Boolean(features.hasSwitch);
   const hasDep = Boolean(features.hasDependentSource);
   const hasSupermesh = Boolean(features.hasSupermesh);
+
+  // ac_superposition은 전용 generator로 명시 분기에서 처리. topology_driven으로 fallback 금지.
+  if (circuitType === "ac_superposition") return false;
 
   const archetypeSupportsSwitch =
     circuitType === "switched_rc" || circuitType === "switched_rl" || circuitType === "switched_dc";
