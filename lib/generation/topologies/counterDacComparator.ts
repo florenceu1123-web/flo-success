@@ -33,8 +33,10 @@ import { makeRand, pick } from "./_helpers";
 export type CounterDacComparatorGeneration = {
   /** (가) 단일 mixed_circuit — logic + analog 통합 */
   mixedCircuit: MixedCircuitDiagram;
-  /** (나) waveform */
-  waveformDiagram: WaveformDiagram;
+  /** (나) waveform — 문제 템플릿: 클럭만 채워지고 Q_A'·Q_B'·V_o는 빈칸 (학생이 단계 1·3에서 도시) */
+  waveformTemplate: WaveformDiagram;
+  /** (나) waveform — 정답: 모든 신호 채워짐 (정답·풀이 영역용) */
+  waveformSolution: WaveformDiagram;
   /** 정답 — 단계 2의 V+ 전압 (특정 시점) */
   answer: {
     Vplus_at_marker: number;
@@ -168,7 +170,23 @@ export function generateCounterDacComparator(args: {
     return out;
   };
 
-  const waveformDiagram: WaveformDiagram = {
+  const markers = [{ t: markerCount + 0.5, label: "㉠" }];
+
+  // (나) 문제 템플릿 — 클럭만 채워지고 나머지는 blank 트랙 (학생이 단계 1·3에서 도시).
+  // blank 트랙은 sample 없이 vRange로 lane 범위만 명시.
+  const waveformTemplate: WaveformDiagram = {
+    signals: [
+      { name: "클럭", samples: stepSamples(clkSeq), shape: "step" },
+      { name: "Q_A'", samples: [], shape: "step", blank: true, vRange: { min: 0, max: 1 } },
+      { name: "Q_B'", samples: [], shape: "step", blank: true, vRange: { min: 0, max: 1 } },
+      { name: "V_o", samples: [], shape: "step", blank: true, vRange: { min: 0, max: 1 } },
+    ],
+    unit: { time: "t" },
+    markers,
+  };
+
+  // (나) 정답 — 모든 신호 채워짐. 정답·풀이 영역에 표시.
+  const waveformSolution: WaveformDiagram = {
     signals: [
       { name: "클럭", samples: stepSamples(clkSeq), shape: "step" },
       { name: "Q_A'", samples: stepSamples(QA_bar_seq), shape: "step" },
@@ -176,9 +194,7 @@ export function generateCounterDacComparator(args: {
       { name: "V_o", samples: stepSamples(Vo_seq), shape: "step" },
     ],
     unit: { time: "t" },
-    markers: [
-      { t: markerCount + 0.5, label: "㉠" },
-    ],
+    markers,
   };
 
   // (가) 단일 mixed_circuit — logic part + analog part 통합 + bridge mapping
@@ -190,7 +206,8 @@ export function generateCounterDacComparator(args: {
 
   return {
     mixedCircuit,
-    waveformDiagram,
+    waveformTemplate,
+    waveformSolution,
     answer: {
       Vplus_at_marker,
       Vo_sequence,

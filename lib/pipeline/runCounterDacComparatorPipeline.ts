@@ -32,7 +32,7 @@ export async function runCounterDacComparatorPipeline(args: {
     });
     const text = await writeCounterDacComparatorText({ generation: gen, mode, topicLabel, contextHint });
 
-    // (가) 단일 mixed_circuit — logic + analog 통합. (나) waveform.
+    // (가) 단일 mixed_circuit + (나) waveform 템플릿(클럭만 채움, 나머지 blank)
     const figureVariants: FigureVariant[] = [
       {
         id: `fig_mixed_${i + 1}`,
@@ -46,7 +46,18 @@ export async function runCounterDacComparatorPipeline(args: {
         label: "(나) 클럭·Q_A'·Q_B'·V_o 파형",
         role: "waveform",
         diagramType: "waveform",
-        diagram: gen.waveformDiagram,
+        diagram: gen.waveformTemplate,
+      },
+    ];
+
+    // 정답·풀이 영역: 채워진 파형 — 학생이 단계 1·3에서 도시할 내용의 정답.
+    const solutionFigures: FigureVariant[] = [
+      {
+        id: `fig_waveform_solution_${i + 1}`,
+        label: "(나) 파형 — 정답 (Q_A'·Q_B'·V_o 채워진 형태)",
+        role: "solution_waveform",
+        diagramType: "waveform",
+        diagram: gen.waveformSolution,
       },
     ];
 
@@ -59,6 +70,7 @@ export async function runCounterDacComparatorPipeline(args: {
       solution: text.solution,
       topicKey,
       figureVariants,
+      solutionFigures,
     };
   });
 }
