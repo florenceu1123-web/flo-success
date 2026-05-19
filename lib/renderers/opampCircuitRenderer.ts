@@ -79,16 +79,15 @@ export function validateOpAmpCircuit(netlist: CircuitNetlist): string[] {
     const vpNode = pins[0].node;
     const vnNode = pins[1].node;
     const voNode = pins[2].node;
-    // 규칙 #8: V_o가 외부 단자(label_only annotation)이고 다른 R/C와 closed loop를 안 만들면
-    //   open-loop 비교기로 인정 → feedback branch 검사 면제.
-    const isExternalTerminal = (netlist.nodeAnnotations ?? []).some(
-      (a) => a.node === voNode && a.style === "label_only",
-    );
+    // 규칙 #8: open-loop 비교기 인정.
+    //   원본: V_o가 label_only annotation + 다른 component 연결 없음.
+    //   완화: V_o_node에 다른 component 연결이 없으면 자동 비교기 인정 (annotation 없어도).
+    //   이유: GPT free generation·신규 archetype에서 annotation 누락 case 대비.
     const voConsumers = (netlist.components ?? []).filter((c) => {
       if (c.id === op.id) return false;
       return (c.pins ?? []).some((p) => p.node === voNode);
     });
-    const isComparator = isExternalTerminal && voConsumers.length === 0;
+    const isComparator = voConsumers.length === 0;
     if (isComparator) continue; // open-loop 비교기: feedback 검사 면제
     // closed-loop 증폭기: feedback 의무 (V_out → V− 또는 V+ 2-pin component)
     const hasFeedback = (netlist.components ?? []).some((c) => {

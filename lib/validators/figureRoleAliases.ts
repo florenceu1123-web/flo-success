@@ -8,7 +8,7 @@ const ALIAS_GROUPS: string[][] = [
   ["state_after", "switch_closed", "after_state"],
   ["equivalent_circuit", "thevenin_equivalent", "norton_equivalent"],
   ["implementation_circuit", "logic_implementation"],
-  ["waveform", "input_waveform", "output_waveform", "measurement_waveform"],
+  ["waveform", "input_waveform", "output_waveform", "measurement_waveform", "frequency_response_curve"],
   ["truth_table", "state_table"],
 ];
 

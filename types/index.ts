@@ -765,6 +765,7 @@ export type TruthTableDiagram = {
 
 /** waveform diagram 권장 shape.
  *  markers: 시간축에 t₁, t₂, t₃ 같은 명시적 기준점 (세로 점선 + 라벨)을 그릴 때 사용.
+ *  xAxis / yMarkers: 시간 외 도메인(주파수응답 곡선 등)에 재활용. xAxis.symbol 미지정 시 "t".
  */
 export type WaveformDiagram = {
   signals: Array<{
@@ -779,8 +780,12 @@ export type WaveformDiagram = {
     vRange?: { min: number; max: number };
   }>;
   unit?: { time?: string; value?: string };
-  /** 시간축 기준점 마커 — 학생이 답해야 할 구간 표시 (예: t₁, t₂, t₃, t₄). */
+  /** 시간축(또는 일반 x축) 기준점 마커 — 학생이 답해야 할 구간 표시 (예: t₁, t₂, t₃, t₄, f_0). */
   markers?: Array<{ t: number; label: string }>;
+  /** x축 표기 customize. 미지정이면 symbol="t", unit은 unit.time 사용. */
+  xAxis?: { symbol?: string; unit?: string };
+  /** y축에 수평 점선 + 라벨 (예: I_max). 모든 lane 가로지름. lane 안쪽 v좌표. */
+  yMarkers?: Array<{ v: number; label: string }>;
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

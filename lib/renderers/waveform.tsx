@@ -37,8 +37,12 @@ type Marker = { t: number; label: string };
 type WaveformDiagram = {
   signals: Signal[];
   unit?: { time?: string; value?: string };
-  /** 시간축 기준점 — 세로 점선 + 라벨 (예: t₁, t₂, t₃, t₄). */
+  /** 시간축(또는 일반 x축) 기준점 — 세로 점선 + 라벨 (예: t₁, t₂, t₃, t₄, f_0). */
   markers?: Marker[];
+  /** x축 표기 customize — 미지정 시 symbol="t", unit은 unit.time 사용. */
+  xAxis?: { symbol?: string; unit?: string };
+  /** y축에 수평 점선 + 라벨 (예: I_max). 가장 첫 lane 기준 v좌표로 위치. */
+  yMarkers?: Array<{ v: number; label: string }>;
 };
 
 // 멀티 트랙(레인) 레이아웃 — 각 신호를 별도 lane으로 위·아래로 stack.
@@ -77,7 +81,9 @@ export function renderWaveform(figure: FigureVariant) {
   if (!Number.isFinite(tMin)) return <PlaceholderFigure figure={figure} />;
   if (tMax <= tMin) tMax = tMin + 1;
 
-  const tUnit = d.unit?.time ?? "";
+  const xSymbol = d.xAxis?.symbol ?? "t";
+  const xUnit = d.xAxis?.unit ?? d.unit?.time ?? "";
+  const tUnit = xUnit;
   const tRange = tMax - tMin;
   const xOf = (t: number) => PAD_L + ((t - tMin) / tRange) * PLOT_W;
 
@@ -147,7 +153,7 @@ export function renderWaveform(figure: FigureVariant) {
   const tLabels = tTicks
     .map((t) => `<text x="${xOf(t)}" y="${plotBottom + 16}" text-anchor="middle" font-size="11" fill="#374151">${formatNumber(t)}</text>`)
     .join("");
-  const xUnitLabel = `<text x="${PAD_L + PLOT_W}" y="${plotBottom + 32}" text-anchor="end" font-size="12" fill="#1e3a8a">t${tUnit ? ` [${tUnit}]` : ""}</text>`;
+  const xUnitLabel = `<text x="${PAD_L + PLOT_W}" y="${plotBottom + 32}" text-anchor="end" font-size="12" fill="#1e3a8a">${escapeSvg(xSymbol)}${tUnit ? ` [${escapeSvg(tUnit)}]` : ""}</text>`;
 
   // 신호별 polyline — 자기 lane의 yOf 사용. 모두 같은 색.
   // blank=true 신호는 polyline 생략 (학생이 직접 채울 빈칸 트랙)
@@ -169,10 +175,24 @@ export function renderWaveform(figure: FigureVariant) {
     })
     .join("");
 
+  // y마커 (I_max, V_th, ...) — 첫 lane의 yOf로 위치 결정, 가로 점선 + 좌측 라벨.
+  // 곡선/연속 신호 그래프(주파수응답 등)에서 특정 v값 강조에 사용.
+  const yMarkers = Array.isArray(d.yMarkers) ? d.yMarkers : [];
+  const yMarkerLines = lanes.length > 0
+    ? yMarkers
+        .map((ym) => {
+          const my = lanes[0].yOf(ym.v);
+          return `<line x1="${PAD_L}" y1="${my}" x2="${PAD_L + PLOT_W}" y2="${my}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3"/>` +
+            `<text x="${PAD_L - 4}" y="${my + 4}" text-anchor="end" font-size="11" fill="#1e3a8a" font-weight="600">${escapeSvg(ym.label)}</text>`;
+        })
+        .join("")
+    : "";
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${SVG_H}" viewBox="0 0 ${SVG_W} ${SVG_H}">
 ${gridLines}
 ${laneFrames}
 ${markerLines}
+${yMarkerLines}
 ${laneLabels}
 ${signalLines}
 ${xAxis}
