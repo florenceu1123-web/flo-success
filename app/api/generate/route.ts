@@ -12,16 +12,22 @@ import { runDcMeshPipeline } from "@/lib/pipeline/runDcMeshPipeline";
 import { runRcStepPipeline } from "@/lib/pipeline/runRcStepPipeline";
 import { runRlStepPipeline } from "@/lib/pipeline/runRlStepPipeline";
 import { runRlcStepPipeline } from "@/lib/pipeline/runRlcStepPipeline";
+import { runRlcResonancePipeline } from "@/lib/pipeline/runRlcResonancePipeline";
+import { runSwitchedRlcStepPipeline } from "@/lib/pipeline/runSwitchedRlcStepPipeline";
+import { runSwitchedRlc5legPipeline } from "@/lib/pipeline/runSwitchedRlc5legPipeline";
 import { runDcSupermeshPipeline } from "@/lib/pipeline/runDcSupermeshPipeline";
 import { runDcSupernodePipeline } from "@/lib/pipeline/runDcSupernodePipeline";
 import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourcePipeline";
 import { runAcSuperpositionPipeline } from "@/lib/pipeline/runAcSuperpositionPipeline";
+import { runAcParallelBranchesPipeline } from "@/lib/pipeline/runAcParallelBranchesPipeline";
 import { runMaxPowerTransferPipeline } from "@/lib/pipeline/runMaxPowerTransferPipeline";
 import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitPipeline";
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
 import { runOpampTimeDomainPipeline } from "@/lib/pipeline/runOpampTimeDomainPipeline";
 import { runBjtSmallSignalPipeline } from "@/lib/pipeline/runBjtSmallSignalPipeline";
 import { runBjtBiasPipeline } from "@/lib/pipeline/runBjtBiasPipeline";
+import { runMosfetBiasPipeline } from "@/lib/pipeline/runMosfetBiasPipeline";
+import { runMosfetCascodeMirrorPipeline } from "@/lib/pipeline/runMosfetCascodeMirrorPipeline";
 import { runCounterDacComparatorPipeline } from "@/lib/pipeline/runCounterDacComparatorPipeline";
 import { runKmapSopPipeline } from "@/lib/pipeline/runKmapSopPipeline";
 import { runKmapPosPipeline } from "@/lib/pipeline/runKmapPosPipeline";
@@ -87,21 +93,29 @@ export async function POST(req: NextRequest) {
     //    조건이 false-positive로 figure 누락 issue를 일으킴).
     const inventory = analysis?.componentInventory ?? [];
     const hasCapOrIndInCircuit = inventory.some((c) => c.type === "C" || c.type === "L");
-    const isAcSuperposition = analysis?.circuitType?.type === "ac_superposition";
+    const isAcSuperposition = analysis?.circuitType?.type === "ac_superposition" ||
+      analysis?.circuitType?.type === "ac_parallel_branches";
+    // switched_rlc_*는 v_C(t) 응답이 학생 도출 정답이라 waveform figure를 안 만듦 (학습 의도).
+    //  → state_before/state_after figure로 시간 변화 표현 → hasWaveformEvolution=false 강제로 waveform required 면제.
+    const isSwitchedRlc =
+      analysis?.circuitType?.type === "switched_rlc_5leg" ||
+      analysis?.circuitType?.type === "switched_rlc_step";
     const isSwStatePair =
       rawSemantic.hasWaveformEvolution &&
       !hasCapOrIndInCircuit &&
       Boolean(analysis?.topologySignature?.features?.hasSwitch);
     // ac_superposition은 phasor 정상상태 해석이라 waveform figure 불필요 → hasWaveformEvolution=false 강제
     const expectedSemantic: SemanticStructure =
-      isSwStatePair || (rawSemantic.hasWaveformEvolution && isAcSuperposition)
+      isSwStatePair || (rawSemantic.hasWaveformEvolution && (isAcSuperposition || isSwitchedRlc))
         ? { ...rawSemantic, hasWaveformEvolution: false }
         : rawSemantic;
     if (expectedSemantic !== rawSemantic) {
       log.info("semantic_normalized", {
         reason: isAcSuperposition
           ? "ac_superposition (phasor 정상상태) → hasWaveformEvolution=false"
-          : "SW state pair without C/L → hasWaveformEvolution=false",
+          : isSwitchedRlc
+            ? "switched_rlc_* (v_C(t)는 학생 도출 정답) → hasWaveformEvolution=false"
+            : "SW state pair without C/L → hasWaveformEvolution=false",
       });
     }
 
@@ -192,6 +206,30 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (circuitType === "switched_rlc_5leg" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "switched_rlc_5leg_pipeline", count: n, mode });
+      problems = await runSwitchedRlc5legPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "switched_rlc_step" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "switched_rlc_step_pipeline", count: n, mode });
+      problems = await runSwitchedRlcStepPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "rlc_resonance" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "rlc_resonance_pipeline", count: n, mode });
+      problems = await runRlcResonancePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else if (circuitType === "dc_supermesh" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "dc_supermesh_pipeline", count: n, mode });
       problems = await runDcSupermeshPipeline({
@@ -203,6 +241,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "dc_supernode" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "dc_supernode_pipeline", count: n, mode });
       problems = await runDcSupernodePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "ac_parallel_branches" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "ac_parallel_branches_pipeline", count: n, mode });
+      problems = await runAcParallelBranchesPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
@@ -267,6 +313,22 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "bjt_bias" && subjectKey === "electronics") {
       log.info("dispatch", { route: "bjt_bias_pipeline", count: n, mode });
       problems = await runBjtBiasPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "mosfet_cascode_mirror" && subjectKey === "electronics") {
+      log.info("dispatch", { route: "mosfet_cascode_mirror_pipeline", count: n, mode });
+      problems = await runMosfetCascodeMirrorPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "mosfet_bias" && subjectKey === "electronics") {
+      log.info("dispatch", { route: "mosfet_bias_pipeline", count: n, mode });
+      problems = await runMosfetBiasPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
@@ -421,6 +483,13 @@ function shouldUseTopologyDriven(
 
   // ac_superposition은 전용 generator로 명시 분기에서 처리. topology_driven으로 fallback 금지.
   if (circuitType === "ac_superposition") return false;
+  // rlc_resonance도 전용 generator(공진곡선 figure 포함) 보존 — topology_driven은 회로만 만들고
+  // 주파수응답 곡선 figure를 모르므로 fallback 금지.
+  if (circuitType === "rlc_resonance") return false;
+  // switched_rlc_step·switched_rlc_5leg 모두 전용 generator 보존.
+  if (circuitType === "switched_rlc_step") return false;
+  if (circuitType === "switched_rlc_5leg") return false;
+  if (circuitType === "ac_parallel_branches") return false;
 
   const archetypeSupportsSwitch =
     circuitType === "switched_rc" || circuitType === "switched_rl" || circuitType === "switched_dc";

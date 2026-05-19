@@ -22,12 +22,18 @@ export type CircuitType =
   | "dc_supernode"          // 슈퍼노드
   | "dc_dependent_source"   // 종속전원 포함 DC 회로
   | "ac_superposition"      // AC 다중 전원 (V_ac + I_ac) + R/L/C 임피던스 + 중첩의 원리 (임용 10번)
+  | "ac_parallel_branches"  // AC + 다중 병렬 가지 (R∥L1∥I_S∥L2∥R∥C) — 임용 5번 형식. V_C → I_L2·I_S → I_R1 phasor 단계
   | "bjt_bias"              // DC 바이어스된 BJT 회로 (임용 7번) — V_BE=0.7V 가정, V_E·I_C·V_O 계산, 저항률 ρ
+  | "mosfet_bias"           // NMOS DC bias 회로 (단순 단일단) — 포화 영역 I_D=K(V_GS-V_TH)², V_GS·I_D·V_D·V_DS 단계 도출
+  | "mosfet_cascode_mirror" // NMOS cascode current mirror (임용 10번 정확 재현) — M1 reference + M2 mirror + M3 cascode + R(학생 도출) + R_G 분압. 단계 1:V_GS1·R, 단계 2:V_D2, 단계 3:V_GS3·V_S3
   | "counter_dac_comparator" // 복합형: 2-bit JK 카운터 + R-2R DAC + OPAMP 비교기 (임용 8번)
   // ── 과도응답 ─────────────────────────────────
   | "rc_step"               // RC step input 응답
   | "rl_step"               // RL step input 응답
-  | "rlc_step"              // RLC step input 응답 (under/over/critically damped)
+  | "rlc_step"              // RLC step input 응답 (under/over/critically damped) — 단순 V_step+R+L+C 직렬
+  | "rlc_resonance"         // RLC 직렬/병렬 공진 + 주파수응답 (I[A] vs f[Hz] 곡선, f_0, Q, Imax) — 임용 9번 형식
+  | "switched_rlc_step"     // 스위치 t=0 SPDT 전환 (A↔B) + dual-source(V_s/I_s) + RLC core. 초기조건(v_C(0⁻)·i_L(0⁻)) → dv_C(0⁺)/dt → 2차 미방+v_C(t). 단순화 v1 (3-leg)
+  | "switched_rlc_5leg"     // 임용 9번 정확 재현 — 6-leg (V_s | R | R+L_a | C∥R | L_b | I_s) + 2 top horizontal R + SPDT SW. v_C(0⁻)·i_L(0⁻) → dv_C(0⁺)/dt → 2차 미방+v_C(t)
   // ── 스위칭 ───────────────────────────────────
   | "switched_rc"           // SW가 t=0에 닫혀 RC 응답 시작
   | "switched_rl"           // SW가 t=0에 닫혀 RL 응답 시작
@@ -86,6 +92,9 @@ export type CircuitTypeParams = {
   hasStateTable?: boolean;
   /** 비동기 RESET 입력 존재 (ff_with_waveform 등) */
   hasAsyncReset?: boolean;
+  // ── RLC 공진 (rlc_resonance) ─────────────────
+  /** "series" | "parallel" — RLC 토폴로지. exam_similar는 원본 유지, exam_variant는 임의 선택. */
+  rlcTopology?: "series" | "parallel";
 };
 
 /**

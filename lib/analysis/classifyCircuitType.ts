@@ -36,18 +36,33 @@ export function classifyCircuitType(
     const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
     const counterDacComparatorKeywords = [
       "2비트 카운터", "2-bit 카운터", "2비트 동기식", "2-bit 동기식",
+      "3비트 카운터", "3-bit 카운터", "3비트 동기식", "3-bit 동기식",
       "카운터와 d/a", "카운터 + d/a", "카운터·d/a",
       "d/a 변환기", "dac", "디지털 아날로그",
       "비교기", "comparator",
       "jk 플립플롭", "jk-ff", "jk플립플롭",
       "r-2r", "r2r",
+      "동기식 카운터",  // 일반 동기식 카운터 키워드
     ];
-    if (analysis.topicKey === "counter_dac_comparator" || matchesKeyword(text, counterDacComparatorKeywords)) {
+    // inventory 기반 robust 매치 — OPAMP가 있으면 비교기 가능성 높음.
+    //   GPT 키워드 추출이 부족해도 mixed_signal subject + OPAMP면 counter_dac_comparator로.
+    const inv = analysis.componentInventory ?? [];
+    const hasOpAmp = inv.some((c) => String(c.type ?? "").toUpperCase() === "OPAMP");
+    const hasJKorFF = inv.some((c) => {
+      const t = String(c.type ?? "").toUpperCase();
+      return t === "JKFF" || t === "JK" || t === "FF" || t === "DFF" || t === "TFF";
+    });
+    if (
+      analysis.topicKey === "counter_dac_comparator" ||
+      matchesKeyword(text, counterDacComparatorKeywords) ||
+      hasOpAmp ||  // OPAMP 있으면 비교기 가능성 강함
+      hasJKorFF    // JK/D/T FF 있으면 카운터 가능성
+    ) {
       return {
         type: "counter_dac_comparator",
         params: {},
         confidence: "high",
-        reasoning: "mixed_signal + 카운터/DAC/비교기 키워드",
+        reasoning: `mixed_signal + ${hasOpAmp ? "OPAMP inventory + " : ""}${hasJKorFF ? "FF inventory + " : ""}카운터/DAC/비교기 키워드`,
       };
     }
     return {
@@ -77,6 +92,43 @@ export function classifyCircuitType(
         params: {},
         confidence: "high",
         reasoning: "electronics + BJT DC bias 키워드/family",
+      };
+    }
+    // NMOS multi-FET cascode current mirror (임용 10번 정확 재현) — mosfet_bias보다 우선.
+    //   트리거: MOSFET 2개 이상 OR cascode/mirror 키워드 OR M1·M2·M3 같은 multi-device id 인벤토리.
+    const cascodeKeywords = [
+      "cascode", "캐스코드", "케스코드",
+      "current mirror", "전류 거울", "전류거울", "거울 회로",
+      "m1", "m2", "m3",  // multi-device 식별
+    ];
+    const mosfetInventory = (analysis.componentInventory ?? []).filter((c) =>
+      ["MOSFET", "NMOS", "PMOS"].includes(String(c.type ?? "").toUpperCase()),
+    );
+    const isCascodeText = matchesKeyword(text, cascodeKeywords);
+    if (mosfetInventory.length >= 2 || (mosfetInventory.length >= 1 && isCascodeText)) {
+      return {
+        type: "mosfet_cascode_mirror",
+        params: {},
+        confidence: "high",
+        reasoning: `electronics + MOSFET ${mosfetInventory.length}개${isCascodeText ? " + cascode/mirror 키워드" : ""}`,
+      };
+    }
+    // 단일 NMOS DC bias — bjt_small_signal보다 우선. 키워드 또는 family.
+    const mosfetBiasKeywords = [
+      "nmos", "pmos", "mosfet", "엔모스", "피모스",
+      "포화 영역", "포화영역", "saturation", "saturation region",
+      "v_gs", "vgs", "v_ds", "vds", "v_th", "vth", "v_tn",
+      "i_d", "드레인 전류", "드레인전류", "게이트-소스",
+      "k(v_gs", "k·(v_gs", "k·(vgs", "(v_gs - v_th)", "(vgs-vth)",
+    ];
+    if (family === "mosfet_bias" || family === "mosfet_amplifier" ||
+        analysis.topicKey === "mosfet_bias" || analysis.topicKey === "mosfet_amplifier" ||
+        mosfetInventory.length >= 1 || matchesKeyword(text, mosfetBiasKeywords)) {
+      return {
+        type: "mosfet_bias",
+        params: {},
+        confidence: "high",
+        reasoning: "electronics + 단일 MOSFET 키워드/family/inventory",
       };
     }
     // BJT 소신호 등가
@@ -358,6 +410,17 @@ const SUPERNODE_KEYWORDS = ["슈퍼노드", "supernode", "super node"];
 const SUPERPOSITION_KEYWORDS = [
   "중첩의 원리", "중첩원리", "중첩 원리", "superposition",
 ];
+// RLC 공진 / 주파수응답 — 임용 9번 형식 (단일 AC 전원 + R+L+C, f 변화에 따른 I 곡선)
+const RESONANCE_KEYWORDS = [
+  "공진", "resonance", "공진주파수", "공진 주파수",
+  "주파수 응답", "주파수응답", "frequency response",
+  "f_0", "f0", "f_{0}", "fo[hz]", "f₀",
+  "imax", "i_max", "최대 전류", "최대전류",
+  "i[a]", "i [a]", "진폭",
+  "주파수에 따른", "주파수가",
+  "1/(2π√", "1/(2pi√", "1/(2\\pi", "1/\\sqrt{lc}", "1/√(lc",
+  "q-factor", "q factor", "선택도", "선택성",
+];
 const AC_PHASOR_KEYWORDS = [
   "페이저", "phasor", "∠", "교류 전압원", "교류 전류원", "교류 전압", "교류 전류",
   "교류", "ac source", "ac 회로",
@@ -438,6 +501,94 @@ type DecideResult = {
 
 function decideType(args: DecideArgs): DecideResult {
   const { topicKey, features, semantic, counts, text, hasACInventory } = args;
+
+  // SW 존재 판정 — counts.SW에만 의존하지 말 것. GPT가 inventory 추출 시 SW를 가끔 누락함.
+  //   features.hasSwitch OR text의 SW/스위치 키워드도 인정해서 robust하게.
+  const switchedExplicitKw = matchesKeyword(text, [
+    "스위치", "switch", "sw가", "sw는", "sw_", " sw ", "(sw)",
+    "단자 a에서", "a에서 단자 b", "a → b", "a->b", "t=0에", "t = 0에", "t=0이",
+  ]);
+  const hasSwitchInferred = counts.SW > 0 || Boolean(features.hasSwitch) || switchedExplicitKw;
+
+  // 0-pre-pre-pre. Switched RLC 5-leg (임용 9번 원본 정확) — switched_rlc_step v1보다 우선.
+  //    트리거: SW(inferred) + RLC + dual-source + 다중 R(R≥4) + 다중 L(L≥2).
+  if (
+    hasSwitchInferred && counts.R >= 4 && counts.L >= 2 && counts.C > 0 &&
+    counts.V > 0 && counts.I > 0
+  ) {
+    return {
+      type: "switched_rlc_5leg",
+      confidence: "high",
+      reasoning: `RLC 5-leg + SW(inferred: ${counts.SW > 0 ? "inv" : features.hasSwitch ? "feat" : "text"}) + dual-source + multi-R(${counts.R}) + multi-L(${counts.L})`,
+    };
+  }
+
+  // 0-pre-pre. Switched RLC step response v1 (3-leg 단순화) — SW(inferred) + RLC + dual-source + 키워드.
+  const hasRlcSet = counts.R > 0 && counts.L > 0 && counts.C > 0;
+  const switchedRlcKeywords = [
+    "정상 상태", "정상상태", "steady state", "직류 정상",
+    "초기 조건", "초기조건", "초기 전압", "v_c(0", "vc(0", "i_l(0", "il(0",
+    "2차 미분방정식", "2차 미분", "second order ode", "second-order",
+    "dv_c/dt", "dv_c(0", "dvc(0", "키르히호프", "kvl", "kcl",
+    "자연 응답", "자연응답", "강제 응답", "강제응답",
+    "natural response", "forced response",
+    "v_c(t)", "vc(t)",
+    "t < 0", "t≥0", "t ≥ 0", "t=0",
+    "과도 응답", "과도응답", "transient",
+  ];
+  const isSwitchedRlcText = matchesKeyword(text, switchedRlcKeywords);
+  if (hasSwitchInferred && hasRlcSet && (isSwitchedRlcText || (counts.V > 0 && counts.I > 0))) {
+    return {
+      type: "switched_rlc_step",
+      confidence: "high",
+      reasoning: `RLC + SW(inferred) + ${counts.V > 0 && counts.I > 0 ? "dual-source(V·I)" : ""}${isSwitchedRlcText ? " + transient 키워드" : ""}`,
+    };
+  }
+
+  // 0-pre. RLC 공진 / 주파수응답 — ac_superposition보다 먼저 매치 (임용 9번 형식).
+  //    트리거: R + L + C 모두 존재 AND 단일 전압원(V≤1·I=0)
+  //            AND (주파수응답 키워드 OR f-axis 키워드)
+  //    "중첩" 키워드가 있으면 양보 (multi-source phasor 우선).
+  //    hasRlcSet은 이미 위에서 정의됨 (switched_rlc 분기와 공유).
+  const isSingleSourceAc = counts.V <= 1 && counts.I === 0;
+  const hasSuperpositionKw = matchesKeyword(text, SUPERPOSITION_KEYWORDS) || matchesKeyword(text, ["중첩"]);
+  const isResonanceText = matchesKeyword(text, RESONANCE_KEYWORDS);
+  if (
+    (topicKey === "rlc_response" && isResonanceText && hasRlcSet && isSingleSourceAc && !hasSuperpositionKw) ||
+    (hasRlcSet && isSingleSourceAc && isResonanceText && !hasSuperpositionKw)
+  ) {
+    const topo: "series" | "parallel" = matchesKeyword(text, ["병렬", "parallel"]) ? "parallel" : "series";
+    return {
+      type: "rlc_resonance",
+      confidence: "high",
+      reasoning: `RLC ${topo} + 단일 AC 전원 + 공진/주파수응답 키워드`,
+      params: { rlcTopology: topo },
+    };
+  }
+
+  // 0-ac-pb. AC parallel branches (임용 5번 형식) — ac_superposition보다 우선.
+  //    트리거: R + L≥2 + C + (AC keywords/inventory/가지전류) + (단자 a·b 키워드 없음).
+  //    V_s·I_s 둘 다 요구하지 않음 — GPT inventory가 V_s를 가끔 누락하는 케이스 robust.
+  //    L≥2가 핵심 시그니처 (ac_superposition은 L=1).
+  const acText2 = matchesKeyword(text, AC_PHASOR_KEYWORDS);
+  const hasACInv2 = Boolean(hasACInventory);
+  const hasABTerminal = matchesKeyword(text, ["단자 a", "단자 b", "a-b", "ab간", "a, b"]);
+  const acBranchCurrentKw = matchesKeyword(text, [
+    "i_r1", "i_l1", "i_l2", "i_s", "v_c[v]", "v_c [v]",
+    "가지 전류", "branch current", "각 가지", "병렬 가지", "병렬가지",
+    "페이저 전압 v_c", "페이저 전류 i_",
+  ]);
+  if (
+    !hasABTerminal &&
+    counts.R > 0 && counts.L >= 2 && counts.C > 0 &&
+    (acText2 || hasACInv2 || acBranchCurrentKw)
+  ) {
+    return {
+      type: "ac_parallel_branches",
+      confidence: "high",
+      reasoning: `AC + multi-L(${counts.L}) + C + R + 가지전류 키워드 + 단자 a·b 없음 (V_s·I_s 조건 면제)`,
+    };
+  }
 
   // 0. AC 중첩의 원리 — 모든 분류보다 우선 (임용 10번 형식).
   //    트리거: (a) 명시적 "중첩" 키워드 OR

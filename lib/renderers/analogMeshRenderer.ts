@@ -6,6 +6,11 @@ import {
 } from "./netlistEdgeRenderer";
 import { hasOpAmp, renderOpAmpCircuit, validateOpAmpCircuit } from "./opampCircuitRenderer";
 import { hasBjt, renderBjtCircuit } from "./bjtCircuitRenderer";
+import { hasMosfet, renderMosfetBiasCircuit } from "./mosfetBiasCircuitRenderer";
+import { hasMosfetCascode, renderMosfetCascodeMirrorCircuit } from "./mosfetCascodeMirrorCircuitRenderer";
+import { hasSwitchedRlcStep, renderSwitchedRlcStepCircuit } from "./switchedRlcStepCircuitRenderer";
+import { hasSwitchedRlc5leg, renderSwitchedRlc5legCircuit } from "./switchedRlc5legCircuitRenderer";
+import { hasAcParallelBranches, renderAcParallelBranchesCircuit } from "./acParallelBranchesCircuitRenderer";
 
 // =====================================================================
 // analog mesh renderer — 2-rail layout
@@ -71,9 +76,35 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     if (svg) return svg;
     // null → multi-OPAMP, 아래 generic fallback으로
   }
+  // 0.053 AC parallel branches (임용 5번) — V_s+R_top+L_1+I_S(horizontal)+L_2+R+C 전용 layout.
+  if (hasAcParallelBranches(netlist)) {
+    const svg = renderAcParallelBranchesCircuit(netlist);
+    if (svg) return svg;
+  }
+  // 0.054 Switched RLC 5-leg (임용 9번 정확) — switched_rlc_step v1보다 우선 매치.
+  //   R_top_L, R_top_R, L_a, L_b, R_4 모두 존재하는 6-leg 구조.
+  if (hasSwitchedRlc5leg(netlist)) {
+    const svg = renderSwitchedRlc5legCircuit(netlist);
+    if (svg) return svg;
+  }
+  // 0.055 Switched RLC step response v1 (3-leg 단순화) — SPDT SW + RLC + dual source 전용 renderer.
+  if (hasSwitchedRlcStep(netlist)) {
+    const svg = renderSwitchedRlcStepCircuit(netlist);
+    if (svg) return svg;
+  }
   // 0.06 BJT가 포함된 회로 (DC bias 회로 — 임용 7번 형식)는 전용 renderer로.
   if (hasBjt(netlist)) {
     const svg = renderBjtCircuit(netlist);
+    if (svg) return svg;
+  }
+  // 0.07a MOSFET이 2개 이상 — cascode current mirror (임용 10번 정확 재현) 전용 renderer.
+  if (hasMosfetCascode(netlist)) {
+    const svg = renderMosfetCascodeMirrorCircuit(netlist);
+    if (svg) return svg;
+  }
+  // 0.07b MOSFET 1개 — 단순 NMOS DC bias 전용 renderer.
+  if (hasMosfet(netlist)) {
+    const svg = renderMosfetBiasCircuit(netlist);
     if (svg) return svg;
   }
 

@@ -23,36 +23,52 @@ export async function writeCounterDacComparatorText(args: {
   const { generation, mode, topicLabel, contextHint } = args;
   const v = generation.values;
   const a = generation.answer;
+  const bits = v.bits;
+  const labels = bits === 3 ? ["A", "B", "C"] : ["A", "B"];
+  const QbarList = labels.map((l) => `Q_${l}_bar`).join("·");
+  const variantNote = mode === "exam_variant" && bits === 3
+    ? "\n[변형 사항] 기출유사의 2-bit JK 카운터를 3-bit (JK_A·JK_B·JK_C)로 확장. R-2R 사다리도 한 단(Q_C 입력) 추가."
+    : "";
 
-  const userPrompt = `다음은 임용 8번 형식의 "2-bit 동기식 JK 카운터 + R-2R DAC + 비교기" 복합형 문제이다.
+  const nStates = 1 << bits;
+  const dacFormula = bits === 3
+    ? "V_DAC = V_CC·(4·Q_C + 2·Q_B + Q_A)/8"
+    : "V_DAC = V_CC·(2·Q_B + Q_A)/4";
+  const jkRules = bits === 3
+    ? "J_A=K_A=V_CC, J_B=K_B=Q_A, J_C=K_C=Q_A·Q_B (동기식 3-bit 카운터)"
+    : "J_A=K_A=V_CC, J_B=K_B=Q_A (동기식 2-bit 카운터)";
+
+  const userPrompt = `다음은 임용 8번 형식의 "${bits}-bit 동기식 JK 카운터 + R-2R DAC + 비교기" 복합형 문제이다.
 회로와 파형은 코드가 이미 결정 — 너는 문제 문장과 단계별 풀이만 작성.
 
 [시스템 구성]
-(가-1) 2개 JK 플립플롭 (J_A=K_A=V_CC, J_B=K_B=Q_A) — 동기식 2-bit 카운터 (00→01→10→11→00).
-       출력: Q_A_bar, Q_B_bar.
-(가-2) R-2R 저항망 DAC: Q_A·Q_B → V_DAC.
+(가-1) ${bits}개 JK 플립플롭 (${jkRules}).
+       카운터 시퀀스: ${nStates} 상태 순환 (${bits}-bit binary).
+       출력: ${QbarList}.
+(가-2) R-2R 저항망 DAC: ${labels.map((l) => `Q_${l}`).join("·")} → V_DAC.
+       ${dacFormula}.
        OPAMP 비교기: V_DAC vs V_REF=${v.V_REF.toFixed(2)}V → V_o (V_CC=${v.V_CC}V 또는 GND).
-(나)   파형: 클럭, Q_A_bar, Q_B_bar, V_o.
+(나)   파형: 클럭, ${labels.map((l) => `Q_${l}'`).join(", ")}, V_o.
 
 [값]
 V_CC = ${v.V_CC} V, V_REF = ${v.V_REF.toFixed(2)} V, R unit = ${v.R_unit_kohm} kΩ.
 
 [솔버 결과 — 변경 금지]
-[단계 1] 카운터 시퀀스 (Q_A, Q_B): 00→01→10→11. Q_A_bar·Q_B_bar는 반전.
+[단계 1] 카운터 ${bits}-bit 시퀀스 순환. ${QbarList}는 반전.
 [단계 2] (나)의 ㉠ 시점에서 V+ = V_DAC = ${a.Vplus_at_marker.toFixed(2)} V.
-[단계 3] V_o 시퀀스 (count 순서): [${a.Vo_sequence.join(", ")}] V.
+[단계 3] V_o 시퀀스 (count 0..${nStates - 1}): [${a.Vo_sequence.map((x) => x === 0 ? "GND" : "V_CC").join(", ")}].
 
-[모드] ${mode === "exam_similar" ? "기출유사유형" : "기출변형유형"}
+[모드] ${mode === "exam_similar" ? "기출유사유형" : "기출변형유형"}${variantNote}
 ${topicLabel ? `[주제] ${topicLabel}` : ""}
 ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
 
 [출력 JSON]
 {
-  "content":    "그림 (가)는 2비트 동기식 카운터와 D/A 변환기 및 비교기를 이용한 응용 회로이다. 그림 (나)와 같이 클럭이 인가될 때, 제시된 <해석 절차>에 따라 각 단계별로 풀이 과정과 함께 결과를 서술하시오. (단, 비교기와 JK 플립플롭은 이상적으로 동작하고, JK 플립플롭 출력 Q_A_bar와 Q_B_bar의 초깃값은 모두 V_CC이며 비교기의 출력 V_o는 V_CC 또는 GND(ground)이다.)",
-  "conditions": ["JK 플립플롭: J_A=K_A=V_CC, J_B=K_B=Q_A (동기식 2-bit 카운터)", "초기 Q_A_bar=Q_B_bar=V_CC (count=11에서 출발)", "DAC: R-2R 저항망, V_DAC = V_CC·(2·Q_B + Q_A)/4", "비교기: V_DAC > V_REF면 V_o = V_CC, 아니면 V_o = GND", "V_CC = ${v.V_CC}V, V_REF = ${v.V_REF.toFixed(2)}V"],
-  "question":   "[단계 1] 그림 (가)의 Q_A_bar와 Q_B_bar의 파형을 그림 (나)의 전체 구간에 각각 도시하시오.\\n[단계 2] 그림 (나)의 ㉠ 시점에서, 그림 (가)의 비교기 입력 단자 중앙(+) 전압을 구하시오.\\n[단계 3] 그림 (가)의 비교기 출력 V_o의 파형을 그림 (나)의 전체 구간에 도시하시오.",
-  "answer":     "[단계1] Q_A_bar·Q_B_bar는 클럭마다 2-bit 카운트 반전 (그림 (나) 도시 참조).\\n[단계2] V+ = V_DAC = ${a.Vplus_at_marker.toFixed(2)} V\\n[단계3] V_o 시퀀스: [${a.Vo_sequence.map(x => x === 0 ? "GND" : "V_CC").join(", ")}] (그림 (나) 도시 참조)",
-  "solution":   "[단계1] J=K=V_CC=1이면 매 클럭마다 Q 토글. JK_B는 J=K=Q_A이므로 Q_A=1일 때만 토글. 결과: count 시퀀스 00→01→10→11→00. Q_A_bar·Q_B_bar는 그 반전.\\n[단계2] ㉠ 시점에서 (Q_A, Q_B) = (0, 1)이라 가정 시 V_DAC = V_CC·(2·1 + 0)/4 = V_CC/2 = ${a.Vplus_at_marker.toFixed(2)} V.\\n[단계3] 각 count에서 V_DAC > V_REF=${v.V_REF.toFixed(2)} 비교. V_DAC 시퀀스: 0, V_CC/4, V_CC/2, 3V_CC/4. 그중 V_REF 초과하는 case에서 V_o=V_CC=${v.V_CC}V."
+  "content":    "그림 (가)는 ${bits}비트 동기식 카운터와 D/A 변환기 및 비교기를 이용한 응용 회로이다. 그림 (나)와 같이 클럭이 인가될 때, 제시된 <해석 절차>에 따라 각 단계별로 풀이 과정과 함께 결과를 서술하시오. (단, 비교기와 JK 플립플롭은 이상적으로 동작하고, JK 플립플롭 출력 ${QbarList}의 초깃값은 모두 V_CC이며 비교기의 출력 V_o는 V_CC 또는 GND(ground)이다.)",
+  "conditions": ["JK 플립플롭: ${jkRules}", "초기 ${QbarList} = V_CC (count=${"1".repeat(bits)}에서 출발)", "DAC: R-2R 저항망, ${dacFormula}", "비교기: V_DAC > V_REF면 V_o = V_CC, 아니면 V_o = GND", "V_CC = ${v.V_CC}V, V_REF = ${v.V_REF.toFixed(2)}V"],
+  "question":   "[단계 1] 그림 (가)의 ${QbarList}의 파형을 그림 (나)의 전체 구간에 각각 도시하시오.\\n[단계 2] 그림 (나)의 ㉠ 시점에서, 그림 (가)의 비교기 입력 단자 중앙(+) 전압을 구하시오.\\n[단계 3] 그림 (가)의 비교기 출력 V_o의 파형을 그림 (나)의 전체 구간에 도시하시오.",
+  "answer":     "[단계1] ${QbarList}는 클럭마다 ${bits}-bit 카운트 반전 (그림 (나) 도시 참조).\\n[단계2] V+ = V_DAC = ${a.Vplus_at_marker.toFixed(2)} V\\n[단계3] V_o 시퀀스: [${a.Vo_sequence.map((x) => x === 0 ? "GND" : "V_CC").join(", ")}]",
+  "solution":   "[단계1] J=K=V_CC=1이면 매 클럭마다 Q 토글. JK_B는 J=K=Q_A로 Q_A=1일 때 토글${bits >= 3 ? ". JK_C는 J=K=Q_A·Q_B로 두 LSB 모두 1일 때 토글" : ""}. 결과: count ${"0".repeat(bits)}→${(nStates - 1).toString(2).padStart(bits, "0")} 순환. ${QbarList}는 그 반전.\\n[단계2] ㉠ 시점에서 카운터 상태를 dac 식에 대입: ${dacFormula} → ${a.Vplus_at_marker.toFixed(2)} V.\\n[단계3] 각 count에서 V_DAC > V_REF=${v.V_REF.toFixed(2)} 비교. V_REF 초과하는 count에서 V_o=V_CC=${v.V_CC}V, 아닌 경우 GND."
 }
 
 [규칙]
@@ -77,13 +93,13 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
   try { parsed = JSON.parse(raw) as Partial<CounterDacComparatorTextOutput>; }
   catch (e) { throw new Error(`CounterDacComparator text JSON 파싱 실패: ${String(e)}`); }
 
-  const enforcedAnswer = `[단계1] Q_A_bar·Q_B_bar 2-bit 카운트 (그림 (나))\n[단계2] V+ = ${a.Vplus_at_marker.toFixed(2)} V\n[단계3] V_o 시퀀스: [${a.Vo_sequence.join(", ")}] V`;
+  const enforcedAnswer = `[단계1] ${QbarList} ${bits}-bit 카운트 (그림 (나))\n[단계2] V+ = ${a.Vplus_at_marker.toFixed(2)} V\n[단계3] V_o 시퀀스: [${a.Vo_sequence.map((x) => x === 0 ? "GND" : "V_CC").join(", ")}]`;
   if (parsed.answer && !parsed.answer.includes(a.Vplus_at_marker.toFixed(2))) {
     log.warn("counter_dac_answer_mismatch", { gpt: parsed.answer, enforced: enforcedAnswer });
   }
 
   return {
-    content: parsed.content ?? "2-bit 카운터 + DAC + 비교기 복합형 문제",
+    content: parsed.content ?? `${bits}-bit 카운터 + DAC + 비교기 복합형 문제`,
     conditions: Array.isArray(parsed.conditions) ? parsed.conditions : [],
     question: parsed.question ?? "단계 1·2·3을 풀이하시오.",
     answer: enforcedAnswer,

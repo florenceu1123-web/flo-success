@@ -25,7 +25,7 @@ export async function runFfWithWaveformPipeline(args: {
   const contextHint = buildContextHint(analysis);
 
   return generateInParallel(count, async (i, seed) => {
-    const gen = generateFfWithWaveform({ params: analysis?.circuitType?.params, seed });
+    const gen = generateFfWithWaveform({ params: analysis?.circuitType?.params, seed, mode });
     log.info("ff_with_waveform_generated", {
       ffType: gen.ffType,
       X: gen.xExpression,

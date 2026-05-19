@@ -1,5 +1,6 @@
 import type {
   CircuitTypeParams,
+  GenerationMode,
   LogicGate,
   LogicNetworkDiagram,
   WaveformDiagram,
@@ -29,8 +30,8 @@ export type FfWithWaveformGeneration = {
   waveformTemplate: WaveformDiagram;
   /** (나) 정답 — 모든 신호 채워짐 */
   waveformSolution: WaveformDiagram;
-  /** FF 종류 — 임용 8번은 D-FF로 고정. params.ffTypes가 다르게 들어와도 무시. */
-  ffType: "D";
+  /** FF 종류 — exam_similar='D', exam_variant='T'. */
+  ffType: "D" | "T";
   /** X = SOP(A, B, C) 식 (사람 읽기용) */
   xExpression: string;
   /** Y = SOP(A, B, C) 식 (사람 읽기용) */
@@ -63,8 +64,12 @@ const SOP_FORMS: Form[] = [
 export function generateFfWithWaveform(args: {
   params?: CircuitTypeParams;
   seed?: number;
+  mode?: GenerationMode;
 }): FfWithWaveformGeneration {
   const rand = makeRand(args.seed);
+  // exam_variant: 사용자 정정 패턴 — ff_type='T' + 게이트 중 하나 XOR(⊕) 강제.
+  const isVariant = args.mode === "exam_variant";
+  const ffType: "D" | "T" = isVariant ? "T" : "D";
 
   // X 식과 Y 식 — 서로 다른 식 + 두 식이 합쳐서 A·B·C 셋 모두 변수로 사용.
   // (어느 변수가 어떤 게이트에도 안 들어가면 회로 그림에서 그 입력이 dangling 상태로 보임.)
@@ -72,18 +77,32 @@ export function generateFfWithWaveform(args: {
     const combined = `${xExpr}+${yExpr}`;
     return ["A", "B", "C"].every((v) => new RegExp(`(^|[^A-Z])${v}(?![A-Z])`).test(combined));
   };
-  let xForm = pick(SOP_FORMS, rand);
-  let yForm = pick(SOP_FORMS, rand);
+  const XOR_FORMS = SOP_FORMS.filter((f) => f.expr.includes("⊕"));
+  const NON_XOR_FORMS = SOP_FORMS.filter((f) => !f.expr.includes("⊕"));
+  // exam_variant: xForm 또는 yForm 중 하나 강제 XOR.
+  let xForm: Form, yForm: Form;
+  if (isVariant) {
+    xForm = pick(XOR_FORMS, rand);
+    yForm = pick(NON_XOR_FORMS, rand);
+  } else {
+    xForm = pick(SOP_FORMS, rand);
+    yForm = pick(SOP_FORMS, rand);
+  }
   for (let tries = 0; tries < 40; tries++) {
     if (yForm.expr !== xForm.expr && usesAllVars(xForm.expr, yForm.expr)) break;
     // yForm만 재추출 → 그래도 안 되면 xForm도 재추출
-    yForm = pick(SOP_FORMS, rand);
-    if (tries % 3 === 2) xForm = pick(SOP_FORMS, rand);
+    yForm = pick(isVariant ? NON_XOR_FORMS : SOP_FORMS, rand);
+    if (tries % 3 === 2) xForm = pick(isVariant ? XOR_FORMS : SOP_FORMS, rand);
   }
-  // 최후 fallback — 여전히 모든 변수 미사용이면 안전한 default 쌍 강제 (회로 dangling 방지)
+  // 최후 fallback
   if (yForm.expr === xForm.expr || !usesAllVars(xForm.expr, yForm.expr)) {
-    xForm = SOP_FORMS.find((f) => f.expr === "A·B + C") ?? xForm;
-    yForm = SOP_FORMS.find((f) => f.expr === "B·C") ?? yForm;
+    if (isVariant) {
+      xForm = SOP_FORMS.find((f) => f.expr === "A ⊕ B") ?? xForm;
+      yForm = SOP_FORMS.find((f) => f.expr === "B·C") ?? yForm;
+    } else {
+      xForm = SOP_FORMS.find((f) => f.expr === "A·B + C") ?? xForm;
+      yForm = SOP_FORMS.find((f) => f.expr === "B·C") ?? yForm;
+    }
   }
 
   // ===== logic_network 구성 =====
@@ -140,17 +159,28 @@ export function generateFfWithWaveform(args: {
   const xSig = exprToSignal(xForm.expr, "X");
   const ySig = exprToSignal(yForm.expr, "Y");
 
-  // D-FF feedback: Q' = NOT(Q). Q는 D-FF가 produce하지만 FF는 cycle-breaker라 OK.
-  gates.push({ id: "G_not_Q", type: "NOT", inputs: ["Q"], output: "Q_n" });
-
-  // D-FF: D=Q_n (피드백), R=Y, ▷=X (clockSignal). 출력 Q.
-  gates.push({
-    id: "G_dff_Q",
-    type: "DFF",
-    inputs: ["Q_n", ySig],
-    output: "Q",
-    clockSignal: xSig,
-  });
+  // FF: ffType에 따라 D-FF (피드백) 또는 T-FF (T=1 고정 토글).
+  if (ffType === "D") {
+    // D-FF + 피드백 (D=Q'): 매 rising edge마다 Q toggle. 원본 임용 8번.
+    gates.push({ id: "G_not_Q", type: "NOT", inputs: ["Q"], output: "Q_n" });
+    gates.push({
+      id: "G_dff_Q",
+      type: "DFF",
+      inputs: ["Q_n", ySig],   // [D, R]
+      output: "Q",
+      clockSignal: xSig,
+    });
+  } else {
+    // T-FF: T=Q_n (피드백 유지 — D-FF와 동일한 토글 동작). 임용 변형.
+    gates.push({ id: "G_not_Q", type: "NOT", inputs: ["Q"], output: "Q_n" });
+    gates.push({
+      id: "G_tff_Q",
+      type: "TFF",
+      inputs: ["Q_n", ySig],   // [T, R] — T=Q_n로 항상 토글
+      output: "Q",
+      clockSignal: xSig,
+    });
+  }
 
   const logicNetworkDiagram: LogicNetworkDiagram = {
     inputs: ["A", "B", "C"], // CLK는 외부 입력이 아님 (내부 신호 X가 ▷ 핀으로)
@@ -241,7 +271,7 @@ export function generateFfWithWaveform(args: {
     logicNetworkDiagram,
     waveformTemplate,
     waveformSolution,
-    ffType: "D",
+    ffType,
     xExpression: xForm.expr,
     yExpression: yForm.expr,
     hasReset: true,

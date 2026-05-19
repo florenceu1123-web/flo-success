@@ -25,7 +25,7 @@ export async function runCounterDacComparatorPipeline(args: {
   const contextHint = buildContextHint(analysis);
 
   return generateInParallel(count, async (i, seed) => {
-    const gen = generateCounterDacComparator({ params: analysis?.circuitType?.params, seed });
+    const gen = generateCounterDacComparator({ params: analysis?.circuitType?.params, seed, mode });
     log.info("counter_dac_comparator_generated", {
       values: gen.values,
       answer: gen.answer,

@@ -46,7 +46,12 @@ const VCC_FF_X = 100;          // V_CC dot (FF J_A·K_A 공급)
 const CLK_RAIL_Y = 660;        // 클럭 rail (FF 하단)
 const CLK_X = 60;
 
-export function renderMixedCircuitSVG(_diagram: MixedCircuitDiagram): string {
+export function renderMixedCircuitSVG(diagram: MixedCircuitDiagram): string {
+  // diagram에서 JK 개수 추출 → 3-bit 케이스는 별도 분기.
+  const jkCount = (diagram.logic?.gates ?? []).filter((g) => g.type === "JKFF").length;
+  if (jkCount >= 3) {
+    return renderMixedCircuit3bit(diagram);
+  }
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
 
   // ─── 상단: V_CC + 2k + V_REF junction + 3k + GND (horizontal 분압기) + OPAMP V− ──
@@ -193,6 +198,169 @@ export function renderMixedCircuitSVG(_diagram: MixedCircuitDiagram): string {
   // JK_B ▷ 분기
   svg += wire(jkbClkStubX, CLK_RAIL_Y, jkbClkStubX, ffClkY);
   svg += dot(jkbClkStubX, CLK_RAIL_Y);
+
+  svg += `</svg>`;
+  return svg;
+}
+
+// ─── 3-bit 변형 layout (JK_A·JK_B·JK_C + R-2R 사다리 5 노드) ───
+function renderMixedCircuit3bit(_diagram: MixedCircuitDiagram): string {
+  const W3 = 1300;
+  const H3 = 760;
+  // 3-bit: 5 노드 사다리망 (GND + Q_A + Q_B + Q_C + V+)
+  const LAD_NODE_XS_3 = [180, 320, 460, 600, 740];
+  const VPLUS_X_3 = 740;
+  const OPAMP_X_3 = 940;
+  const VO_X_3 = 1180;
+  // 3 JK 박스 가로 배치
+  const JKA_X_3 = 240;
+  const JKB_X_3 = 480;
+  const JKC_X_3 = 720;
+  const VCC_FF_X_3 = 100;
+  // V_REF 분압 (OPAMP 위쪽) — 우측 끝 위로 옮김
+  const VREF_VCC_X_3 = 940;
+  const VREF_R1_CX_3 = 880;
+  const VREF_JUNCTION_X_3 = 820;
+  const VREF_R2_CX_3 = 760;
+  const VREF_GND_X_3 = 700;
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W3}" height="${H3}" viewBox="0 0 ${W3} ${H3}">`;
+
+  // V_REF 분압 + OPAMP V−
+  svg += dot(VREF_VCC_X_3, TOP_RAIL_Y);
+  svg += label(VREF_VCC_X_3 + 8, TOP_RAIL_Y + 4, "V_CC", "start", "#000", 12);
+  svg += wire(VREF_VCC_X_3, TOP_RAIL_Y, VREF_VCC_X_3, VREF_DIV_Y);
+  svg += rZigzagH(VREF_R1_CX_3, VREF_DIV_Y);
+  svg += wire(VREF_VCC_X_3, VREF_DIV_Y, VREF_R1_CX_3 + 28, VREF_DIV_Y);
+  svg += wire(VREF_R1_CX_3 - 28, VREF_DIV_Y, VREF_JUNCTION_X_3, VREF_DIV_Y);
+  svg += label(VREF_R1_CX_3, VREF_DIV_Y - 12, "2kΩ", "middle", "#374151", 12);
+  svg += dot(VREF_JUNCTION_X_3, VREF_DIV_Y);
+  svg += label(VREF_JUNCTION_X_3, VREF_DIV_Y - 12, "V_REF", "middle", "#1e3a8a", 11);
+  svg += wire(VREF_JUNCTION_X_3, VREF_DIV_Y, VREF_JUNCTION_X_3, OPAMP_Y_TOP + 25);
+  svg += wire(VREF_JUNCTION_X_3, OPAMP_Y_TOP + 25, OPAMP_X_3, OPAMP_Y_TOP + 25);
+  svg += rZigzagH(VREF_R2_CX_3, VREF_DIV_Y);
+  svg += wire(VREF_JUNCTION_X_3, VREF_DIV_Y, VREF_R2_CX_3 + 28, VREF_DIV_Y);
+  svg += wire(VREF_R2_CX_3 - 28, VREF_DIV_Y, VREF_GND_X_3, VREF_DIV_Y);
+  svg += label(VREF_R2_CX_3, VREF_DIV_Y - 12, "3kΩ", "middle", "#374151", 12);
+  svg += wire(VREF_GND_X_3, VREF_DIV_Y, VREF_GND_X_3, VREF_DIV_Y + 20);
+  svg += groundSymbol(VREF_GND_X_3, VREF_DIV_Y + 20);
+
+  // R-2R 사다리 horizontal: 4 R (3kΩ + 1.5kΩ + 1.5kΩ + 3kΩ)
+  const ladderRails3 = [
+    { from: LAD_NODE_XS_3[0], to: LAD_NODE_XS_3[1], value: "3kΩ" },
+    { from: LAD_NODE_XS_3[1], to: LAD_NODE_XS_3[2], value: "1.5kΩ" },
+    { from: LAD_NODE_XS_3[2], to: LAD_NODE_XS_3[3], value: "1.5kΩ" },
+    { from: LAD_NODE_XS_3[3], to: LAD_NODE_XS_3[4], value: "3kΩ" },
+  ];
+  for (const r of ladderRails3) {
+    const cx = (r.from + r.to) / 2;
+    svg += rZigzagH(cx, LADDER_Y);
+    svg += wire(r.from, LADDER_Y, cx - 28, LADDER_Y);
+    svg += wire(cx + 28, LADDER_Y, r.to, LADDER_Y);
+    svg += label(cx, LADDER_Y - 12, r.value, "middle", "#374151", 11);
+  }
+  // 좌측 첫 leg → GND (3kΩ vertical)
+  svg += rZigzagV(LAD_NODE_XS_3[0], (LADDER_Y + GND_RAIL_Y) / 2);
+  svg += wire(LAD_NODE_XS_3[0], LADDER_Y, LAD_NODE_XS_3[0], (LADDER_Y + GND_RAIL_Y) / 2 - 28);
+  svg += wire(LAD_NODE_XS_3[0], (LADDER_Y + GND_RAIL_Y) / 2 + 28, LAD_NODE_XS_3[0], GND_RAIL_Y);
+  svg += label(LAD_NODE_XS_3[0] + 16, (LADDER_Y + GND_RAIL_Y) / 2 - 4, "3kΩ", "start", "#374151", 11);
+  svg += groundSymbol(LAD_NODE_XS_3[0], GND_RAIL_Y);
+  // 우측 끝 (V+) → OPAMP V+
+  svg += wire(VPLUS_X_3, LADDER_Y, OPAMP_X_3, OPAMP_Y_BOT - 25);
+  svg += label(VPLUS_X_3 + 8, LADDER_Y - 6, "V+", "start", "#1e3a8a", 11);
+  // 가운데 3 노드 → Q_A·Q_B·Q_C vertical R
+  const digitalLabels3 = ["Q_A", "Q_B", "Q_C"];
+  const digitalSources3 = [LAD_NODE_XS_3[1], LAD_NODE_XS_3[2], LAD_NODE_XS_3[3]];
+  for (let i = 0; i < digitalSources3.length; i++) {
+    const xc = digitalSources3[i];
+    const ry = (LADDER_Y + GND_RAIL_Y + 40) / 2;
+    svg += rZigzagV(xc, ry);
+    svg += wire(xc, LADDER_Y, xc, ry - 28);
+    svg += wire(xc, ry + 28, xc, GND_RAIL_Y + 40);
+    svg += label(xc + 16, ry - 4, "3kΩ", "start", "#374151", 11);
+    svg += dot(xc, GND_RAIL_Y + 40);
+    svg += label(xc + 8, GND_RAIL_Y + 36, digitalLabels3[i], "start", "#1e3a8a", 11);
+  }
+
+  // OPAMP
+  svg += opampTriangle(OPAMP_X_3, OPAMP_Y_TOP, OPAMP_Y_BOT);
+  svg += label(OPAMP_X_3 + 10, OPAMP_Y_TOP + 28, "−", "start", "#000", 16);
+  svg += label(OPAMP_X_3 + 10, OPAMP_Y_BOT - 22, "+", "start", "#000", 16);
+  svg += label(OPAMP_X_3 + 50, OPAMP_Y_TOP - 6, "U1", "middle", "#1e3a8a", 11);
+  const opampOutX_3 = OPAMP_X_3 + 100;
+  const opampOutY_3 = (OPAMP_Y_TOP + OPAMP_Y_BOT) / 2;
+  svg += wire(opampOutX_3, opampOutY_3, VO_X_3, opampOutY_3);
+  svg += `<circle cx="${VO_X_3}" cy="${opampOutY_3}" r="4" fill="#dc2626" stroke="black" stroke-width="1"/>`;
+  svg += label(VO_X_3 + 12, opampOutY_3 + 4, "V_o", "start", "#dc2626", 14);
+
+  // 하단 JK_A·JK_B·JK_C 가로 배치
+  // V_CC dot + J·K 공급
+  svg += dot(VCC_FF_X_3, FF_ROW_Y + 30);
+  svg += label(VCC_FF_X_3 - 8, FF_ROW_Y + 34, "V_CC", "end", "#000", 12);
+  const jpY = FF_ROW_Y + 30;
+  const kpY = FF_ROW_Y + JK_H - 30;
+  svg += wire(VCC_FF_X_3, jpY, JKA_X_3 - 12, jpY);
+  svg += wire(VCC_FF_X_3 + 60, jpY, VCC_FF_X_3 + 60, kpY);
+  svg += wire(VCC_FF_X_3 + 60, kpY, JKA_X_3 - 12, kpY);
+  svg += dot(VCC_FF_X_3 + 60, jpY);
+
+  // JK_A
+  svg += jkBox(JKA_X_3, FF_ROW_Y, JK_W, JK_H, "JK_A");
+  const jkaQ_X3 = JKA_X_3 + JK_W + 12;
+  // JK_A.Q → JK_B.J·K + Q_A 사다리망
+  svg += wire(jkaQ_X3, jpY, JKB_X_3 - 12, jpY);
+  svg += wire(jkaQ_X3 + 40, jpY, jkaQ_X3 + 40, kpY);
+  svg += wire(jkaQ_X3 + 40, kpY, JKB_X_3 - 12, kpY);
+  svg += dot(jkaQ_X3 + 40, jpY);
+  svg += label(jkaQ_X3 + 20, jpY - 8, "Q_A", "middle", "#1e3a8a", 11);
+  // Q_A → 사다리망 LAD_NODE_XS_3[1] (vertical up)
+  svg += wire(jkaQ_X3, jpY, jkaQ_X3, GND_RAIL_Y + 60);
+  svg += wire(jkaQ_X3, GND_RAIL_Y + 60, LAD_NODE_XS_3[1], GND_RAIL_Y + 60);
+  svg += wire(LAD_NODE_XS_3[1], GND_RAIL_Y + 60, LAD_NODE_XS_3[1], GND_RAIL_Y + 40);
+  svg += dot(jkaQ_X3, jpY);
+
+  // JK_B
+  svg += jkBox(JKB_X_3, FF_ROW_Y, JK_W, JK_H, "JK_B");
+  const jkbQ_X3 = JKB_X_3 + JK_W + 12;
+  // JK_B.Q → AND_QA·QB (Q_A·Q_B) → JK_C.J·K
+  // 단순화: JK_B.Q를 사다리 LAD_NODE_XS_3[2]에 + JK_C.J·K stub에 직접 연결 (AND 게이트 simplified)
+  svg += wire(jkbQ_X3, jpY, JKC_X_3 - 12, jpY);
+  svg += wire(jkbQ_X3 + 40, jpY, jkbQ_X3 + 40, kpY);
+  svg += wire(jkbQ_X3 + 40, kpY, JKC_X_3 - 12, kpY);
+  svg += dot(jkbQ_X3 + 40, jpY);
+  svg += label(jkbQ_X3 + 20, jpY - 8, "Q_B", "middle", "#1e3a8a", 11);
+  // Q_B → 사다리 LAD_NODE_XS_3[2] (vertical up)
+  svg += wire(jkbQ_X3, jpY, jkbQ_X3, GND_RAIL_Y + 80);
+  svg += wire(jkbQ_X3, GND_RAIL_Y + 80, LAD_NODE_XS_3[2], GND_RAIL_Y + 80);
+  svg += wire(LAD_NODE_XS_3[2], GND_RAIL_Y + 80, LAD_NODE_XS_3[2], GND_RAIL_Y + 40);
+  svg += dot(jkbQ_X3, jpY);
+  // J·K=Q_A·Q_B 표기 (JK_C 위에 AND 라벨)
+  svg += label((JKB_X_3 + JKC_X_3) / 2, jpY - 22, "J=K=Q_A·Q_B", "middle", "#7c3aed", 10);
+
+  // JK_C
+  svg += jkBox(JKC_X_3, FF_ROW_Y, JK_W, JK_H, "JK_C");
+  const jkcQ_X3 = JKC_X_3 + JK_W + 12;
+  svg += dot(jkcQ_X3, jpY);
+  svg += label(jkcQ_X3 + 20, jpY - 8, "Q_C", "middle", "#1e3a8a", 11);
+  // Q_C → 사다리 LAD_NODE_XS_3[3] (vertical up)
+  svg += wire(jkcQ_X3, jpY, jkcQ_X3, GND_RAIL_Y + 100);
+  svg += wire(jkcQ_X3, GND_RAIL_Y + 100, LAD_NODE_XS_3[3], GND_RAIL_Y + 100);
+  svg += wire(LAD_NODE_XS_3[3], GND_RAIL_Y + 100, LAD_NODE_XS_3[3], GND_RAIL_Y + 40);
+
+  // CLK rail (좌하단) → JK_A·JK_B·JK_C ▷
+  svg += dot(CLK_X, CLK_RAIL_Y);
+  svg += label(CLK_X - 8, CLK_RAIL_Y + 4, "클럭", "end", "#000", 12);
+  const ffClkY = FF_ROW_Y + JK_H - 6;
+  const jkaClk_3 = JKA_X_3 - 12;
+  const jkbClk_3 = JKB_X_3 - 12;
+  const jkcClk_3 = JKC_X_3 - 12;
+  svg += wire(CLK_X, CLK_RAIL_Y, jkcClk_3, CLK_RAIL_Y);
+  svg += wire(jkaClk_3, CLK_RAIL_Y, jkaClk_3, ffClkY);
+  svg += dot(jkaClk_3, CLK_RAIL_Y);
+  svg += wire(jkbClk_3, CLK_RAIL_Y, jkbClk_3, ffClkY);
+  svg += dot(jkbClk_3, CLK_RAIL_Y);
+  svg += wire(jkcClk_3, CLK_RAIL_Y, jkcClk_3, ffClkY);
+  svg += dot(jkcClk_3, CLK_RAIL_Y);
 
   svg += `</svg>`;
   return svg;
