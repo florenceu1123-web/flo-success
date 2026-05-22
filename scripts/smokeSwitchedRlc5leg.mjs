@@ -35,7 +35,10 @@ console.log(`issues: total=${data.summary?.totalIssues} solWarn=${data.summary?.
 
 const checks = [
   ["회로 figure", p.figureVariants?.some((f) => f.role === "original_circuit")],
-  ["v_C(t) waveform figure", p.figureVariants?.some((f) => f.role === "output_waveform")],
+  ["state_before·state_after figure", p.figureVariants?.some((f) => f.role === "state_before") && p.figureVariants?.some((f) => f.role === "state_after")],
+  // v_C(t) waveform은 단계 3의 학생 도출 정답이므로 figure로 노출하지 않는 것이 사양(학습 의도 보존).
+  // → waveform figure가 "없어야" 통과. (step v1과 달리 5leg는 state_before/after로 대체)
+  ["v_C(t) waveform 의도적 부재", !p.figureVariants?.some((f) => f.diagramType === "waveform" || f.role === "output_waveform")],
   ["[단계 1]", /\[단계\s*1\]/.test(p.question ?? "")],
   ["[단계 2]", /\[단계\s*2\]/.test(p.question ?? "")],
   ["[단계 3]", /\[단계\s*3\]/.test(p.question ?? "")],

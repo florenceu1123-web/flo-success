@@ -1,39 +1,15 @@
-// rlc_resonance archetype 단독 smoke — classifier 경로와 직접 dispatch 두 가지 모두 검증.
+// rlc_resonance archetype 단독 smoke — generate 라우트의 직접 dispatch(series·parallel) 검증.
+//
+// ⚠️ classifier(analysis.circuitType 미지정 시 rlc_resonance로 분기하는지)는 여기서 검증하지 않는다.
+//    generate 라우트는 분류를 수행하지 않고 analysis.circuitType.type만 읽어 dispatch한다
+//    (분류는 api/analyze 단계의 책임). circuitType 미지정 + dummy image로 보내면 free GPT 경로로
+//    빠져 OpenAI가 dummy를 거부(400)하므로, 분류 검증은 `smokeClassifyRlcResonance.mjs`가 전담한다.
 //
 // 사용: node scripts/smokeRlcResonance.mjs
 
 const BASE = "http://localhost:3000/api/generate";
 
-// (A) classifier가 ac_superposition 대신 rlc_resonance로 분기하는지.
-//    원본 임용 9번에 가까운 analysis payload — 단일 V, C+L, cos(ωt), 공진 키워드.
-const CLASSIFIED = {
-  image: "dummy",
-  subject: "circuit_theory",
-  mode: "exam_similar",
-  count: 1,
-  topicKey: "rlc_response",
-  analysis: {
-    topic: "RLC 직렬 공진",
-    interpretation:
-      "그림 (가)는 RLC 직렬 회로이고 그림 (나)는 v(t)의 주파수에 따른 전류 i(t)의 진폭 I[A] 곡선이다. " +
-      "공진 주파수에서 최대 전류 Imax가 발생한다. v(t) = 10√2 cos(ωt)[V].",
-    relatedConcepts: ["RLC 공진", "주파수응답", "f_0", "최대 전류"],
-    fillInTheBlanks: [],
-    subjectKey: "circuit_theory",
-    topicKey: "rlc_response",
-    semantic: { hasWaveformEvolution: false },
-    componentInventory: [
-      { id: "V1", type: "V", value: "10√2cos(ωt)V" },
-      { id: "R1", type: "R", value: "1kΩ" },
-      { id: "L1", type: "L", value: "2H" },
-      { id: "C1", type: "C", value: "0.5μF" },
-    ],
-    // classifier가 직접 분류하도록 circuitType은 비움
-    circuitType: undefined,
-  },
-};
-
-// (B) 직접 dispatch — rlc_resonance · series · parallel
+// 직접 dispatch — rlc_resonance · series · parallel
 const DIRECT_SERIES = {
   image: "dummy",
   subject: "circuit_theory",
@@ -59,7 +35,6 @@ const DIRECT_PARALLEL = {
 };
 
 const TESTS = [
-  { name: "classifier→rlc_resonance (원본 임용 9번 시나리오)", body: CLASSIFIED },
   { name: "direct dispatch series",   body: DIRECT_SERIES },
   { name: "direct dispatch parallel", body: DIRECT_PARALLEL },
 ];
