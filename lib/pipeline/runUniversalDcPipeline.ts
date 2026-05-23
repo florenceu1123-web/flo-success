@@ -169,32 +169,34 @@ export async function runUniversalDcPipeline(args: {
     // analysis에서 받은 loadPlaceholders는 보라색 dashed box로 그려져 중복 표기 → 제거.
     gen.netlistOpen.loadPlaceholders = [];
 
-    // ── Dangling node 자동 prune — GPT 분석이 phantom node(예: 임용 10번 V_3 우측 끝
-    //   10Ω을 ㄱ-자가 아닌 top_rail + 별도 load_leg로 이중 추출한 경우 만들어지는 n_right)를
-    //   생성한 케이스 보정. degree=1이면서 nodeAnnotation(단자 a 등) 없는 노드의 branch는
-    //   드롭. 솔버는 이미 풀렸으므로 figure만 정리.
+    // ★ 원칙: semantic graph는 immutable. render graph는 temporary bend point만 추가
+    //   가능. pipeline에서 노드/branch 자동 prune·merge·remap 금지.
+    //   (이전 dangling 자동 prune 코드 제거 — semantic 수정이라 부적절.)
+    //   semantic 오류는 validator가 reject(throw)로 차단하되 자동 수정하지 않는다.
+
+    // ── Semantic vs Render diagnostics — 두 그래프 일치 여부 확인.
+    //   현재 단계에선 render = semantic (bend point 없음). 향후 routing 시 차이 표시.
     {
-      const isGndAnn = (n: string) => n === (gen.netlistOpen.ground ?? "GND") || ["GND","ground","Ground","gnd","Gnd","0"].includes(n);
-      const annotatedNodes = new Set((analysis.nodeAnnotations ?? []).map((a) => a.node));
-      const degree = new Map<string, number>();
+      const isGndN = (n: string) => n === (gen.netlistOpen.ground ?? "GND") || ["GND","ground","Ground","gnd","Gnd","0"].includes(n);
+      const semanticNodes = new Set<string>();
       for (const c of gen.netlistOpen.components) {
-        for (const p of c.pins) {
-          if (isGndAnn(p.node)) continue;
-          degree.set(p.node, (degree.get(p.node) ?? 0) + 1);
-        }
+        for (const p of c.pins) semanticNodes.add(p.node);
       }
-      const danglingNodes = new Set<string>();
-      for (const [node, deg] of degree) {
-        if (deg < 2 && !annotatedNodes.has(node)) danglingNodes.add(node);
-      }
-      if (danglingNodes.size > 0) {
-        const removedIds = new Set<string>();
-        gen.netlistOpen.components = gen.netlistOpen.components.filter((c) => {
-          const touchesDangling = c.pins.some((p) => danglingNodes.has(p.node));
-          if (touchesDangling) removedIds.add(c.id);
-          return !touchesDangling;
+      const annotatedNodes = new Set((analysis.nodeAnnotations ?? []).map((a) => a.node));
+      const vSrc = gen.netlistOpen.components.find((c) => c.type === "V");
+      const vPlus = vSrc?.pins.find((p) => p.role === "positive")?.node;
+      // semantic 정당성 — GND, V·+ terminal, 또는 nodeAnnotation 있는 노드만 정당.
+      //   그 외는 phantom junction(routing artifact)일 가능성.
+      const phantomJunctions = [...semanticNodes].filter((n) =>
+        !isGndN(n) && n !== vPlus && !annotatedNodes.has(n),
+      );
+      log.info("semantic_nodes", [...semanticNodes]);
+      log.info("render_nodes", [...semanticNodes].map((id) => ({ id, semantic: true })));
+      if (phantomJunctions.length > 0) {
+        log.warn("phantom_junctions_detected", {
+          nodes: phantomJunctions,
+          note: "GND·V·+·nodeAnnotation 없는 노드 — 분석이 routing junction을 semantic으로 추출했을 가능성. analyzer prompt 강화 필요.",
         });
-        log.info("dangling_pruned", { nodes: [...danglingNodes], removedComponentIds: [...removedIds] });
       }
     }
 

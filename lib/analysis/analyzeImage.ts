@@ -457,6 +457,41 @@ function buildPrompt(subject: SubjectKey): string {
 - relatedConcepts에 "AND·OR·NOT" 같은 일반 단어만 적고 "멀티플렉서"·"선택선" 단어 누락
 - (나) 두 번째 figure를 누락하고 단일 figure로 처리
 
+【★ 절대 규칙: semantic node만 추출 — 4 노드 한계】
+topologySignature.branches의 모든 node id는 ★ semantic node ★ 여야 한다. semantic node = 다음 중 하나:
+  (a) GND
+  (b) V/I 소스의 단자 (예: VS_PLUS)
+  (c) 회로 figure에 명시 라벨된 측정 노드 (V_1, V_2, V_3, V_o, V_x, a, b 등 — nodeAnnotations에 entry)
+
+★ 절대 만들지 말 것 ★:
+  - 분기점/junction routing을 위한 임시 노드 (예: n_mid, n_junction, anonymous)
+  - 같은 두 semantic node 사이의 직렬 R chain을 위한 중간 노드
+  - 두 horizontal R이 연결되어 보여도 그 사이에 라벨이 없으면 별도 node 만들지 말 것
+
+bend point·lane point·virtual point 같은 routing artifact는 ★ 분석 결과에 포함되지 않는다 ★.
+이런 시각적 분기점은 renderer가 layout 시 별도로 처리.
+
+예 — imyong 10번 형식 (semantic node 4개 한계):
+  semantic nodes: { VS_PLUS, V_1, V_3, GND }  (V_2 라벨이 없으면 V_2 노드 만들지 말 것)
+  branches 모두 위 4 노드 중 두 개를 잇는 형태로만 추출:
+    voltage_source_leg V=20V: VS_PLUS → GND
+    top_rail_resistor R=20Ω: VS_PLUS → V_1   (V·+에서 V_1로 직접)
+    top_rail_resistor R=10Ω: V_1 → V_3       (V_1에서 V_3로 직접, 중간 junction 없음!)
+    mesh_only_branch I=0.5A: V_1 → V_3       (R과 평행 — 같은 두 노드 사이)
+    load_leg R=R(가변): V_1 → GND
+    load_leg R=10Ω: V_3 → GND
+
+흔한 잘못된 추출 ✗:
+  top_rail R 20Ω: VS_PLUS → n_v1
+  top_rail R 20Ω: n_v1 → n_mid        ← n_mid는 phantom junction
+  mesh_only I 0.5A: n_v1 → n_mid       ← n_mid 라벨 없는데 별도 노드
+  top_rail R 10Ω: n_mid → V_3
+  → n_mid가 nodeAnnotations에 없으면 semantic이 아니라 routing artifact.
+    이걸 별도 노드로 추출하면 안 된다. 위 예처럼 V_1↔V_3 사이 한 R + 한 I로 통합.
+
+판별 기준: 회로 figure에 V_2 같은 명시 라벨이 보이지 않으면 그 위치는 semantic node가 아니다.
+horizontal R 두 개가 직렬로 보여도 그 사이에 라벨이 없으면 ★ 같은 두 semantic node 사이 한 R ★로 합쳐 추출.
+
 【★ 절대 규칙: dangling node 금지 — node degree ≥ 2】
 topologySignature.branches에서 ★ 모든 non-GND node id는 최소 2개의 branch에 등장해야 한다 ★.
 한 component(branch)에만 등장하는 node는 floating pin이고, validator가 "netlist_dangling_node" /
