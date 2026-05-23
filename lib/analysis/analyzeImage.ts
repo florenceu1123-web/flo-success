@@ -514,29 +514,36 @@ topologySignature.branches에서 ★ 모든 non-ground node id는 최소 2개의
   - 모든 node는 4 role 중 하나여야 한다 → role 있는 노드는 자연히 회로에 묶여 degree ≥ 2.
   - role도 없고 degree=1인 노드는 phantom — 추출 자체가 잘못.
 
-★ 흔한 실수 케이스: 위아래로 쌓인(stacked) 두 R을 직렬 + 중간 junction으로 잘못 추출 ★
+★★★ 가장 중요한 추출 규칙 — 위아래로 쌓인(stacked) 저항은 절대 1개로 세지 말 것 ★★★
 
-  원본 회로에서 같은 x 위치 범위에 두 R이 위아래로 나란히 그려져 있다면:
-  → 이는 ★ 같은 두 노드 사이의 평행 가지(parallel branch) ★. 직렬 아님.
-  → 시각: 양 끝이 같은 vertical wire에 연결되고 가운데에 R 두 개가 stack.
+회로 image를 볼 때 ★ 모든 저항 기호(R 모양 zigzag)를 개별적으로 카운트 ★ 하라.
+같은 영역에 위아래로 나란히 그려진 R 두 개도 ★ 각각 1개씩 ★ — 절대 1개로 합치지 말 것.
 
-  잘못된 추출 ✗:
-    branches = [
-      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["A","n_mid"] },
-      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["n_mid","B"] }
-    ]
-    → 두 R을 직렬로 보고 중간에 n_mid 만듦. n_mid는 어디에도 라벨 없는 phantom.
+  같은 x 범위에 R 두 개가 위아래 stack:
+    ─[20Ω]─        (위)
+       ↕  (같은 vertical wire로 양 끝 연결)
+    ─[20Ω]─        (아래)
+  → ★ 평행 가지 ★, 두 R 별도 component, 같은 두 노드 사이.
 
-  올바른 추출 ✓:
+  추출 시 반드시:
     branches = [
       { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["A","B"] },
-      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["A","B"] }
+      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["A","B"] }  ← 같은 betweenNodes 두 번!
     ]
-    → 같은 betweenNodes로 두 entry. 자동으로 평행 가지(mesh +1)로 처리.
+  componentInventory에도 각각 카운트 → 총 R 개수가 시각적 카운트와 일치해야 함.
 
-  판별: 두 R의 좌·우 끝점이 같은 vertical wire(또는 같은 node label)에 연결되어 있는가?
-    YES → 평행 (같은 betweenNodes)
-    NO  → 직렬 (다른 betweenNodes, 단 중간 노드는 명시 라벨이 있어야 함)
+  잘못된 추출 (절대 금지) ✗:
+    ✗ R 한 개로 합치기 (위아래 stack을 같은 R 두 번 그린 거라 착각)
+    ✗ 중간 junction node 만들어 직렬로 보기 ({A,n_mid}, {n_mid,B})
+    ✗ 위 R만 추출하고 아래 R 누락
+
+★ 추출 후 자체 검증 ★:
+  image에서 보이는 R zigzag 모양의 개수와 branches의 R 개수가 일치하는가?
+  일치하지 않으면 stacked 평행 가지를 놓친 것 — 재검토 필요.
+
+판별: 두 R의 양 끝이 같은 vertical wire/node label에 연결되어 있는가?
+  YES → 평행 (같은 betweenNodes 두 번 entry)
+  NO  → 직렬 (다른 betweenNodes, 단 중간 노드는 명시 라벨이 있어야 함)
 
 ★ 흔한 실수 케이스: ㄱ-자(L-shape) R을 horizontal + vertical 두 branch로 이중 추출 ★
 
