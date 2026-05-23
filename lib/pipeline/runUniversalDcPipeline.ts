@@ -168,6 +168,17 @@ export async function runUniversalDcPipeline(args: {
     // analysis에서 받은 loadPlaceholders는 보라색 dashed box로 그려져 중복 표기 → 제거.
     gen.netlistOpen.loadPlaceholders = [];
 
+    // ── nodeAnnotations 전파 — figure에 V_1·V_2 등 측정 노드 라벨 표시용.
+    //   analysis.nodeAnnotations의 node id가 빌드된 netlist node id와 일치할 때만 추가.
+    const builtNodeIds = new Set<string>();
+    for (const c of gen.netlistOpen.components) {
+      for (const p of c.pins) builtNodeIds.add(p.node);
+    }
+    const validAnns = (analysis.nodeAnnotations ?? []).filter((a) => builtNodeIds.has(a.node));
+    if (validAnns.length > 0) {
+      gen.netlistOpen.nodeAnnotations = validAnns;
+    }
+
     // ── Layout-level validation — cross-layout이 적용될 회로는 graph 검증으로 단락 회로 reject.
     //   V 전압원 +단자가 wire-only path로 GND와 단락되는 layout은 의미 있는 문제가 안 되므로
     //   문제 생성 이전에 throw (API 500 → 사용자가 즉시 인지).
