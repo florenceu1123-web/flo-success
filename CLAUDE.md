@@ -36,6 +36,60 @@ flo-success/
 
 ---
 
+# 🚨 절대 원칙 — Rule-Based Universal Path 우선 (2026-05-23 도입)
+
+**새 임용 형식이 들어와도 archetype 추가 금지.** 규칙 기반 universal path로 흡수한다.
+
+## 우선순위 (높음 → 낮음)
+
+1. **`universal_dc`** — circuit_theory + DC-only (V/I/R, no L/C) + multi-step query.
+   - 트리거: 가변 R OR `[단계 N]` 패턴 OR V_n 노드 라벨 2+ OR (V·I 혼합 + R≥3)
+   - 처리 path: `runUniversalDcPipeline` (rejection sampling + R sweep)
+   - 흡수 가능한 archetype: `dc_mesh`, `dc_nodal`, `dc_supermesh`, `dc_supernode`, `dc_dependent_source`, `max_power_transfer`, `switched_dc`
+   - **classic 강한 키워드**(테브난·등가회로·최대전력)는 기존 archetype 유지 (호환성)
+
+2. **`universal_ac`** — circuit_theory + L OR C 존재 + AC 키워드 (공진·페이저·최대전력)
+   - 트리거: L/C 존재 + (공진·페이저·최대전력·교류·주파수응답)
+   - 처리 path: `runUniversalAcPipeline` (complex MNA + zero-crossing bisection)
+   - 흡수 가능한 archetype: `rlc_resonance`, `ac_superposition`, `ac_parallel_branches`, `rlc_resonance_max_power`
+   - **classic 강한 키워드**(`스위치+t=0`·`중첩의 원리`)는 기존 archetype 유지
+
+3. **기존 archetype** — 위 두 universal에서 안 잡힌 경우만 fallback. **새 archetype 추가 금지**.
+
+## 새 임용 문제 들어왔을 때 의사결정
+
+```
+새 형식 입력
+   ↓
+universal_dc·universal_ac 트리거에 잡히는가?
+   YES → 잘 작동하면 그대로 사용. 안 되면 classifier 키워드/시그니처 보강.
+   NO  → analyzeImage 프롬프트 보강해서 universal 트리거에 잡히도록 유도.
+         (archetype 추가하지 않는다.)
+```
+
+**예외**: 회로 figure 모양이 본질적으로 다른 케이스(예: BJT 특성곡선 그래프 figure 자체가 회로가 아닌 경우)만 전용 archetype 정당화.
+
+## 기존 archetype deprecation 로드맵
+
+- **Phase A (현재)** — universal path 우선, 기존 archetype 호환 유지.
+- **Phase B** — `dc_mesh`·`dc_supermesh`·`max_power_transfer` 등 universal_dc로 redirect 시도, 출력 품질 검증 후 점진 dispatch 제거.
+- **Phase C** — `rlc_resonance` 등 universal_ac로 redirect, 검증 후 dispatch 제거.
+- **Phase D** — archetype 코드 파일 제거 (테스트·문서만 유지).
+
+## Universal path 핵심 컴포넌트
+
+- `lib/solver/mna.ts` — DC 선형 회로 MNA (R/V/I/VCCS/VCVS/OPAMP)
+- `lib/solver/complexMna.ts` — AC phasor MNA (R/L/C/V/I/VCCS/VCVS, ε 정규화)
+- `lib/solver/universalDc.ts` — query (V·I·P·inverseR)
+- `lib/solver/universalAc.ts` — query (phasor·resonance·maxPower·inverseC)
+- `lib/solver/parsePhasor.ts` — polar/cartesian phasor 입력 ("5∠30°V")
+- `lib/generation/topologyDriven/perturbTopology.ts` — mode별 값 perturbation
+- `lib/generation/topologyDriven/inferDcQueries.ts` / `inferAcQueries.ts` — query 구조 추출
+- `lib/pipeline/runUniversalDcPipeline.ts` / `runUniversalAcPipeline.ts` — pipeline
+- `lib/solver/validateDcResult.ts` / `validateAcResult.ts` — rejection sampling 평가
+
+---
+
 # Architecture
 
 ## 1. Subjects · Topics · Modes
@@ -181,6 +235,43 @@ JSON만 출력한다.
 # 프로젝트 전반 절대 규칙
 0. **구조·원리 유사성** — 생성하는 모든 문제는 원본의 구조와 원리를 반드시 유지한다. 같은 학습 목표를 시험. 모드는 변형 강도만 조절.
 0. **규칙 기반 생성 (예시 기반 금지)** — 박혀 있는 "문제 예시"를 베끼지 말 것. 출제 규칙(KVL, 등가변환, 노드해석 등)을 원본에 적용해서 새로 만든다. 양식·포맷의 "적용 예시"는 참고 가능.
+
+# 🚨 회로 생성기 Core Rule (모든 회로 공통, 위반 시 reject)
+
+**모든 소자는 반드시 branch(edge)에 존재한다.**
+**소자는 node에 attach되지 않는다.**
+**wire continuity ≠ node equivalence.**
+
+- Branch = 두 node 사이의 element. shape: `{ from: NodeId, to: NodeId, element: "wire"|"R"|"V"|"I"|"C"|"L"|... }`
+- Node = 단순 접속점 (junction/terminal/ground/label). component 정보 보유 금지.
+- 회로 = planar circuit graph (nodes, branches, faces). face = planar embedding의 내부 mesh.
+- 소자가 있는 선분 = branch (element !== "wire"). 소자 없는 선분 = wire branch.
+- **wire로 이어져 있어도 두 끝점은 별개 node**. 같은 전위(electrical equivalence)와 그래프 동일 노드(planar identity)는 다른 개념. layout/face 계산은 planar identity로, KCL/KVL 풀이는 electrical equivalence로 — 두 perspective를 혼동하지 말 것.
+- 모든 ground 노드(kind="ground")도 각각 distinct node. 화면의 ground symbol 한 개는 시각적 표기일 뿐 노드 병합 아님.
+
+**핵심 모델**
+- branch endpoint → node candidate
+- component insertion → node split (component를 wire에 삽입하면 wire가 좌·우로 갈라지고 양쪽에 새 node가 생성됨)
+- junction → explicit node (도선 3개+ 만나는 곳은 반드시 명시 node)
+- **component placement = node segmentation** — component 배치는 wire를 끊고 node를 새로 만드는 행위.
+
+```ts
+function splitNodeAtComponent(wire: Wire, component: Component) {
+  const leftNode = createNode();
+  const rightNode = createNode();
+  return { from: leftNode, to: rightNode };
+}
+```
+
+**8단계 파이프라인** (Image → ... → SVG):
+1. **skeleton 추출** — 외곽/도선 축 식별 (netlist의 column/row 결정).
+2. **branch 분리** — skeleton을 junction 사이 branch 단위로 분리.
+3. **component edge 생성** — 각 component를 element branch로.
+4. **node segmentation** — component 양쪽 endpoint를 distinct node로 명시.
+5. **planar face 계산** — cell 격자에서 face 도출 (`buildCellGrid` + `cellGridToCircuitGraph`).
+6. **topology validation** — `validateCircuitGraph` (branch from≠to, mesh face ≥1, boundary≥3).
+7. **geometry routing** — node 좌표 부여 (row/col → x/y).
+8. **rendering** — 검증 통과한 graph만 SVG.
 
 # Layout 절대 규칙 (모든 회로 공통, node 연결 규칙)
 

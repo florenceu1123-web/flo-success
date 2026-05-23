@@ -256,7 +256,8 @@ function buildNetlist(
         ],
       },
       {
-        id: "C", type: "C", value: "C",  // 학생 도출 변수
+        // C는 학생 도출 변수 — id 라벨 "C"만 표시, value omit해서 중복 방지.
+        id: "C", type: "C",
         pins: [
           { id: "p", node: N_l2c, side: "top" },
           { id: "n", node: GND,   side: "bottom" },
@@ -300,24 +301,23 @@ function buildNetlist(
       ],
     },
     {
-      id: "C", type: "C", value: "C",
+      // C는 학생 도출 변수 — id="C"만 표시, value는 omit해서 "C / C" 중복 방지.
+      id: "C", type: "C",
       pins: [
         { id: "p", node: N_top, side: "top" },
         { id: "n", node: GND,   side: "bottom" },
       ],
     },
   ];
+  // i(t) 라벨은 상단 노드 annotation 하나로만 표시 (이전엔 measurementMarks의 R/V_s 위 빨간 arrow와 중복).
   const nodeAnnotations: NodeAnnotation[] = [
     { node: N_top, label: "i(t)", style: "label_only" },
-  ];
-  const measurementMarks: MeasurementMark[] = [
-    { kind: "current", refs: ["V_s"], label: "i(t)" },
   ];
   const positions: Record<string, { x: number; y: number }> = {
     [GND]:   { x: 320, y: 320 },
     [N_top]: { x: 320, y: 120 },
   };
-  return { components, ground: GND, nodeAnnotations, measurementMarks, positions };
+  return { components, ground: GND, nodeAnnotations, positions };
 }
 
 /**

@@ -1,20 +1,28 @@
 import type { ReactNode } from "react";
 import type {
   BlockDiagram,
+  CharacteristicCurveDiagram,
   CircuitNetlist,
   DiagramType,
   FigureVariant,
   KmapDiagram,
   LogicNetworkDiagram,
   MixedCircuitDiagram,
+  MuxDiagram,
+  MuxGarCircuitDiagram,
+  RlcResonanceMaxPowerCircuitDiagram,
 } from "@/types";
 import { DiagramMissing, FigureHeader, PlaceholderFigure } from "./_placeholder";
 import { renderAnalogMeshSVG } from "./analogMeshRenderer";
 import { renderBlockDiagramSVG } from "./blockDiagramRenderer";
+import { renderCharacteristicCurveSVG } from "./characteristicCurveRenderer";
 import { renderConceptDiagramSVG } from "./conceptDiagramRenderer";
 import { renderKmapSVG } from "./kmapRenderer";
 import { renderLogicNetworkSVG } from "./logicNetworkRenderer";
 import { renderMixedCircuitSVG } from "./mixedCircuitRenderer";
+import { renderMuxDiagramSVG } from "./muxDiagramRenderer";
+import { renderMuxGarCircuitSVG } from "./muxGarCircuitRenderer";
+import { renderRlcResonanceMaxPowerCircuitSVG } from "./rlcResonanceMaxPowerCircuitRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -48,6 +56,14 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderBlockDiagramSVG(figure.diagram as BlockDiagram));
     case "mixed_circuit":
       return wrapSvg(figure, renderMixedCircuitSVG(figure.diagram as MixedCircuitDiagram));
+    case "characteristic_curve":
+      return wrapSvg(figure, renderCharacteristicCurveSVG(figure.diagram as CharacteristicCurveDiagram));
+    case "mux_diagram":
+      return wrapSvg(figure, renderMuxDiagramSVG(figure.diagram as MuxDiagram));
+    case "mux_gar_circuit":
+      return wrapSvg(figure, renderMuxGarCircuitSVG(figure.diagram as MuxGarCircuitDiagram));
+    case "rlc_resonance_max_power_circuit":
+      return wrapSvg(figure, renderRlcResonanceMaxPowerCircuitSVG(figure.diagram as RlcResonanceMaxPowerCircuitDiagram));
     default:
       return (
         <pre className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">

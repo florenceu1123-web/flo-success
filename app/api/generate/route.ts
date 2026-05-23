@@ -13,6 +13,7 @@ import { runRcStepPipeline } from "@/lib/pipeline/runRcStepPipeline";
 import { runRlStepPipeline } from "@/lib/pipeline/runRlStepPipeline";
 import { runRlcStepPipeline } from "@/lib/pipeline/runRlcStepPipeline";
 import { runRlcResonancePipeline } from "@/lib/pipeline/runRlcResonancePipeline";
+import { runRlcResonanceMaxPowerPipeline } from "@/lib/pipeline/runRlcResonanceMaxPowerPipeline";
 import { runSwitchedRlcStepPipeline } from "@/lib/pipeline/runSwitchedRlcStepPipeline";
 import { runSwitchedRlc5legPipeline } from "@/lib/pipeline/runSwitchedRlc5legPipeline";
 import { runDcSupermeshPipeline } from "@/lib/pipeline/runDcSupermeshPipeline";
@@ -26,6 +27,7 @@ import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
 import { runOpampTimeDomainPipeline } from "@/lib/pipeline/runOpampTimeDomainPipeline";
 import { runBjtSmallSignalPipeline } from "@/lib/pipeline/runBjtSmallSignalPipeline";
 import { runBjtBiasPipeline } from "@/lib/pipeline/runBjtBiasPipeline";
+import { runBjtCharacteristicCurvePipeline } from "@/lib/pipeline/runBjtCharacteristicCurvePipeline";
 import { runMosfetBiasPipeline } from "@/lib/pipeline/runMosfetBiasPipeline";
 import { runMosfetCascodeMirrorPipeline } from "@/lib/pipeline/runMosfetCascodeMirrorPipeline";
 import { runCounterDacComparatorPipeline } from "@/lib/pipeline/runCounterDacComparatorPipeline";
@@ -37,6 +39,7 @@ import { runFlipflopMixedPipeline } from "@/lib/pipeline/runFlipflopMixedPipelin
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
+import { runMuxImplementationPipeline } from "@/lib/pipeline/runMuxImplementationPipeline";
 import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipeline";
 import { runUniversalDcPipeline } from "@/lib/pipeline/runUniversalDcPipeline";
 import { runUniversalAcPipeline } from "@/lib/pipeline/runUniversalAcPipeline";
@@ -97,27 +100,39 @@ export async function POST(req: NextRequest) {
     const hasCapOrIndInCircuit = inventory.some((c) => c.type === "C" || c.type === "L");
     const isAcSuperposition = analysis?.circuitType?.type === "ac_superposition" ||
       analysis?.circuitType?.type === "ac_parallel_branches";
+    // rlc_resonance_max_power: phasor 정상상태 — waveform figure 불필요.
+    const isRlcResonanceMaxPower = analysis?.circuitType?.type === "rlc_resonance_max_power";
     // switched_rlc_*는 v_C(t) 응답이 학생 도출 정답이라 waveform figure를 안 만듦 (학습 의도).
     //  → state_before/state_after figure로 시간 변화 표현 → hasWaveformEvolution=false 강제로 waveform required 면제.
     const isSwitchedRlc =
       analysis?.circuitType?.type === "switched_rlc_5leg" ||
       analysis?.circuitType?.type === "switched_rlc_step";
+    // bjt_characteristic_curve는 개념·도식 해석형 — 시간영역 파형 없음, 회로 netlist 없음.
+    //  단일 characteristic_curve figure 1장으로 충분.
+    const isCharacteristicCurve = analysis?.circuitType?.type === "bjt_characteristic_curve";
     const isSwStatePair =
       rawSemantic.hasWaveformEvolution &&
       !hasCapOrIndInCircuit &&
       Boolean(analysis?.topologySignature?.features?.hasSwitch);
     // ac_superposition은 phasor 정상상태 해석이라 waveform figure 불필요 → hasWaveformEvolution=false 강제
-    const expectedSemantic: SemanticStructure =
-      isSwStatePair || (rawSemantic.hasWaveformEvolution && (isAcSuperposition || isSwitchedRlc))
+    // bjt_characteristic_curve는 회로/파형 없는 graph 해석 — 모든 multi-figure 의무 면제
+    // rlc_resonance_max_power는 phasor 정상상태 — waveform 면제
+    const expectedSemantic: SemanticStructure = isCharacteristicCurve
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, requiresMultiFigure: false }
+      : isRlcResonanceMaxPower
         ? { ...rawSemantic, hasWaveformEvolution: false }
-        : rawSemantic;
+        : isSwStatePair || (rawSemantic.hasWaveformEvolution && (isAcSuperposition || isSwitchedRlc))
+          ? { ...rawSemantic, hasWaveformEvolution: false }
+          : rawSemantic;
     if (expectedSemantic !== rawSemantic) {
       log.info("semantic_normalized", {
-        reason: isAcSuperposition
-          ? "ac_superposition (phasor 정상상태) → hasWaveformEvolution=false"
-          : isSwitchedRlc
-            ? "switched_rlc_* (v_C(t)는 학생 도출 정답) → hasWaveformEvolution=false"
-            : "SW state pair without C/L → hasWaveformEvolution=false",
+        reason: isCharacteristicCurve
+          ? "bjt_characteristic_curve (개념·도식 해석형) → all multi-figure flags off"
+          : isAcSuperposition
+            ? "ac_superposition (phasor 정상상태) → hasWaveformEvolution=false"
+            : isSwitchedRlc
+              ? "switched_rlc_* (v_C(t)는 학생 도출 정답) → hasWaveformEvolution=false"
+              : "SW state pair without C/L → hasWaveformEvolution=false",
       });
     }
 
@@ -254,6 +269,14 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (circuitType === "rlc_resonance_max_power" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "rlc_resonance_max_power_pipeline", count: n, mode });
+      problems = await runRlcResonanceMaxPowerPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else if (circuitType === "dc_supermesh" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "dc_supermesh_pipeline", count: n, mode });
       problems = await runDcSupermeshPipeline({
@@ -337,6 +360,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "bjt_bias" && subjectKey === "electronics") {
       log.info("dispatch", { route: "bjt_bias_pipeline", count: n, mode });
       problems = await runBjtBiasPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "bjt_characteristic_curve" && subjectKey === "electronics") {
+      log.info("dispatch", { route: "bjt_characteristic_curve_pipeline", count: n, mode });
+      problems = await runBjtCharacteristicCurvePipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
@@ -430,6 +461,14 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (circuitType === "mux_implementation" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "mux_implementation_pipeline", count: n, mode });
+      problems = await runMuxImplementationPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else {
       const fn = (mode as GenerationMode) === "exam_similar" ? generateSimilar : generateVariant;
       problems = await fn({
@@ -512,6 +551,7 @@ function shouldUseTopologyDriven(
   // rlc_resonance도 전용 generator(공진곡선 figure 포함) 보존 — topology_driven은 회로만 만들고
   // 주파수응답 곡선 figure를 모르므로 fallback 금지.
   if (circuitType === "rlc_resonance") return false;
+  if (circuitType === "rlc_resonance_max_power") return false;
   // switched_rlc_step·switched_rlc_5leg 모두 전용 generator 보존.
   if (circuitType === "switched_rlc_step") return false;
   if (circuitType === "switched_rlc_5leg") return false;

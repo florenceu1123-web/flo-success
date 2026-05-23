@@ -16,6 +16,9 @@ export function resolveDigitalRules(args: {
     required.push("implementation_circuit", "waveform");
   } else if (args.circuitType === "flipflop_mixed_app") {
     required.push("implementation_circuit", "truth_table", "waveform");
+  } else if (args.circuitType === "mux_implementation") {
+    // (가) 조합논리회로 + (나) MUX 두 figure. kmap·waveform 없음.
+    required.push("main_circuit", "implementation_circuit");
   } else {
     if (args.topicKey === "kmap_sop" || args.topicKey === "kmap_pos") {
       required.push("kmap", "implementation_circuit");

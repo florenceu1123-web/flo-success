@@ -11,6 +11,7 @@ import { hasMosfetCascode, renderMosfetCascodeMirrorCircuit } from "./mosfetCasc
 import { hasSwitchedRlcStep, renderSwitchedRlcStepCircuit } from "./switchedRlcStepCircuitRenderer";
 import { hasSwitchedRlc5leg, renderSwitchedRlc5legCircuit } from "./switchedRlc5legCircuitRenderer";
 import { hasAcParallelBranches, renderAcParallelBranchesCircuit } from "./acParallelBranchesCircuitRenderer";
+import { detectCrossPattern, renderCrossLayout } from "./crossLayoutCircuitRenderer";
 
 // =====================================================================
 // analog mesh renderer — 2-rail layout
@@ -41,10 +42,10 @@ const GROUND_LABELS = new Set([
   "Ground",
 ]);
 const TOP_Y = 80;
-const BOT_Y = 340;
-const LEFT_X = 120;
-const X_PITCH = 220;            // component(R 56·OPAMP 64) + label 양옆 여유
-const VERTICAL_PARALLEL_GAP = 130;  // 같은 top node에 V 두 개 등 parallel일 때 source 원(r=22) + label 안 겹침
+const BOT_Y = 420;
+const LEFT_X = 100;
+const X_PITCH = 140;            // component(R 56·OPAMP 64) + label 양옆 여유. 정사각형 비율 위해 축소.
+const VERTICAL_PARALLEL_GAP = 110;  // 같은 top node에 V 두 개 등 parallel일 때 source 원(r=22) + label 안 겹침. X_PITCH 축소에 맞춰 조정.
 
 type HPlace = {
   component: CircuitComponent;
@@ -106,6 +107,12 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   if (hasMosfet(netlist)) {
     const svg = renderMosfetBiasCircuit(netlist);
     if (svg) return svg;
+  }
+
+  // 0.08 Cross pattern (외곽 perimeter + 내부 십자 cross) — 임용 10번 같은 4-mesh DC.
+  //   trigger: 내부 노드 간 평행 가지 + inner top node에 vertical leg.
+  if (detectCrossPattern(netlist)) {
+    return renderCrossLayout(netlist);
   }
 
   // 0.1 3-pin 이상이면 mesh layout 적용 불가 — fallback
@@ -223,14 +230,48 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     }
   }
 
-  // 5.4 Horizontal components — bbox 수집
+  // 5.4 Horizontal components — bbox 수집.
+  //   같은 node pair에 여러 horizontal branch가 있으면 (parallel) y로 stacking해서 겹침 방지.
   const obstacles: Bbox[] = [];
+  // Group by sorted node pair
+  const horizGroups = new Map<string, HPlace[]>();
   for (const h of horizontals) {
-    const a = topPos.get(h.node1);
-    const b = topPos.get(h.node2);
-    if (!a || !b) continue;
-    parts.push(renderHorizontalComponent(h.component, a, b));
-    obstacles.push(bboxHorizontal(h.component, a, b));
+    const key = [h.node1, h.node2].sort().join("|");
+    if (!horizGroups.has(key)) horizGroups.set(key, []);
+    horizGroups.get(key)!.push(h);
+  }
+  for (const [, hs] of horizGroups) {
+    if (hs.length === 1) {
+      // 단일 — 기존 방식 (TOP_Y level 그대로)
+      const h = hs[0];
+      const a = topPos.get(h.node1);
+      const b = topPos.get(h.node2);
+      if (!a || !b) continue;
+      parts.push(renderHorizontalComponent(h.component, a, b));
+      obstacles.push(bboxHorizontal(h.component, a, b));
+    } else {
+      // parallel — top rail 바로 아래에 짧게 stack. stub이 vertical leg component를
+      //   가로지르지 않도록 짧게 유지 (offset 50 정도). 시각적으로 "위 series + 아래 parallel" 분리.
+      const TIGHT_OFFSET = 50; // top rail 바로 아래 — component 영역 밖
+      hs.forEach((h, i) => {
+        const a = topPos.get(h.node1);
+        const b = topPos.get(h.node2);
+        if (!a || !b) return;
+        if (i === 0) {
+          parts.push(renderHorizontalComponent(h.component, a, b));
+          obstacles.push(bboxHorizontal(h.component, a, b));
+        } else {
+          // 짧은 offset — 시각 분리는 유지하되 stub이 component 가로지르지 않음
+          const offsetY = TOP_Y + TIGHT_OFFSET * i;
+          const aOffset: Point = { x: a.x, y: offsetY };
+          const bOffset: Point = { x: b.x, y: offsetY };
+          parts.push(`<path d="M ${a.x} ${TOP_Y} L ${a.x} ${offsetY}" stroke="black" fill="none" stroke-width="2"/>`);
+          parts.push(`<path d="M ${b.x} ${TOP_Y} L ${b.x} ${offsetY}" stroke="black" fill="none" stroke-width="2"/>`);
+          parts.push(renderHorizontalComponent(h.component, aOffset, bOffset));
+          obstacles.push({ ...bboxHorizontal(h.component, aOffset, bOffset), y: offsetY - 36 });
+        }
+      });
+    }
   }
 
   // 5.5 Vertical components — bbox 수집
@@ -750,38 +791,41 @@ function routeOverlayPath(
   const toD = (pts: Array<[number, number]>): string =>
     pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0]} ${p[1]}`).join(" ");
 
-  // 각 candidate path를 모든 segment OK 체크 후 등록
-  const candidates: { pts: Array<[number, number]>; len: number }[] = [];
-  const add = (pts: Array<[number, number]>) => {
+  // path 별 obstacle intersect 카운트 — 길이 + 패널티 가중치로 평가.
+  //   L-자가 항상 후보로 등록되도록 (obstacle 통과해도 push). 패널티 200·교차당.
+  const candidates: { pts: Array<[number, number]>; cost: number }[] = [];
+  const intersectCount = (pts: Array<[number, number]>): number => {
+    let n = 0;
     for (let i = 1; i < pts.length; i++) {
-      if (!segOk(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1])) return;
+      if (!segOk(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1])) n += 1;
     }
-    candidates.push({ pts, len: pathLen(pts) });
+    return n;
+  };
+  const addCandidate = (pts: Array<[number, number]>) => {
+    const ic = intersectCount(pts);
+    const cost = pathLen(pts) + ic * 200;
+    candidates.push({ pts, cost });
   };
 
   const detourY = Math.min(ANNO_BAND_Y, y2);
 
-  // L-자
-  add([[x1, y1], [x1, y2], [x2, y2]]);
-  // ANNO_BAND_Y 직 우회
-  add([[x1, y1], [x1, detourY], [x2, detourY], [x2, y2]]);
+  // L-자 (최단) — 항상 후보로. 패널티 < 큰 우회 길이면 채택됨.
+  addCandidate([[x1, y1], [x1, y2], [x2, y2]]);
+  addCandidate([[x1, y1], [x2, y1], [x2, y2]]);
+  // ANNO_BAND_Y 직 우회 (백업)
+  addCandidate([[x1, y1], [x1, detourY], [x2, detourY], [x2, y2]]);
   // 좌·우 외곽 우회 — obstacle bbox의 xMin/xMax + 24 column 사용
   const xs = obstacles.flatMap((o) => [o.x, o.x + o.w]);
   if (xs.length > 0) {
     const xLeftDetour = Math.min(...xs) - 24;
     const xRightDetour = Math.max(...xs) + 24;
-    add([[x1, y1], [xLeftDetour, y1], [xLeftDetour, detourY], [x2, detourY], [x2, y2]]);
-    add([[x1, y1], [xRightDetour, y1], [xRightDetour, detourY], [x2, detourY], [x2, y2]]);
+    addCandidate([[x1, y1], [xLeftDetour, y1], [xLeftDetour, detourY], [x2, detourY], [x2, y2]]);
+    addCandidate([[x1, y1], [xRightDetour, y1], [xRightDetour, detourY], [x2, detourY], [x2, y2]]);
   }
 
-  // 최단거리 candidate 선택
-  if (candidates.length > 0) {
-    candidates.sort((a, b) => a.len - b.len);
-    return dashed(toD(candidates[0].pts));
-  }
-
-  // Fallback (모든 candidate가 obstacle 통과)
-  return dashed(toD([[x1, y1], [x1, detourY], [x2, detourY], [x2, y2]]));
+  // 최저 cost candidate 선택 — 길이 + intersect 패널티 합산
+  candidates.sort((a, b) => a.cost - b.cost);
+  return dashed(toD(candidates[0].pts));
 }
 
 function renderGroundSymbol(cx: number, cy: number): string {

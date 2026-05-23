@@ -89,7 +89,7 @@ function buildAnalysisSchema(subject: SubjectKey): Record<string, unknown> {
                 items: {
                   type: "object",
                   additionalProperties: false,
-                  required: ["role", "components"],
+                  required: ["role", "components", "betweenNodes"],
                   properties: {
                     role: {
                       type: "string",
@@ -118,6 +118,23 @@ function buildAnalysisSchema(subject: SubjectKey): Record<string, unknown> {
                           value: { anyOf: [{ type: "string" }, { type: "number" }, { type: "null" }] },
                         },
                       },
+                    },
+                    betweenNodes: {
+                      anyOf: [
+                        { type: "null" },
+                        {
+                          type: "array",
+                          items: { type: "string" },
+                          minItems: 2,
+                          maxItems: 2,
+                        },
+                      ],
+                      description:
+                        "(선택) 명시적 노드 쌍 — 4-mesh 이상 또는 평행 가지가 있을 때 반드시 사용. " +
+                        "horizontal branch는 [좌측 노드, 우측 노드]. vertical leg는 [상단 노드, 'GND']. " +
+                        "node id는 의미 있게 부여 ('n_left', 'n_v1', 'n_v3', 'n_right' 등). " +
+                        "같은 노드 쌍에 여러 branch가 있으면 자동으로 평행 가지로 처리됨. " +
+                        "미지정 시 branches 순서대로 자동 배치 (3-mesh 이하 단순 ladder에만 OK).",
                     },
                   },
                 },
@@ -229,14 +246,21 @@ function buildPrompt(subject: SubjectKey): string {
       //   top_rail_resistor / bottom_rail_wire
       //
       // 한 branch에 직렬로 여러 component가 있으면 components 배열에 모두 (예: SW+R+I 직렬 vertical leg)
-      { "role": "voltage_source_leg",   "components": [{ "type": "V", "value": "10V" }] },
-      { "role": "dependent_source_leg", "components": [{ "type": "VCVS", "value": "0.2V2" }] },
+      //
+      // ★ betweenNodes: mesh ≥ 3 또는 평행 가지 있을 때 **반드시** 명시.
+      //   - horizontal: ["좌측node", "우측node"]
+      //   - vertical:   ["상단node", "GND"]
+      //   - 같은 노드 쌍에 여러 branch면 자동으로 평행 가지 (mesh +1).
+      //   - 미지정 시 branches 순서대로 자동 배치 (3-mesh 이하 단순 ladder에만 OK).
+      { "role": "voltage_source_leg",   "components": [{ "type": "V", "value": "10V" }], "betweenNodes": ["n_left", "GND"] },
+      { "role": "dependent_source_leg", "components": [{ "type": "VCVS", "value": "0.2V2" }], "betweenNodes": ["n_left", "GND"] },
       { "role": "switching_leg",        "components": [
         { "type": "SW" }, { "type": "R", "value": "10Ω" }, { "type": "I", "value": "1A" }
-      ]},
-      { "role": "top_rail_resistor",    "components": [{ "type": "R", "value": "10Ω" }] },
-      { "role": "top_rail_resistor",    "components": [{ "type": "R", "value": "10Ω" }] },
-      { "role": "top_rail_resistor",    "components": [{ "type": "R", "value": "10Ω" }] }
+      ], "betweenNodes": ["n_mid", "GND"] },
+      { "role": "top_rail_resistor",    "components": [{ "type": "R", "value": "10Ω" }], "betweenNodes": ["n_left", "n_mid"] },
+      { "role": "top_rail_resistor",    "components": [{ "type": "R", "value": "10Ω" }], "betweenNodes": ["n_mid", "n_right"] },
+      { "role": "mesh_only_branch",     "components": [{ "type": "I", "value": "0.5A" }], "betweenNodes": ["n_mid", "n_right"] }
+      // ↑ 마지막 두 branch는 n_mid·n_right 사이에 평행 가지 → 한 mesh 추가
     ]
   },
   "structureSignature": {
@@ -319,6 +343,11 @@ function buildPrompt(subject: SubjectKey): string {
 
 - 단자 라벨 (a, b, x, y 등) — 회로 위에 ● 표시 + 알파벳으로 표시된 측정점/등가 단자. 발견되면 nodeAnnotations 배열에 entry 추가, style="terminal_dot".
 - 부하 placeholder (R_L, Z_L 등) — 비어 있는 점선 박스나 "?" 자리. 발견되면 loadPlaceholders 배열에 entry 추가, emphasize=true. 두 단자 node id를 betweenNodes에 명시.
+- ★ 노드 전압 라벨 (V_1, V_2, V_3, V_o, V_x 등) — 회로 다이어그램에 명시된 측정 노드 라벨. 발견되면 nodeAnnotations 배열에 entry 추가, label은 정확한 라벨 그대로 ("V_1" 또는 "V_3" 등), style="label_only". 학생이 풀어야 할 query의 핵심이므로 누락 금지.
+  · 라벨 번호가 V_1, V_3 같이 띄엄띄엄이어도 모두 추출 (V_2 없는 게 정상일 수 있음).
+  · 노드의 attach 정보는 topologySignature.branches와 정합: V_n은 보통 어떤 vertical leg 또는 horizontal 위치의 top node.
+  · 가변 저항이 vertical로 매달려 있고 그 top node가 V_1이면, nodeAnnotations에 {node:"<해당 node id>", label:"V_1", style:"label_only"} 추가.
+- 가변 저항 (variable R, R 조정 문제) — 점선 박스가 없어도 "R" 라벨만 있는 vertical R이 있고 문제 본문에 "R 조정"·"가변" 언급이 있으면, loadPlaceholders에 {betweenNodes:[<top>, <bot>], label:"R", emphasize:true} 추가.
 - "단자 a-b를 개방"·"R_L에 최대 전력 전달"·"V_ab를 구하시오" 같은 문제 유형 — 단자/부하 추출이 핵심. interpretation에도 명시.
 - 위 두 필드는 풀이의 정답 단자/부하 위치 결정에 핵심 — 빠뜨리지 마라.
 
@@ -413,7 +442,121 @@ function buildPrompt(subject: SubjectKey): string {
 → 올바른 structureSignature.componentCounts:
   { OPAMP: 2, R: 5, V: 2 }
 
-→ interpretation 예: "OPAMP 두 단을 직렬 cascade한 회로로 두 입력 V_1·V_2로부터 V_o 출력 도출."`;
+→ interpretation 예: "OPAMP 두 단을 직렬 cascade한 회로로 두 입력 V_1·V_2로부터 V_o 출력 도출."
+
+【digital_logic MUX 등가구현 — 절대 추출 규칙】
+원본 figure에 사다리꼴 box (좌측에 I_0·I_1·I_2·I_3, 하단에 S_0·S_1, 우측에 F) 또는 "MUX"/"멀티플렉서" 라벨이 있는 figure가 보이면, 이 문제는 MUX 등가구현 형식(임용 5번 형식)이다. 반드시:
+- topic 또는 interpretation에 "MUX" 또는 "멀티플렉서"라는 정확한 단어를 포함시킬 것. (예: "조합논리회로를 4×1 MUX로 등가구현")
+- relatedConcepts 배열에 다음 단어를 모두 명시: ["멀티플렉서", "MUX", "선택선", "S_0", "S_1", "I_0", "I_1", "POS", "SOP"] (최소 5개 이상)
+- topicKey는 "combinational_gate" 사용 (별도 mux topicKey 없음)
+- figureRequirements에는 (가) implementation_circuit + (나) MUX figure 두 개 모두 명시: {role:"main_circuit", diagramType:"logic_network", scope:"single", required:true}, {role:"implementation_circuit", diagramType:"mux_diagram", scope:"single", required:true}
+- 학생 채울 빈칸이 MUX 입력에 표시(㉠, ㉡ 등)되어 있으면 fillInTheBlanks에 marker와 함께 명시.
+
+→ 잘못된 추출 (절대 금지):
+- MUX 모양(사다리꼴+I·S·F 핀)을 보고도 topic에 "조합논리회로 구현"이라고만 적고 "MUX" 단어 누락
+- relatedConcepts에 "AND·OR·NOT" 같은 일반 단어만 적고 "멀티플렉서"·"선택선" 단어 누락
+- (나) 두 번째 figure를 누락하고 단일 figure로 처리
+
+【circuit_theory Multi-step DC + 가변 R — 절대 추출 규칙】
+회로에 (a) DC 전원(V·I)이 있고 (b) C/L이 없으며 (c) 다음 중 하나가 있으면 "Multi-step DC + 가변 R" 형식이다:
+- 회로에 가변 R 표시(점선 박스 또는 "R"만 단독 라벨된 vertical R)
+- 본문에 [단계 1]…[단계 2]…[단계 3] 같은 다단계 풀이 절차
+- 본문에 "R을 조정하여 V_x = N V 되도록" 같은 inverse 패턴
+
+이 케이스는 archetype-free path(universal_dc)로 처리되므로 추출 정확도가 핵심:
+
+(1) topologySignature.branches 빠짐없이 추출
+   - top_rail_resistor: 상단 가로 R 각각을 1 branch
+   - voltage_source_leg: 수직 V 소스 leg
+   - current_source_leg: 수직 I 소스 leg
+   - load_leg: 수직 R leg (가변 R도 load_leg). 가변 R 식별 후 별도 loadPlaceholders entry 추가.
+   - V·I·R 개수가 누락 없이 componentInventory에도 정확히 카운트.
+(2) nodeAnnotations에 모든 V_n / V_x 라벨 추출
+   - 회로의 각 측정 노드 label("V_1", "V_3" 등)을 정확히 (style="label_only").
+   - 띄엄띄엄(V_1, V_3) 정상 — V_2 없어도 둘 다 추출.
+(3) loadPlaceholders에 가변 R 추가
+   - {betweenNodes:[top_node, GND], label:"R", emphasize:true}
+(4) fillInTheBlanks에 [단계 N] 라벨된 step 5개 (각 단계 + 알려진 조건)
+(5) interpretation에 "가변", "R 조정", "V_x = N V 되도록" 같은 키워드 명시.
+
+【few-shot — 임용 10번 패턴 (2 전원: V_s + I_s, 5R + 가변 R, 3단계 query)】
+원본 회로:
+  top rail: 20Ω - V_1 - 20Ω - (중간) - 10Ω - V_3
+  V_1에서 GND로: 가변 R (vertical, "R" 라벨)
+  V_3에서 GND로: 10Ω (vertical)
+  20V 수직 전압원이 top rail 좌측 끝
+  0.5A 수평 전류원이 (중간)→V_3 방향으로 top rail에 끼어있음
+
+→ 올바른 topologySignature.branches:
+  [
+    { "role":"top_rail_resistor", "components":[{"type":"R","value":"20Ω"}] },
+    { "role":"top_rail_resistor", "components":[{"type":"R","value":"20Ω"}] },
+    { "role":"mesh_only_branch",  "components":[{"type":"I","value":"0.5A"}] },
+    { "role":"top_rail_resistor", "components":[{"type":"R","value":"10Ω"}] },
+    { "role":"voltage_source_leg","components":[{"type":"V","value":"20V"}] },
+    { "role":"load_leg",          "components":[{"type":"R","value":"R"}] },
+    { "role":"load_leg",          "components":[{"type":"R","value":"10Ω"}] }
+  ]
+  features: { hasGround:true, hasMesh:true, meshCount:2 }
+
+→ 올바른 nodeAnnotations:
+  [
+    { "node":"V_1_node", "label":"V_1", "style":"label_only" },
+    { "node":"V_3_node", "label":"V_3", "style":"label_only" }
+  ]
+  (실제 node id 컨벤션은 회로별로 다를 수 있음 — 단, label은 반드시 "V_1"·"V_3" 정확 표기)
+
+→ 올바른 loadPlaceholders:
+  [{ "betweenNodes":["V_1_node","GND"], "label":"R", "emphasize":true }]
+
+→ interpretation 예: "20V 직류 전원과 0.5A 전류원, 5개 저항(가변 R 포함)이 있는 회로. [단계 1] R=10Ω일 때 V_1·V_3 도출. [단계 2] 소비 전력 P_total. [단계 3] V_3=3.8V 되도록 R 조정 → R 값과 V_1."
+
+→ 잘못된 추출 (절대 금지):
+- "R" 단독 라벨 vertical R을 일반 저항으로 처리 (loadPlaceholders 누락)
+- V_1·V_3 라벨이 보이는데 nodeAnnotations에 등록 안 함
+- "0.5A" 전류원을 vertical source_leg로 추출 (원본이 horizontal mesh_only_branch면)
+- 다단계 step이 있는데 fillInTheBlanks에 [단계 N] 라벨 누락
+- C/L 없는 순수 DC인데 topicKey를 transient_rc·rlc_response 같은 걸로 잘못 지정
+
+【topologySignature.branches.betweenNodes — 4-mesh 이상 회로 정확 재현용】
+회로의 mesh 개수가 3개 이상이거나 평행 branch가 있으면 **반드시 betweenNodes 필드 명시**.
+미지정 시 branches가 순차 ladder로 배치되어 mesh 개수가 줄어 원본과 다른 회로로 생성된다.
+
+표기:
+  { "role":"top_rail_resistor", "components":[{"type":"R","value":"20Ω"}], "betweenNodes":["n_left","n_v1"] }
+  { "role":"mesh_only_branch",  "components":[{"type":"I","value":"0.5A"}], "betweenNodes":["n_v1","n_v3"] }
+  { "role":"top_rail_resistor", "components":[{"type":"R","value":"20Ω"}], "betweenNodes":["n_v1","n_v3"] }  ← 위와 평행 branch!
+
+node id 컨벤션: GPT가 의미 있게 부여 (예: "n_left", "n_v1", "n_v3" 또는 "n0", "n1", "n2"). 단 GND/ground/0은 모두 ground로 인식됨.
+
+【few-shot — 4-mesh 회로 (임용 10번 형식)】
+원본 회로:
+  top rail: 20Ω - V_1 - 20Ω(평행 가지 1) || I=0.5A(평행 가지 2) - V_3 - 10Ω(top R)
+  여기서 V_1과 V_3 사이에 두 평행 가지 (20Ω + I_s) 가 동시에 존재 → 4 mesh.
+  vertical: V_s(20V)@n_left, R(가변)@V_1, 10Ω@V_3.
+
+→ 올바른 topologySignature.branches:
+[
+  { "role":"top_rail_resistor", "components":[{"type":"R","value":"20Ω"}], "betweenNodes":["n_left","n_v1"] },
+  { "role":"top_rail_resistor", "components":[{"type":"R","value":"20Ω"}], "betweenNodes":["n_v1","n_v3"] },
+  { "role":"mesh_only_branch",  "components":[{"type":"I","value":"0.5A"}], "betweenNodes":["n_v1","n_v3"] },
+  { "role":"top_rail_resistor", "components":[{"type":"R","value":"10Ω"}], "betweenNodes":["n_v3","n_right"] },
+  { "role":"voltage_source_leg","components":[{"type":"V","value":"20V"}], "betweenNodes":["n_left","GND"] },
+  { "role":"load_leg",          "components":[{"type":"R","value":"R"}],   "betweenNodes":["n_v1","GND"] },
+  { "role":"load_leg",          "components":[{"type":"R","value":"10Ω"}], "betweenNodes":["n_v3","GND"] }
+]
+nodeAnnotations:
+[
+  { "node":"n_v1", "label":"V_1", "style":"label_only" },
+  { "node":"n_v3", "label":"V_3", "style":"label_only" }
+]
+features: { hasGround:true, hasMesh:true, meshCount:4 }
+
+→ 잘못된 추출 (절대 금지):
+- betweenNodes 누락 → branches 순차 배치 → mesh 개수 부족 (3 mesh가 되어 원본과 다른 직사각형 회로 생성)
+- meshCount 잘못 추출 (실제 4인데 2·3으로)
+- 평행 가지가 있는데 한쪽만 추출 (예: 20Ω 평행을 일렬로 직렬 배치)
+- node id를 GPT가 임의로 바꿔서 nodeAnnotations와 branches가 다른 이름 쓰는 경우 (반드시 동일 node id 사용)`;
 }
 
 function isValidAnalysis(x: unknown, subject: SubjectKey): x is AnalysisResult {

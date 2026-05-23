@@ -32,6 +32,7 @@ export type CircuitType =
   | "rl_step"               // RL step input 응답
   | "rlc_step"              // RLC step input 응답 (under/over/critically damped) — 단순 V_step+R+L+C 직렬
   | "rlc_resonance"         // RLC 직렬/병렬 공진 + 주파수응답 (I[A] vs f[Hz] 곡선, f_0, Q, Imax) — 임용 9번 형식
+  | "rlc_resonance_max_power" // RLC 공진 + Wheatstone 5저항 → r_S + R_L 최대전력. 단계: C·r_S·R_L+P_max — 임용 7번 형식
   | "switched_rlc_step"     // 스위치 t=0 SPDT 전환 (A↔B) + dual-source(V_s/I_s) + RLC core. 초기조건(v_C(0⁻)·i_L(0⁻)) → dv_C(0⁺)/dt → 2차 미방+v_C(t). 단순화 v1 (3-leg)
   | "switched_rlc_5leg"     // 임용 9번 정확 재현 — 6-leg (V_s | R | R+L_a | C∥R | L_b | I_s) + 2 top horizontal R + SPDT SW. v_C(0⁻)·i_L(0⁻) → dv_C(0⁺)/dt → 2차 미방+v_C(t)
   // ── 스위칭 ───────────────────────────────────
@@ -42,6 +43,7 @@ export type CircuitType =
   | "opamp"                 // 이상 OPAMP DC 분석 (inverting/non_inverting/summing 등)
   | "opamp_time_domain"     // 시간영역 OPAMP (integrator / differentiator)
   | "bjt_small_signal"      // BJT CE 소신호 등가 (hybrid-π: r_π + VCCS)
+  | "bjt_characteristic_curve" // BJT 출력특성곡선(I_C-V_CE) 영역(포화/활성/차단) 식별 + 스위칭 동작 ON/OFF (개념·도식 해석형)
   // ── 디지털논리 ───────────────────────────────
   | "kmap_sop"              // K-map → 최소 SOP → 구현 회로 (AND-OR)
   | "kmap_pos"              // K-map → 최소 POS → 구현 회로 (OR-AND, SOP dual)
@@ -49,6 +51,7 @@ export type CircuitType =
   | "flipflop_mixed_app"    // T-FF + JK-FF 등 혼합 응용회로 — 상태표 + 파형도
   | "ff_with_waveform"      // 단일 FF (D/T/JK) + 비동기 RESET + 조합부 + 파형도 (임용 8번 형식)
   | "combinational_gate"    // 3-입력 2-출력 조합 회로 (F, G 동시 설계)
+  | "mux_implementation"    // (가) 조합논리회로 + (나) 4×1 MUX 등가구현 — POS→SOP→MUX 입력 결정 (임용 5번 형식)
   | "fsm"                   // Mealy 4-state FSM (상태 전이도 + 구현 회로)
   | "waveform_analysis"     // 디지털 입력 파형 → 출력 파형 분석
   // ── Universal (rule-based) ───────────────────

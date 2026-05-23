@@ -291,7 +291,109 @@ export type DiagramType =
   | "truth_table"
   | "concept_diagram"
   | "block_diagram"
-  | "mixed_circuit";
+  | "mixed_circuit"
+  | "characteristic_curve"
+  | "mux_diagram"
+  | "mux_gar_circuit"
+  | "rlc_resonance_max_power_circuit";
+
+/**
+ * 임용 7번 (RLC 공진 + 5R Wheatstone 등가 + R_L 최대전력) 전용 figure.
+ *   고정 구조: v(t) AC + dashed box 안 5R bridge + C(학생 도출) + R_L(학생 도출) + L 직렬.
+ *   값은 5R + L + ω_0 + V_peak만 외부 결정, 나머지는 renderer 고정.
+ */
+export type RlcResonanceMaxPowerCircuitDiagram = {
+  /** Wheatstone 5저항 라벨 — [R1(top-left), R2(top-right), R3(bot-left), R4(bot-right), R5(middle)] */
+  Rlabels: [string, string, string, string, string];
+  /** L 라벨 (e.g. "100mH") */
+  Llabel: string;
+  /** AC source 라벨 (e.g. "v(t) = 5sin(ω₀t)V") */
+  vSourceLabel: string;
+  /** 공진주파수 라벨 (선택, 박스 상단에 보조 표시) */
+  omega0Label?: string;
+};
+
+/**
+ * 임용 5번 (가) 전용 figure — 3 NOTs + 3 ORs + 1 AND 고정 layout.
+ *
+ *   factors: 3개 OR factor, 각 2-literal. literal은 {var:"A"|"B"|"C", neg:boolean}.
+ *   renderer는 6개 literal bus(A·A̅·B·B̅·C·C̅)를 항상 그리고, factor에 따라 wire tap을 결정.
+ */
+export type MuxGarCircuitDiagram = {
+  factors: Array<[
+    { variable: "A" | "B" | "C"; negated: boolean },
+    { variable: "A" | "B" | "C"; negated: boolean },
+  ]>;
+};
+
+/**
+ * 4×1 (또는 일반 N×1) MUX 표준 figure — 임용 5번 (나) 형식.
+ *
+ *   선택선 S_high·S_low (예: S_1=A, S_0=B)에 따라 4개 데이터 입력 I_0~I_3 중 하나를 F로 출력.
+ *   각 데이터 입력은 다음 중 하나:
+ *     "0" | "1" | 단일 변수 ("C") | 보수 ("C̄") | 변수 ("A" 등) | 학생이 채울 빈칸(blankMarker)
+ *   학생 학습 의도: F(A,B,C) 진리표 → 선택선 입력값 (A,B)에 대해 C가 어떻게 mux input에 매핑되는지 결정.
+ */
+export type MuxDiagram = {
+  /** MUX 차수 (현재 4만 지원, 향후 8 확장 가능) */
+  size: 4;
+  /** 선택선 라벨 — high 비트 (예: S_1 ← A), low 비트 (예: S_0 ← B) */
+  selectors: {
+    high: { pinLabel: string; signal: string };
+    low: { pinLabel: string; signal: string };
+  };
+  /** 데이터 입력 4개 — slot=0이 I_0 (S=00), slot=3이 I_3 (S=11). */
+  inputs: Array<{
+    slot: 0 | 1 | 2 | 3;
+    /** 핀 라벨 (예: "I_0") — 표시용 */
+    pinLabel: string;
+    /** 입력 신호 또는 정수 값. blank=true면 학생이 채울 빈칸으로 무시. */
+    value: string;
+    /** true이면 ㉠/㉡ 같은 marker를 핀 외쪽에 표시 + value는 정답 (renderer는 가림). */
+    blank?: boolean;
+    /** blank=true일 때 표시할 marker (예: "㉠"). */
+    blankMarker?: string;
+  }>;
+  /** 출력 핀 라벨 (기본 "F") */
+  outputLabel?: string;
+  /** MUX 상단 캡션 (기본 "4×1 MUX") */
+  caption?: string;
+};
+
+/**
+ * BJT/MOSFET 출력특성곡선 — 한 가족(family)의 다중 곡선(I_B 또는 V_GS 값별)을 동일 평면에 도시.
+ * 학습 의도: 동작 영역(포화/활성/차단 또는 triode/saturation/cutoff)을 ㉠·㉡ 같은 marker로
+ *           가리키고 학생이 영역명·ON/OFF 동작을 식별.
+ *
+ *   x축: V_CE (BJT) / V_DS (MOSFET) — 0~xMax
+ *   y축: I_C (BJT) / I_D (MOSFET) — 0~yMax
+ *   curves[i]: 동일 I_B 또는 V_GS에 대한 V_x vs I_y 곡선 — 초입에서 가파른 ohmic, knee 이후 평탄.
+ *   regions: 두 개 이상의 동작 영역 음영 + 한국어 marker(㉠/㉡/㉢ 등)
+ */
+export type CharacteristicCurveDiagram = {
+  /** "bjt" | "mosfet" — 축/곡선 라벨 자동 결정 */
+  device: "bjt" | "mosfet";
+  /** 다중 곡선 — 위에서 아래로 (I_B 큰 → 작은) 정렬 권장 */
+  curves: Array<{
+    /** 곡선 라벨 (예: "I_B6", "I_B=0", "V_GS5") */
+    label: string;
+    /** 평탄 영역에서 도달하는 y값 (활성/포화 영역의 I_C/I_D) — 0~1 정규화 */
+    plateau: number;
+    /** ohmic→knee 전환 V_x — 0~1 정규화 (xMax 대비 비율). 기본 0.1 권장. */
+    knee?: number;
+  }>;
+  /** 동작 영역 marker — 회로 동작 영역에 라벨 + 음영 */
+  regions: Array<{
+    /** marker symbol ("㉠", "㉡", "㉢" 등) */
+    marker: string;
+    /** 영역 종류 — BJT: saturation(포화)/active(활성)/cutoff(차단), MOSFET: triode/saturation/cutoff */
+    region: "saturation" | "active" | "cutoff" | "triode";
+  }>;
+  /** x축 표기 customize — 미지정 시 device 기본값 (BJT: V_CE, MOSFET: V_DS) */
+  xLabel?: string;
+  /** y축 표기 customize — 미지정 시 device 기본값 (BJT: I_C, MOSFET: I_D) */
+  yLabel?: string;
+};
 
 /**
  * 원본 회로 구조의 시그니처. exam_similar는 정확히 일치 강제, exam_variant는 ±1 허용.
@@ -360,6 +462,60 @@ export type BranchRole =
   | "mesh_only_branch"             // 단일 mesh 안에만 속하는 일반 branch
   | "top_rail_resistor"            // top rail 위 horizontal R
   | "bottom_rail_wire";            // ground rail (보통 단일 wire)
+
+/**
+ * Grid edge 좌표 — planar cell(face) 기반 모델의 핵심.
+ *   회로를 (rows × cols) cell 격자로 보고 각 branch가 어느 edge에 위치하는지 표현.
+ *   type="horizontal": (row, col) — row는 0..gridRows, col은 0..gridCols-1
+ *   type="vertical":   (row, col) — row는 0..gridRows-1, col은 0..gridCols
+ *   같은 (type, row, col)을 가진 branch는 평행 가지 (parallel).
+ */
+export type GridEdge = {
+  type: "horizontal" | "vertical";
+  row: number;
+  col: number;
+};
+
+/**
+ * Cell 기반 회로 표현 — planar face가 1급 객체.
+ *   각 cell은 4 edge(top/bottom/left/right)로 둘러싸인 닫힌 영역 = 1 mesh.
+ *   인접 cell은 edge를 SHARE한다 (같은 edgeId 참조).
+ *
+ *   예 — 2×2 cells:
+ *     TL.right === TR.left
+ *     TL.bottom === BL.top
+ *     TR.bottom === BR.top
+ *     BL.right === BR.left
+ *
+ *   한 edge에 element가 여러 개면 평행 가지(parallel).
+ *   element가 비어있으면 wire only.
+ */
+export type CellEdge = {
+  id: string;                       // 같은 id는 같은 edge (share).
+  orientation: "horizontal" | "vertical";
+  elements: Array<{
+    type: string;                   // R / V / I / L / C / SW / wire
+    value?: string | number;
+    componentId?: string;           // CircuitNetlist component 참조
+  }>;
+};
+
+export type Cell = {
+  id: string;                       // e.g., "TL", "TR", "BL", "BR" or `c_${row}_${col}`
+  row: number;                      // 0..gridRows-1
+  col: number;                      // 0..gridCols-1
+  top?: CellEdge;
+  bottom?: CellEdge;
+  left?: CellEdge;
+  right?: CellEdge;
+};
+
+export type GridCircuit = {
+  gridShape: { rows: number; cols: number };  // cell 개수
+  cells: Cell[];
+  /** edge id로 빠르게 조회. cells의 top/bottom/left/right와 같은 객체 reference. */
+  edges: Record<string, CellEdge>;
+};
 
 /**
  * 회로 위상 시그니처 — analyze가 추출.
@@ -560,6 +716,54 @@ export type CircuitComponent = {
    * legRoot 아래 vertical chain으로 그리도록.
    */
   legRoot?: string;
+};
+
+/**
+ * Planar CircuitGraph — 회로의 위상 구조를 명시적으로 표현.
+ *   "outline은 참고용, 진짜 기준은 node·branch·face"라는 원칙.
+ *
+ *   nodes:    좌표를 가진 노드 (junction/terminal/ground/label)
+ *   branches: 두 노드를 잇는 element (wire 또는 회로 소자)
+ *             — 소자가 있는 선분은 wire가 아니다.
+ *   faces:    planar embedding에서 계산된 face. role="mesh"가 내부 mesh, "outer"가 unbounded face.
+ */
+export type GraphNode = {
+  id: string;
+  x: number;
+  y: number;
+  kind: "junction" | "terminal" | "ground" | "label";
+};
+
+export type GraphBranch = {
+  id: string;
+  from: string;
+  to: string;
+  element: "wire" | "R" | "C" | "L" | "V" | "I" | "diode" | "opamp" | "switch";
+  value?: string;
+  orientation: "horizontal" | "vertical";
+  row?: number;
+  col?: number;
+  /** 원본 component id (있을 때) — renderer가 component metadata 재참조. */
+  componentId?: string;
+  /**
+   * Planar embedding 방향 정보 — branch를 from→to로 walk할 때 좌·우에 인접한 face id.
+   * 외부(outer) face가 한쪽이면 그쪽이 "outer" 또는 null. cell-grid 격자에서 자동 채워짐.
+   */
+  leftFace?: string;
+  rightFace?: string;
+};
+
+export type GraphFace = {
+  id: string;
+  /** boundary branch id 목록 (cycle 순서). */
+  boundary: string[];
+  role?: "mesh" | "outer";
+};
+
+export type CircuitGraph = {
+  nodes: GraphNode[];
+  branches: GraphBranch[];
+  faces: GraphFace[];
 };
 
 /**

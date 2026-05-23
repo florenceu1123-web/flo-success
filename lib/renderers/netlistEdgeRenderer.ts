@@ -655,12 +655,26 @@ function labelsOnEdge(c: CircuitComponent, cx: number, cy: number, orientation: 
 }
 
 function renderResistor(c: CircuitComponent, cx: number, cy: number, orientation: Orientation): string {
+  // 가변 저항 (rheostat): value가 정확히 "R" (universal pipeline의 가변 R 표기)이면 사선 화살표 추가.
+  const isVariable = String(c.value ?? "").trim() === "R";
   if (orientation === "horizontal") {
     const path = `M ${cx - 28} ${cy} L ${cx - 21} ${cy - 10} L ${cx - 9} ${cy + 10} L ${cx + 3} ${cy - 10} L ${cx + 15} ${cy + 10} L ${cx + 24} ${cy - 8} L ${cx + 28} ${cy}`;
-    return `<path d="${path}" stroke="black" fill="none" stroke-width="2"/>` + labelsOnEdge(c, cx, cy, orientation);
+    let svg = `<path d="${path}" stroke="black" fill="none" stroke-width="2"/>`;
+    if (isVariable) {
+      // 사선 화살표 — 좌하→우상 (IEEE rheostat convention)
+      svg += `<defs><marker id="rheoArrow_${c.id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="black"/></marker></defs>`;
+      svg += `<line x1="${cx - 18}" y1="${cy + 14}" x2="${cx + 18}" y2="${cy - 14}" stroke="black" stroke-width="1.5" marker-end="url(#rheoArrow_${c.id})"/>`;
+    }
+    return svg + labelsOnEdge(c, cx, cy, orientation);
   }
   const path = `M ${cx} ${cy - 28} L ${cx - 10} ${cy - 21} L ${cx + 10} ${cy - 9} L ${cx - 10} ${cy + 3} L ${cx + 10} ${cy + 15} L ${cx - 8} ${cy + 24} L ${cx} ${cy + 28}`;
-  return `<path d="${path}" stroke="black" fill="none" stroke-width="2"/>` + labelsOnEdge(c, cx, cy, orientation);
+  let svg = `<path d="${path}" stroke="black" fill="none" stroke-width="2"/>`;
+  if (isVariable) {
+    // 수직 저항용 사선 화살표 — 좌하→우상
+    svg += `<defs><marker id="rheoArrow_${c.id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="black"/></marker></defs>`;
+    svg += `<line x1="${cx - 14}" y1="${cy + 18}" x2="${cx + 14}" y2="${cy - 18}" stroke="black" stroke-width="1.5" marker-end="url(#rheoArrow_${c.id})"/>`;
+  }
+  return svg + labelsOnEdge(c, cx, cy, orientation);
 }
 
 function renderInductor(c: CircuitComponent, cx: number, cy: number, orientation: Orientation): string {

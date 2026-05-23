@@ -150,7 +150,16 @@ export function renderWaveform(figure: FigureVariant) {
 
   // x축 (가장 아래 lane 아래)
   const xAxis = `<line x1="${PAD_L}" y1="${plotBottom}" x2="${PAD_L + PLOT_W}" y2="${plotBottom}" stroke="#374151" stroke-width="1.5"/>`;
+  // 시간 마커 x 위치 계산 — tick label 충돌 회피용
+  const markers = Array.isArray(d.markers) ? d.markers : [];
+  const markerXs = markers.map((m) => xOf(m.t));
+  // tick label은 marker 라벨과 가까우면 (40px 이내) 생략 — marker 라벨이 짧은 숫자보다 길어 시각 충돌.
+  const TICK_MARKER_GAP_PX = 40;
   const tLabels = tTicks
+    .filter((t) => {
+      const tx = xOf(t);
+      return markerXs.every((mx) => Math.abs(tx - mx) > TICK_MARKER_GAP_PX);
+    })
     .map((t) => `<text x="${xOf(t)}" y="${plotBottom + 16}" text-anchor="middle" font-size="11" fill="#374151">${formatNumber(t)}</text>`)
     .join("");
   const xUnitLabel = `<text x="${PAD_L + PLOT_W}" y="${plotBottom + 32}" text-anchor="end" font-size="12" fill="#1e3a8a">${escapeSvg(xSymbol)}${tUnit ? ` [${escapeSvg(tUnit)}]` : ""}</text>`;
@@ -166,7 +175,6 @@ export function renderWaveform(figure: FigureVariant) {
     .join("");
 
   // 시간 마커 (t₁, t₂, ...) — 전체 lane 영역 가로지르는 점선 + 축 아래 라벨
-  const markers = Array.isArray(d.markers) ? d.markers : [];
   const markerLines = markers
     .map((m) => {
       const mx = xOf(m.t);

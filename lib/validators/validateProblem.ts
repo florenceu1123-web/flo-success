@@ -11,6 +11,8 @@ import { aliasGroupKey, getAliasGroup, isMainCircuitRole, isStateRole } from "./
 
 const SUPPORTED_DIAGRAM_TYPES: DiagramType[] = [
   "analog_netlist", "logic_network", "kmap", "waveform", "truth_table",
+  "concept_diagram", "block_diagram", "mixed_circuit", "characteristic_curve",
+  "mux_diagram", "mux_gar_circuit", "rlc_resonance_max_power_circuit",
 ];
 
 /**
@@ -103,11 +105,20 @@ export function validateProblem(args: {
     expected.subject === "digital_logic";
 
   // 4. topology 없음 (회로 figure가 하나도 없으면)
+  //    개념·도식 해석형(characteristic_curve, concept_diagram만 있는 경우)은 회로 figure 면제.
   const hasCircuitFigure = figs.some((f) =>
     f.diagramType === "analog_netlist" || f.diagramType === "logic_network",
   );
+  const hasConceptOnly = figs.length > 0 && figs.every((f) =>
+    f.diagramType === "characteristic_curve" ||
+    f.diagramType === "concept_diagram" ||
+    f.diagramType === "rlc_resonance_max_power_circuit" ||
+    f.diagramType === "mux_gar_circuit" ||
+    f.diagramType === "mux_diagram",
+  );
   // analog 회로는 analog_netlist, 디지털논리는 logic_network — 둘 중 하나는 있어야
-  if (isCircuitSubject && figs.length > 0 && !hasCircuitFigure) {
+  // 단, 개념·도식 해석형(특성곡선·개념도)은 회로 figure 없이도 정상 — 면제.
+  if (isCircuitSubject && figs.length > 0 && !hasCircuitFigure && !hasConceptOnly) {
     issues.push({ rule: "missing_topology", message: "회로 문제이지만 analog_netlist/logic_network figure 없음" });
   }
 

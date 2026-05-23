@@ -76,6 +76,33 @@ export function classifyCircuitType(
   if (subject === "electronics") {
     const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
     const family = analysis.topologySignature?.family;
+    // ★ BJT/MOSFET 출력특성곡선 (영역 식별 + ON/OFF) — 개념·도식 해석형.
+    //   bjt_bias·bjt_small_signal·mosfet_*보다 먼저 매치.
+    //   트리거: 특성곡선/출력특성/동작영역 키워드 + 영역 marker(㉠/㉡/㉢) 또는 영역명 키워드.
+    const characteristicCurveKeywords = [
+      "출력특성곡선", "출력 특성 곡선", "특성곡선", "특성 곡선",
+      "동작 영역", "동작영역", "영역의 명칭",
+      "스위칭 동작", "스위칭동작",
+      "i_c 변화", "ic 변화", "i_d 변화", "id 변화",
+      "i_c-v_ce", "i_c vs v_ce", "ic-vce", "ic vs vce",
+      "i_d-v_ds", "i_d vs v_ds", "id-vds", "id vs vds",
+      "포화 영역", "포화영역", "활성 영역", "활성영역", "차단 영역", "차단영역",
+      "트라이오드", "triode",
+      "여러 개의 i_b", "여러개의 i_b", "여러 i_b", "다중 i_b",
+      "여러 개의 v_gs", "여러개의 v_gs",
+      "㉠", "㉡", "㉢",
+      "characteristic curve", "output characteristics",
+    ];
+    if (matchesKeyword(text, characteristicCurveKeywords)) {
+      // device 추론 — MOSFET 키워드 있으면 MOSFET 변형, 아니면 BJT default.
+      // classifier는 기본 device 분기만, 실제 device 선택은 generator(mode)가 결정.
+      return {
+        type: "bjt_characteristic_curve",
+        params: {},
+        confidence: "high",
+        reasoning: "electronics + 출력특성곡선/동작영역/㉠㉡ 키워드 → 개념·도식 해석형",
+      };
+    }
     // BJT DC bias 회로 — small_signal보다 우선. DC bias 특유 키워드 또는 family="bjt_bias".
     const bjtBiasKeywords = [
       "직류 바이어스", "직류바이어스", "dc bias", "dc 바이어스",
@@ -197,7 +224,17 @@ export function classifyCircuitType(
   }
   // digital_logic: kmap_sop / kmap_pos / flipflop_counter, 나머지(FSM 등)는 후속
   if (subject === "digital_logic") {
-    const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    // ★ 텍스트 풀에 relatedConcepts·fillInTheBlanks 포함 — GPT의 topic/interpretation 표현이
+    //   매번 달라 키워드가 빠지는 케이스 대비. concepts에는 보통 "MUX"·"멀티플렉서" 같은 단어가 들어감.
+    const blanksText = (analysis.fillInTheBlanks ?? [])
+      .map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`)
+      .join(" ");
+    const text = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      blanksText,
+    ].join(" ");
     // FF + 파형 + (선택)비동기 RESET — 임용 8번 형식 (waveform_analysis보다 우선).
     // FF 검출은 키워드 외에도 (a) hasStateTransition flag, (b) signals.outputs에 Q 존재로도 추론.
     const ffKwText = matchesKeyword(text, ["플립플롭", "flip-flop", "flipflop", "FF", "D-FF", "T-FF", "JK-FF"]);
@@ -285,6 +322,27 @@ export function classifyCircuitType(
         params: {},
         confidence: "high",
         reasoning: "digital_logic + 카운터/계수기 키워드/topic",
+      };
+    }
+    // ★ 4×1 MUX 등가구현 (임용 5번) — 조합논리회로 + MUX 두 figure + ㉠·㉡ 학생 도출.
+    //   combinational_gate·kmap_*·flipflop_* 모든 archetype보다 먼저 매치.
+    //   트리거: MUX/멀티플렉서/4×1/선택선/S_0·S_1/I_0~I_3 키워드.
+    const muxKeywords = [
+      "멀티플렉서", "multiplexer", "multiplex",
+      "mux",
+      "4×1", "4x1", "4 × 1", "4 x 1", "4:1", "4-to-1", "4 to 1",
+      "8×1", "8x1",
+      "선택선", "select line", "selector",
+      "s_0", "s_1", "s0", "s1",
+      "i_0", "i_1", "i_2", "i_3",
+      "i₀", "i₁", "i₂", "i₃",
+    ];
+    if (matchesKeyword(text, muxKeywords)) {
+      return {
+        type: "mux_implementation",
+        params: {},
+        confidence: "high",
+        reasoning: "digital_logic + MUX/멀티플렉서/선택선 키워드",
       };
     }
     // K-map + 회로 빈칸 게이트 (ⓐ/ⓑ 등)이 함께 나오면 multi-output 조합회로로 분류 — kmap_sop보다 우선.
@@ -516,38 +574,33 @@ function decideType(args: DecideArgs): DecideResult {
   ]);
   const hasSwitchInferred = counts.SW > 0 || Boolean(features.hasSwitch) || switchedExplicitKw;
 
-  // 0-pre-pre-pre. Switched RLC 5-leg (임용 9번 원본 정확) — switched_rlc_step v1보다 우선.
-  //    트리거: SW(inferred) + RLC + dual-source + 다중 R(R≥4) + 다중 L(L≥2).
+  // 0-PRE-AC. Universal AC (archetype-free) — 모든 AC archetype보다 우선.
+  //   조건: (L OR C 존재) + AC 키워드(공진·페이저·최대전력) + 기존 archetype 강한 시그니처 없음.
+  //   기존 archetype(rlc_resonance·ac_superposition 등) 명시 키워드는 그쪽 유지.
+  const hasReactiveUniversal = counts.L > 0 || counts.C > 0;
+  const isAcKw = matchesKeyword(text, [
+    "공진", "resonance", "공진주파수", "공진 주파수",
+    "페이저", "phasor",
+    "ω", "omega", "ω_0", "ω₀",
+    "최대 평균전력", "최대평균전력", "최대 전력", "최대전력",
+    "교류", "ac source", "ac 회로", "정현파",
+    "주파수응답", "주파수 응답",
+  ]);
+  // 기존 archetype 강한 시그니처 (그쪽 유지)
+  const isClassicSwitchedRlc = matchesKeyword(text, ["스위치", "switch", "t=0"]) && (counts.L > 0 || counts.C > 0);
+  const isAcSuperpositionStrict = matchesKeyword(text, ["중첩의 원리", "중첩원리", "superposition"]) && counts.V > 0 && counts.I > 0;
+  const isClassicMaxPower = matchesKeyword(text, MAX_POWER_KEYWORDS) && counts.R >= 4;
   if (
-    hasSwitchInferred && counts.R >= 4 && counts.L >= 2 && counts.C > 0 &&
-    counts.V > 0 && counts.I > 0
+    hasReactiveUniversal &&
+    isAcKw &&
+    !isClassicSwitchedRlc &&
+    !isAcSuperpositionStrict &&
+    !isClassicMaxPower
   ) {
     return {
-      type: "switched_rlc_5leg",
+      type: "universal_ac",
       confidence: "high",
-      reasoning: `RLC 5-leg + SW(inferred: ${counts.SW > 0 ? "inv" : features.hasSwitch ? "feat" : "text"}) + dual-source + multi-R(${counts.R}) + multi-L(${counts.L})`,
-    };
-  }
-
-  // 0-pre-pre. Switched RLC step response v1 (3-leg 단순화) — SW(inferred) + RLC + dual-source + 키워드.
-  const hasRlcSet = counts.R > 0 && counts.L > 0 && counts.C > 0;
-  const switchedRlcKeywords = [
-    "정상 상태", "정상상태", "steady state", "직류 정상",
-    "초기 조건", "초기조건", "초기 전압", "v_c(0", "vc(0", "i_l(0", "il(0",
-    "2차 미분방정식", "2차 미분", "second order ode", "second-order",
-    "dv_c/dt", "dv_c(0", "dvc(0", "키르히호프", "kvl", "kcl",
-    "자연 응답", "자연응답", "강제 응답", "강제응답",
-    "natural response", "forced response",
-    "v_c(t)", "vc(t)",
-    "t < 0", "t≥0", "t ≥ 0", "t=0",
-    "과도 응답", "과도응답", "transient",
-  ];
-  const isSwitchedRlcText = matchesKeyword(text, switchedRlcKeywords);
-  if (hasSwitchInferred && hasRlcSet && (isSwitchedRlcText || (counts.V > 0 && counts.I > 0))) {
-    return {
-      type: "switched_rlc_step",
-      confidence: "high",
-      reasoning: `RLC + SW(inferred) + ${counts.V > 0 && counts.I > 0 ? "dual-source(V·I)" : ""}${isSwitchedRlcText ? " + transient 키워드" : ""}`,
+      reasoning: `AC + L/C 존재 + 공진/페이저/최대전력 키워드 (classic archetype 시그니처 없음)`,
     };
   }
 
@@ -587,6 +640,59 @@ function decideType(args: DecideArgs): DecideResult {
       type: "universal_dc",
       confidence: "high",
       reasoning: `DC-only (V·I·R, no L/C) + ${reasons.join(", ")}`,
+    };
+  }
+
+  // 0-PRE. RLC 공진 + R_L 최대전력 (임용 7번) — rlc_resonance·max_power_transfer보다 우선.
+  //   트리거: "공진" + ("최대 전력"|"최대 평균전력"|"R_L") + ("점선"|"등가저항") OR R≥4 + L + C + V_ac.
+  const isResonanceKw = matchesKeyword(text, ["공진", "resonance", "공진주파수", "공진 주파수", "ω_0", "ω₀", "omega_0", "omega0"]);
+  const isMaxPowerKw = matchesKeyword(text, ["최대 평균전력", "최대평균전력", "최대 전력", "최대전력", "max power", "maximum power"]);
+  const isLoadKw = matchesKeyword(text, ["r_l", "부하저항", "부하 저항", "load resistance"]);
+  const isDashedBoxKw = matchesKeyword(text, ["점선", "점선 박스", "점선박스", "점선 부분", "dashed", "등가저항", "등가 저항"]);
+  const has5Rmesh = counts.R >= 4 && counts.L >= 1 && counts.C >= 1;
+  if (
+    isResonanceKw && isMaxPowerKw &&
+    (isLoadKw || isDashedBoxKw || has5Rmesh)
+  ) {
+    return {
+      type: "rlc_resonance_max_power",
+      confidence: "high",
+      reasoning: `RLC 공진 + 최대평균전력 + ${isLoadKw ? "R_L" : ""}${isDashedBoxKw ? " 점선/등가저항" : ""}${has5Rmesh ? ` R≥4·L·C` : ""}`,
+    };
+  }
+
+  // 0-pre-pre-pre. Switched RLC 5-leg (임용 9번 원본 정확) — switched_rlc_step v1보다 우선.
+  //    트리거: SW(inferred) + RLC + dual-source + 다중 R(R≥4) + 다중 L(L≥2).
+  if (
+    hasSwitchInferred && counts.R >= 4 && counts.L >= 2 && counts.C > 0 &&
+    counts.V > 0 && counts.I > 0
+  ) {
+    return {
+      type: "switched_rlc_5leg",
+      confidence: "high",
+      reasoning: `RLC 5-leg + SW(inferred: ${counts.SW > 0 ? "inv" : features.hasSwitch ? "feat" : "text"}) + dual-source + multi-R(${counts.R}) + multi-L(${counts.L})`,
+    };
+  }
+
+  // 0-pre-pre. Switched RLC step response v1 (3-leg 단순화) — SW(inferred) + RLC + dual-source + 키워드.
+  const hasRlcSet = counts.R > 0 && counts.L > 0 && counts.C > 0;
+  const switchedRlcKeywords = [
+    "정상 상태", "정상상태", "steady state", "직류 정상",
+    "초기 조건", "초기조건", "초기 전압", "v_c(0", "vc(0", "i_l(0", "il(0",
+    "2차 미분방정식", "2차 미분", "second order ode", "second-order",
+    "dv_c/dt", "dv_c(0", "dvc(0", "키르히호프", "kvl", "kcl",
+    "자연 응답", "자연응답", "강제 응답", "강제응답",
+    "natural response", "forced response",
+    "v_c(t)", "vc(t)",
+    "t < 0", "t≥0", "t ≥ 0", "t=0",
+    "과도 응답", "과도응답", "transient",
+  ];
+  const isSwitchedRlcText = matchesKeyword(text, switchedRlcKeywords);
+  if (hasSwitchInferred && hasRlcSet && (isSwitchedRlcText || (counts.V > 0 && counts.I > 0))) {
+    return {
+      type: "switched_rlc_step",
+      confidence: "high",
+      reasoning: `RLC + SW(inferred) + ${counts.V > 0 && counts.I > 0 ? "dual-source(V·I)" : ""}${isSwitchedRlcText ? " + transient 키워드" : ""}`,
     };
   }
 
