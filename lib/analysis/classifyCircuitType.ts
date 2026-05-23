@@ -235,6 +235,26 @@ export function classifyCircuitType(
       (analysis.relatedConcepts ?? []).join(" "),
       blanksText,
     ].join(" ");
+
+    // ★ Universal digital — N-변수 M-함수 K-map 결합 (임용 8번 형식 등).
+    //   트리거: 4+ 변수(A,B,C,D 등) OR f_숫자 패턴 2+ OR Σm(...) 표기 + K-map 키워드.
+    //   기존 archetype(combinational_gate 3-var 2-out 등)에 안 맞는 N-var/M-func 케이스 흡수.
+    const inputsAll = analysis.signals?.inputs ?? [];
+    const has4PlusVars = inputsAll.length >= 4;
+    const fSubscriptMatches = text.match(/f[_]?[1-9]/gi) ?? [];
+    const distinctFCount = new Set(fSubscriptMatches.map((s) => (s.match(/(\d)/) ?? ["", ""])[1])).size;
+    const hasMultiFunctions = distinctFCount >= 2;
+    const sigmaMintermKw = /Σ\s*m\s*\(|sum\s+of\s+minterms|최소항의\s*합/i.test(text);
+    const kmapKw = matchesKeyword(text, ["k-map", "kmap", "카르노", "karnaugh"]);
+    if ((has4PlusVars && (hasMultiFunctions || sigmaMintermKw)) ||
+        (hasMultiFunctions && kmapKw && sigmaMintermKw)) {
+      return {
+        type: "universal_digital",
+        params: {},
+        confidence: "high",
+        reasoning: `digital + N-var(${inputsAll.length}) + M-func(${distinctFCount}) ${sigmaMintermKw ? "+ Σm" : ""} → universal_digital path`,
+      };
+    }
     // FF + 파형 + (선택)비동기 RESET — 임용 8번 형식 (waveform_analysis보다 우선).
     // FF 검출은 키워드 외에도 (a) hasStateTransition flag, (b) signals.outputs에 Q 존재로도 추론.
     const ffKwText = matchesKeyword(text, ["플립플롭", "flip-flop", "flipflop", "FF", "D-FF", "T-FF", "JK-FF"]);

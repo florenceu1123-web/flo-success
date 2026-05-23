@@ -43,6 +43,7 @@ import { runMuxImplementationPipeline } from "@/lib/pipeline/runMuxImplementatio
 import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipeline";
 import { runUniversalDcPipeline } from "@/lib/pipeline/runUniversalDcPipeline";
 import { runUniversalAcPipeline } from "@/lib/pipeline/runUniversalAcPipeline";
+import { runUniversalDigitalPipeline } from "@/lib/pipeline/runUniversalDigitalPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -193,6 +194,14 @@ export async function POST(req: NextRequest) {
       }
       problems = await runUniversalAcPipeline({
         analysis,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "universal_digital" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "universal_digital_pipeline", count: n, mode });
+      problems = await runUniversalDigitalPipeline({
+        analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
         topicKey: expectedTopicKey,
