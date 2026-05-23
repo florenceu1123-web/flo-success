@@ -53,6 +53,7 @@ export type CircuitType =
   | "waveform_analysis"     // 디지털 입력 파형 → 출력 파형 분석
   // ── Universal (rule-based) ───────────────────
   | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
+  | "universal_ac"          // 임의 AC 회로(R/L/C/V/I) + phasor/공진/최대전력 query — archetype-free
   // ── fallback ─────────────────────────────────
   | "unsupported";          // electronics / digital_logic / 분류 실패
 
