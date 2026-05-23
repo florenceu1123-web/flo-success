@@ -19,12 +19,38 @@
  */
 
 /**
+ * SemanticNode의 role — imyong 10번 형식 회로의 4-node 한계 강제.
+ *   source_plus    : V 소스 +단자 (예: VS_PLUS)
+ *   main_unknown   : 주 측정 노드 (예: V_1 — 가변 R 매달린 노드)
+ *   right_unknown  : 보조 측정 노드 (예: V_3 — 부하 R 매달린 노드)
+ *   ground         : GND
+ *
+ *   semantic graph는 정확히 위 4 role 각각 1개 노드로 구성되는 것이 표준 형식.
+ *   bend point / lane point / virtual point는 role 부여 안 됨 (semantic 아님).
+ */
+export type NodeRole =
+  | "source_plus"
+  | "main_unknown"
+  | "right_unknown"
+  | "ground";
+
+/**
  * SemanticNode — 회로 분석에서 추출한 실제 회로 노드(V_1, V_3, GND 등).
- *   semantic === true 강제. immutable.
+ *   semantic === true 강제. immutable. role은 가능하면 부여, label은 display용.
+ *
+ *   예 (imyong 10번 형식):
+ *     [
+ *       { id: "n_left",   role: "source_plus"   },
+ *       { id: "n_center", role: "main_unknown",  label: "V1" },
+ *       { id: "n_right",  role: "right_unknown", label: "V2" },
+ *       { id: "gnd",      role: "ground"        }
+ *     ]
  */
 export type SemanticNode = {
   readonly id: string;
   readonly semantic: true;
+  readonly role?: NodeRole;
+  readonly label?: string;
 };
 
 /**
