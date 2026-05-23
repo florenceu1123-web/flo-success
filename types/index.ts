@@ -856,6 +856,11 @@ export type CircuitNetlist = {
   measurementMarks?: MeasurementMark[];
   /** 노드별 (x,y) hint. generator가 archetype-specific layout을 줄 때 명시 — renderer는 hint가 있으면 우선 사용. */
   positions?: Record<string, { x: number; y: number }>;
+  /**
+   * archetype tag — renderer가 dispatch에 사용. 예: "WIEN_BRIDGE_OSCILLATOR" → 전용 renderer.
+   * generic OPAMP 회로(반전·비반전·summing 등)는 생략.
+   */
+  archetype?: string;
 };
 
 /**

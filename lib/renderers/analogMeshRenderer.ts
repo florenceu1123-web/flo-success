@@ -5,6 +5,7 @@ import {
   renderNetlistEdgeSVG,
 } from "./netlistEdgeRenderer";
 import { hasOpAmp, renderOpAmpCircuit, validateOpAmpCircuit } from "./opampCircuitRenderer";
+import { hasWienBridgeOscillator, renderWienBridgeOscillatorCircuit } from "./wienBridgeOscillatorCircuit";
 import { hasBjt, renderBjtCircuit } from "./bjtCircuitRenderer";
 import { hasMosfet, renderMosfetBiasCircuit } from "./mosfetBiasCircuitRenderer";
 import { hasMosfetCascode, renderMosfetCascodeMirrorCircuit } from "./mosfetCascodeMirrorCircuitRenderer";
@@ -68,8 +69,13 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     return `<pre>${escapeSvg(errors.join("\n"))}</pre>`;
   }
 
-  // 0.05 OPAMP가 포함된 회로는 전용 renderer로 분리 (single OPAMP만; multi는 아래 fallback).
+  // 0.05 OPAMP가 포함된 회로 — archetype-aware dispatch.
+  //   Wien Bridge처럼 generic 6-카테고리 모델이 못 다루는 archetype은 전용 renderer로.
+  //   ❌ renderOpAmpCircuit 확장으로 해결 / ✅ archetype별 별도 renderer 추가.
   if (hasOpAmp(netlist)) {
+    if (hasWienBridgeOscillator(netlist)) {
+      return renderWienBridgeOscillatorCircuit(netlist);
+    }
     const opampErrors = validateOpAmpCircuit(netlist);
     if (opampErrors.length > 0) {
       return `<pre>${escapeSvg(opampErrors.join("\n"))}</pre>`;

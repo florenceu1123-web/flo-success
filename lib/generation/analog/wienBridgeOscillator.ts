@@ -95,6 +95,7 @@ export function generateWienBridgeOscillator(_a: AnalogAnalysis): GeneratedProbl
   //   GND ─────────────────┘
   const netlist: CircuitNetlist = {
     ground: "GND",
+    archetype: "WIEN_BRIDGE_OSCILLATOR",
     components: [
       {
         id: "U1", type: "OPAMP",
