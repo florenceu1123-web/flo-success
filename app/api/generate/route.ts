@@ -44,7 +44,7 @@ import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipel
 import { runUniversalDcPipeline } from "@/lib/pipeline/runUniversalDcPipeline";
 import { runUniversalAcPipeline } from "@/lib/pipeline/runUniversalAcPipeline";
 import { runUniversalDigitalPipeline } from "@/lib/pipeline/runUniversalDigitalPipeline";
-import { detectAnalogArchetype } from "@/lib/analysis/detectAnalogArchetype";
+import { detectOpampArchetype } from "@/lib/analysis/detectOpampArchetype";
 import { generateCircuit } from "@/lib/generation/analog/generateCircuit";
 import { randomUUID } from "node:crypto";
 import {
@@ -345,20 +345,25 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
-    } else if (circuitType === "opamp" && subjectKey === "electronics" && detectWienBridge(analysis)) {
-      log.info("dispatch", { route: "analog_archetype_dispatch", archetype: "WIEN_BRIDGE_OSCILLATOR", count: n });
-      // Analog archetype path — analysis → archetype detect → archetype-specific generator.
-      // 결정론 generator라 count > 1이면 id만 다른 사본 emit.
-      const base = generateCircuit({ family: "OPAMP", archetype: "WIEN_BRIDGE_OSCILLATOR" }) as GeneratedProblem;
-      problems = Array.from({ length: n }, () => ({ ...base, id: randomUUID() }));
     } else if (circuitType === "opamp" && subjectKey === "electronics") {
-      log.info("dispatch", { route: "opamp_pipeline", count: n, mode });
-      problems = await runOpampPipeline({
-        analysis: analysis ?? null,
-        mode: mode as GenerationMode,
-        count: n,
-        topicKey: expectedTopicKey,
-      });
+      // 정책: OPAMP family 검출 시 archetype 기반 dispatch만 허용. free generation 금지.
+      // 외부 텍스트 보강 — interpretation 외에 topic·conditions·answer·fillInTheBlanks 문장도 scoring 대상.
+      const extraText: string[] = [
+        analysis?.topic ?? "",
+        analysis?.interpretation ?? "",
+        ...(analysis?.relatedConcepts ?? []),
+        ...((analysis?.fillInTheBlanks ?? []).map((b) => b.sentence)),
+      ];
+      const archetype = detectOpampArchetype(analysis, extraText);
+      if (!archetype) {
+        throw new GenerateError(
+          "ARCHETYPE_DETECTION_FAILED: OPAMP family detected but archetype uncertain — free OPAMP generation is disabled. " +
+          "원본 이미지/문제 텍스트에 archetype을 식별할 단서가 부족합니다 (예: '반전', '비반전', '발진', '피드백', 'RC 회로망' 등).",
+        );
+      }
+      log.info("dispatch", { route: "analog_archetype_dispatch", archetype, count: n });
+      const base = generateCircuit({ family: "OPAMP", archetype }) as GeneratedProblem;
+      problems = Array.from({ length: n }, () => ({ ...base, id: randomUUID() }));
     } else if (circuitType === "opamp_time_domain" && subjectKey === "electronics") {
       log.info("dispatch", { route: "opamp_time_domain_pipeline", count: n, mode });
       problems = await runOpampTimeDomainPipeline({
@@ -593,21 +598,3 @@ function shouldUseTopologyDriven(
   return false;
 }
 
-/**
- * Wien Bridge 검출 — analyzeImage 결과에서 키워드·인벤토리로 archetype 판정.
- *   true면 분석 경로를 analog archetype dispatch로 전환.
- */
-function detectWienBridge(analysis: AnalysisResult | null | undefined): boolean {
-  if (!analysis) return false;
-  const inv = analysis.componentInventory ?? [];
-  const hasR = inv.some((c) => c.type === "R");
-  const hasC = inv.some((c) => c.type === "C");
-  const hasOpAmp = inv.some((c) => c.type === "OPAMP");
-  const text = [
-    analysis.topic ?? "",
-    analysis.interpretation ?? "",
-    (analysis.relatedConcepts ?? []).join(" "),
-  ].join(" ");
-  const archetype = detectAnalogArchetype({ text, hasR, hasC, hasOpAmp });
-  return archetype === "WIEN_BRIDGE_OSCILLATOR";
-}
