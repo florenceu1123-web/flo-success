@@ -1,4 +1,5 @@
 import type {
+  BranchRole,
   CircuitComponent,
   CircuitNetlist,
   GenerationMode,
@@ -70,13 +71,53 @@ export function buildFromTopology(args: {
   const { topology, mode, seed } = args;
   const rand = makeRand(seed);
 
+  // ── 0) Planar normalize — branch에 GND endpoint가 있으면 horizontal일 수 없음.
+  //   role을 component 종류에 맞는 vertical leg로 강제 변환. GPT의 role 오기 흡수.
+  //   동일 (role, betweenNodes 정규화, component fingerprint) branch는 dedupe.
+  const isGndLikeStr = (n: string) => n === GND || n.toLowerCase() === "ground" || n === "0";
+  const normalizedBranches = topology.branches.map((b) => {
+    if (!b.betweenNodes) return b;
+    const [a, c] = b.betweenNodes;
+    const hasGnd = isGndLikeStr(a) || isGndLikeStr(c);
+    if (!hasGnd) return b;
+    // horizontal-style role이 GND를 포함하면 → vertical leg로 normalize.
+    if (b.role === "top_rail_resistor" || b.role === "mesh_only_branch") {
+      const types = b.components.map((x) => (x.type ?? "").toUpperCase());
+      const newRole: BranchRole =
+        types.some((t) => t === "V" || t === "VS") ? "voltage_source_leg"
+        : types.some((t) => t === "I" || t === "IS") ? "current_source_leg"
+        : types.some((t) => t === "SW") ? "switching_leg"
+        : types.some((t) => ["VCCS","VCVS","CCCS","CCVS"].includes(t)) ? "dependent_source_leg"
+        : "load_leg";
+      // betweenNodes 정규화: GND는 항상 두 번째 위치.
+      const top = isGndLikeStr(a) ? c : a;
+      return { ...b, role: newRole, betweenNodes: [top, GND] as [string, string] };
+    }
+    return b;
+  });
+  const dedupedBranches: typeof normalizedBranches = [];
+  const seen = new Set<string>();
+  for (const b of normalizedBranches) {
+    if (!b.betweenNodes) {
+      dedupedBranches.push(b);
+      continue;
+    }
+    const compFp = b.components.map((c) => `${(c.type ?? "").toUpperCase()}:${c.value ?? ""}`).sort().join(",");
+    const nodesKey = [...b.betweenNodes].sort().join("|");
+    const key = `${b.role}|${nodesKey}|${compFp}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    dedupedBranches.push(b);
+  }
+  const effectiveTopology: TopologySignature = { ...topology, branches: dedupedBranches };
+
   // ── 1) branches 분류 ────────────────────────────────────
   // horizontal branches: top_rail_resistor + mesh_only_branch (top rail에 끼인 V/R 등)
   //   mesh_only_branch는 Thevenin·등가회로의 horizontal V source가 흔히 들어가는 자리.
-  const horizontalBranches = topology.branches.filter(
+  const horizontalBranches = effectiveTopology.branches.filter(
     (b) => b.role === "top_rail_resistor" || b.role === "mesh_only_branch",
   );
-  const verticalLegs = topology.branches.filter((b) => VERTICAL_LEG_ROLES.has(b.role));
+  const verticalLegs = effectiveTopology.branches.filter((b) => VERTICAL_LEG_ROLES.has(b.role));
 
   // ── 2) 노드 라벨 결정 ───────────────────────────────────
   // horizontal branches 개수 K → top node K+1개. 마지막 1개만 GND alias (ladder의
@@ -93,6 +134,16 @@ export function buildFromTopology(args: {
     }
   }
   if (verticalLegs.length === 0 && railNodes.length > 0) railNodes[0] = `${TOP_PREFIX}0`;
+
+  // ★ betweenNodes로 명시된 추가 노드 — railNodes에 병합 (parallel branch·4-mesh 지원).
+  for (const b of effectiveTopology.branches) {
+    if (!b.betweenNodes) continue;
+    for (const n of b.betweenNodes) {
+      const isGndLike = n === GND || n.toLowerCase() === "ground" || n === "0";
+      if (isGndLike) continue;
+      if (!railNodes.includes(n)) railNodes.push(n);
+    }
+  }
 
   // control ref 매핑 — "V1"·"V2" 등 leg attach node 라벨에 대응
   const controlRefMap = new Map<string, string>();
@@ -127,15 +178,35 @@ export function buildFromTopology(args: {
   // switching_leg가 만들어낸 mid 노드들 — open 상태에선 이 노드들도 nodeIds에서 제외해야 floating 방지
   const switchingLegNodes: Set<string> = new Set();
 
-  // 4a) horizontal branches — top_rail_resistor 또는 mesh_only_branch (horizontal V 등)
-  horizontalBranches.forEach((b, i) => {
-    const a = railNodes[i];
-    const c = railNodes[i + 1];
+  // 4a) horizontal branches
+  //   branch.betweenNodes가 설정되어 있으면 그 명시 노드 쌍 사용 (parallel 지원).
+  //   미설정이면 legacy 순차 배치 (railNodes[i]-railNodes[i+1]).
+  //   sequential 인덱스는 betweenNodes 없는 branch에만 부여.
+  const normalizeNode = (n: string): string => {
+    if (n === GND) return GND;
+    if (n.toLowerCase() === "ground" || n === "0") return GND;
+    return n;
+  };
+  let sequentialIdx = 0;
+  let horizCounter = 0;
+  horizontalBranches.forEach((b) => {
+    let a: string;
+    let c: string;
+    if (b.betweenNodes) {
+      a = normalizeNode(b.betweenNodes[0]);
+      c = normalizeNode(b.betweenNodes[1]);
+    } else {
+      a = railNodes[sequentialIdx];
+      c = railNodes[sequentialIdx + 1] ?? GND;
+      sequentialIdx += 1;
+    }
+    horizCounter += 1;
+    const idSuffix = `${horizCounter}`;
+    const horizBefore = components.length;
     b.components.forEach((comp, ci) => {
       const t = comp.type.toUpperCase();
       if (t === "R" && b.role === "top_rail_resistor") {
-        // 기존 R_top 명명 유지
-        const id = `R_top${i + 1}${ci > 0 ? `_${ci + 1}` : ""}`;
+        const id = `R_top${idSuffix}${ci > 0 ? `_${ci + 1}` : ""}`;
         const R = valueRand(comp.value, NICE_RESISTORS);
         usedValues[id] = R;
         components.push({
@@ -144,18 +215,26 @@ export function buildFromTopology(args: {
         });
         solverComponents.resistors.push({ id, a, b: c, R });
       } else {
-        // mesh_only_branch에 끼인 V·dep source 또는 R 외 component
-        const idBase = `${t}_horiz${i + 1}${ci > 0 ? `_${ci + 1}` : ""}`;
+        const idBase = `${t}_horiz${idSuffix}${ci > 0 ? `_${ci + 1}` : ""}`;
         addComponent(comp, idBase, a, c, valueRand, usedValues, components, solverComponents, controlRefMap, false, switchingSolverIds);
       }
     });
+    void horizBefore;
   });
 
-  // 4b) vertical legs — 순서대로 railNodes[i]에 부착, 직렬 chain은 intermediate node 생성
+  // 4b) vertical legs — branch.betweenNodes 설정되어 있으면 그 top 노드 사용, 아니면 순차 attach.
   let intermediateNodeCounter = 0;
-  verticalLegs.forEach((leg, legIdx) => {
-    const attachIdx = Math.min(legIdx, railNodes.length - 1);
-    const topNode = railNodes[attachIdx];
+  let verticalSeqIdx = 0;
+  verticalLegs.forEach((leg, idx) => {
+    let topNode: string;
+    if (leg.betweenNodes) {
+      topNode = normalizeNode(leg.betweenNodes[0]);
+    } else {
+      const attachIdx = Math.min(verticalSeqIdx, railNodes.length - 1);
+      topNode = railNodes[attachIdx];
+      verticalSeqIdx += 1;
+    }
+    const legIdx = idx; // id 명명용 — 항상 안정
     const legIsSwitching = leg.role === "switching_leg";
     const chainLength = leg.components.length;
     const componentsBeforeLeg = components.length;
@@ -182,6 +261,64 @@ export function buildFromTopology(args: {
   });
 
   // 4c) mesh_only_branch는 이제 horizontalBranches에 통합되어 4a 단계에서 처리됨.
+
+  // 4d) Dangling node 자동 처리 — GPT가 leaf component를 추출했지만 닫는 연결이 빠진 경우.
+  //   degree 1 노드를 GND로 rename → 원래 의도가 "top→GND vertical leg"였을 가능성이 높음.
+  //   solver도 일관되게 GND로 처리해 floating pin 검증 통과.
+  {
+    const degree = new Map<string, number>();
+    for (const c of components) {
+      for (const p of c.pins ?? []) {
+        if (!p.node || p.node === GND) continue;
+        degree.set(p.node, (degree.get(p.node) ?? 0) + 1);
+      }
+    }
+    const remap = new Map<string, string>();
+    for (const [node, deg] of degree) {
+      if (deg === 1) remap.set(node, GND);
+    }
+    if (remap.size > 0) {
+      // components의 pins 노드 교체
+      for (const c of components) {
+        for (const p of c.pins ?? []) {
+          if (remap.has(p.node)) p.node = remap.get(p.node)!;
+        }
+      }
+      // solver networks도 교체
+      const remapNode = (n: string) => remap.get(n) ?? n;
+      solverComponents.resistors = solverComponents.resistors.map((r) => ({ ...r, a: remapNode(r.a), b: remapNode(r.b) }));
+      solverComponents.vsources = solverComponents.vsources.map((v) => ({ ...v, a: remapNode(v.a), b: remapNode(v.b) }));
+      solverComponents.isources = solverComponents.isources.map((i) => ({ ...i, a: remapNode(i.a), b: remapNode(i.b) }));
+    }
+  }
+
+  // ── 4e) Component dedupe — 동일 (type, value, pins as set) component는 중복 제거.
+  //   GPT가 betweenNodes 없이 생성한 R_top4 + R_leg3_1 처럼 결과적으로 같은 노드 쌍 + 같은 값을 갖는 케이스.
+  //   Planar 검증: 같은 두 노드 사이 동일 element 두 개는 의미상 1개.
+  {
+    const seen = new Set<string>();
+    const kept: typeof components = [];
+    const removedIds = new Set<string>();
+    for (const c of components) {
+      const nodes = c.pins.map((p) => p.node).sort().join("|");
+      const key = `${c.type}|${c.value ?? ""}|${nodes}`;
+      if (seen.has(key)) {
+        removedIds.add(c.id);
+        continue;
+      }
+      seen.add(key);
+      kept.push(c);
+    }
+    if (removedIds.size > 0) {
+      components.splice(0, components.length, ...kept);
+      solverComponents.resistors = solverComponents.resistors.filter((r) => !removedIds.has(r.id));
+      solverComponents.vsources = solverComponents.vsources.filter((v) => !removedIds.has(v.id));
+      solverComponents.isources = solverComponents.isources.filter((i) => !removedIds.has(i.id));
+      solverComponents.vccs = solverComponents.vccs.filter((v) => !removedIds.has(v.id));
+      solverComponents.vcvs = solverComponents.vcvs.filter((v) => !removedIds.has(v.id));
+      for (const id of removedIds) delete usedValues[id];
+    }
+  }
 
   // ── 5) SolverNetwork 두 가지 (open / closed) ─────────────
   const allNodes = new Set<string>();
@@ -215,8 +352,20 @@ export function buildFromTopology(args: {
     : baseNet;
 
   // ── 6) solve ────────────────────────────────────────────
-  const solutionOpen = solveMNA(solverNetOpen);
-  const solutionClosed = hasSwitch ? solveMNA(solverNetClosed) : null;
+  //   AC pipeline 등 L/C가 있는 회로는 DC 솔버가 singular matrix 던질 수 있음.
+  //   solveMNA가 실패하면 빈 결과로 fallback해서 netlist는 사용 가능하게 함.
+  let solutionOpen: SolverResult;
+  let solutionClosed: SolverResult | null;
+  try {
+    solutionOpen = solveMNA(solverNetOpen);
+  } catch {
+    solutionOpen = { nodeVoltages: {}, vsourceCurrents: {} };
+  }
+  try {
+    solutionClosed = hasSwitch ? solveMNA(solverNetClosed) : null;
+  } catch {
+    solutionClosed = null;
+  }
 
   const branchCurrentsOpen = computeBranchCurrents(solverNetOpen, solutionOpen);
   const branchCurrentsClosed = hasSwitch && solutionClosed
@@ -239,7 +388,7 @@ export function buildFromTopology(args: {
     values: usedValues,
     hasSwitch,
     hasDependentSource: solverComponents.vccs.length + solverComponents.vcvs.length > 0,
-    isSupermesh: Boolean(topology.features.hasSupermesh) && horizontalBranches.length >= 2,
+    isSupermesh: Boolean(effectiveTopology.features.hasSupermesh) && horizontalBranches.length >= 2,
   };
 }
 
@@ -291,28 +440,36 @@ function addComponent(
   }
 
   if (t === "V" || t === "VS") {
-    const V = valueRand(comp.value, NICE_VOLTAGES);
+    const Vraw = valueRand(comp.value, NICE_VOLTAGES);
+    // 음수 값은 단자 swap으로 흡수 — 그림은 양수 + 극성 반전된 +/- 단자.
+    const flip = Vraw < 0;
+    const V = Math.abs(Vraw);
+    const [na, nb] = flip ? [b, a] : [a, b];
     usedValues[id] = V;
     components.push({
       id, type: "V", value: `${V}V`,
       pins: [
-        { id: "p1", node: a, side: "top", role: "positive" },
-        { id: "p2", node: b, side: "bottom", role: "negative" },
+        { id: "p1", node: na, side: "top", role: "positive" },
+        { id: "p2", node: nb, side: "bottom", role: "negative" },
       ],
     });
-    solver.vsources.push({ id, a, b, V });
+    solver.vsources.push({ id, a: na, b: nb, V });
     if (belongsToSwitching) switchingIds.add(id);
     return;
   }
 
   if (t === "I" || t === "IS") {
-    const I = valueRand(comp.value, NICE_CURRENTS);
+    const Iraw = valueRand(comp.value, NICE_CURRENTS);
+    // 음수 값은 단자 swap으로 흡수 — 그림은 양수 + 화살표 방향 반전.
+    const flip = Iraw < 0;
+    const I = Math.abs(Iraw);
+    const [na, nb] = flip ? [b, a] : [a, b];
     usedValues[id] = I;
     components.push({
       id, type: "I", value: `${I}A`,
-      pins: [{ id: "p1", node: a, side: "top" }, { id: "p2", node: b, side: "bottom" }],
+      pins: [{ id: "p1", node: na, side: "top" }, { id: "p2", node: nb, side: "bottom" }],
     });
-    solver.isources.push({ id, a, b, I });
+    solver.isources.push({ id, a: na, b: nb, I });
     if (belongsToSwitching) switchingIds.add(id);
     return;
   }
@@ -349,7 +506,25 @@ function addComponent(
     return;
   }
 
-  // 미지원(CCVS, CCCS, C, L 등) — MVP에선 무시. 정답은 supported 소자만으로 풀이.
+  // L · C — DC solver 미지원, 그러나 visual component로는 추가 (AC pipeline이 netlistToComplex로 사용).
+  if (t === "L") {
+    const Lraw = comp.value ?? "100mH";
+    components.push({
+      id, type: "L", value: `${Lraw}`,
+      pins: [{ id: "p1", node: a, side: "top" }, { id: "p2", node: b, side: "bottom" }],
+    });
+    return;
+  }
+  if (t === "C") {
+    const Craw = comp.value ?? "1μF";
+    components.push({
+      id, type: "C", value: `${Craw}`,
+      pins: [{ id: "p1", node: a, side: "top" }, { id: "p2", node: b, side: "bottom" }],
+    });
+    return;
+  }
+
+  // 미지원(CCVS, CCCS 등) — MVP에선 무시. 정답은 supported 소자만으로 풀이.
 }
 
 function computeBranchCurrents(net: SolverNetwork, sol: SolverResult): Record<string, number> {

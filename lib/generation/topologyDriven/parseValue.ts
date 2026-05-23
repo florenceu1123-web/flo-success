@@ -33,8 +33,10 @@ export function parseValue(raw: string | number | undefined): ParsedValue | null
     };
   }
 
-  // 2) numeric + unit suffix: "10V", "10Ω", "10Ohm", "1A", "10kΩ"
-  const unitMatch = s.match(/^(-?\d+(?:\.\d+)?)\s*([kKmMμu]?)\s*(Ω|ohm|Ohm|V|v|A|a)$/);
+  // 2) numeric + unit suffix: "10V", "10Ω", "10Ohm", "1A", "10kΩ", "100mH", "0.1μF", "10nF"
+  //    scientific notation도 지원: "1.5e-7F"
+  const numRe = "(-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)";
+  const unitMatch = s.match(new RegExp(`^${numRe}\\s*([kKmMμunp]?)\\s*(Ω|ohm|Ohm|V|v|A|a|H|h|F|f)$`));
   if (unitMatch) {
     const base = parseFloat(unitMatch[1]);
     const scale = scaleOfPrefix(unitMatch[2]);
@@ -42,8 +44,8 @@ export function parseValue(raw: string | number | undefined): ParsedValue | null
     return { numeric: base * scale, suffix };
   }
 
-  // 3) numeric 단독 ("10", "0.5")
-  const numMatch = s.match(/^-?\d+(?:\.\d+)?$/);
+  // 3) numeric 단독 ("10", "0.5", "1.5e-7")
+  const numMatch = s.match(new RegExp(`^${numRe}$`));
   if (numMatch) return { numeric: parseFloat(s) };
 
   return null;
@@ -55,6 +57,8 @@ function scaleOfPrefix(p: string): number {
     case "M": return 1e6;
     case "m": return 1e-3;
     case "μ": case "u": return 1e-6;
+    case "n": return 1e-9;
+    case "p": return 1e-12;
     default: return 1;
   }
 }
@@ -64,5 +68,7 @@ function normalizeUnit(u: string): string {
   if (lower === "ohm" || u === "Ω") return "Ω";
   if (lower === "v") return "V";
   if (lower === "a") return "A";
+  if (lower === "h") return "H";
+  if (lower === "f") return "F";
   return u;
 }
