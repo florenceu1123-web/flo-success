@@ -49,5 +49,51 @@ export function validateCircuitGraph(g: CircuitGraph): true {
       throw new Error(`face ${f.id} is not a valid closed mesh (boundary=${f.boundary.length})`);
     }
   }
+
+  // ── 전압원 +단자 ↔ GND short 검증 ────────────────────
+  //   1) +단자가 literal GND 노드
+  //   2) +단자에서 wire-only path로 GND 도달 가능
+  //   (둘 다 V 전압원을 의미 없게 만드는 short circuit)
+  //   convention: V branch의 from = + 단자, to = − 단자 (cellGridToCircuitGraph).
+  const groundIds = new Set(
+    g.nodes.filter((n) => n.kind === "ground").map((n) => n.id),
+  );
+  if (groundIds.size > 0) {
+    const wireAdj = new Map<string, Set<string>>();
+    for (const b of g.branches) {
+      if (b.element !== "wire") continue;
+      if (!wireAdj.has(b.from)) wireAdj.set(b.from, new Set());
+      if (!wireAdj.has(b.to)) wireAdj.set(b.to, new Set());
+      wireAdj.get(b.from)!.add(b.to);
+      wireAdj.get(b.to)!.add(b.from);
+    }
+    const reachableViaWire = (start: string): Set<string> => {
+      const visited = new Set<string>([start]);
+      const queue = [start];
+      while (queue.length) {
+        const n = queue.shift()!;
+        for (const nb of wireAdj.get(n) ?? []) {
+          if (visited.has(nb)) continue;
+          visited.add(nb);
+          queue.push(nb);
+        }
+      }
+      return visited;
+    };
+    for (const b of g.branches) {
+      if (b.element !== "V") continue;
+      const plusNode = b.from;
+      if (groundIds.has(plusNode)) {
+        throw new Error(`branch ${b.id}: 전압원 +단자가 GND에 직접 연결됨`);
+      }
+      const reach = reachableViaWire(plusNode);
+      for (const g of groundIds) {
+        if (reach.has(g)) {
+          throw new Error(`branch ${b.id}: 전압원 +단자(${plusNode})와 GND(${g}) 사이에 wire-only short 발생`);
+        }
+      }
+    }
+  }
+
   return true;
 }

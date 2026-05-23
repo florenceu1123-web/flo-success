@@ -9,6 +9,9 @@ import { writeUniversalDcText } from "@/lib/generation/topologies/universalDcTex
 import { buildContextHint, generateInParallel } from "./_common";
 import { solveMNA, type SolverNetwork } from "@/lib/solver/mna";
 import { verifyWithSpice } from "@/lib/verification/verifyWithSpice";
+import { buildCircuitGraph } from "@/lib/graph/buildCircuitGraph";
+import { validateCircuitGraph } from "@/lib/graph/validateCircuitGraph";
+import { detectCrossPattern } from "@/lib/renderers/crossLayoutCircuitRenderer";
 import {
   TOPIC_LABEL,
   type AnalysisResult,
@@ -52,6 +55,16 @@ export async function runUniversalDcPipeline(args: {
     count: rawQueries.length,
     kinds: rawQueries.map((q) => q.kind).join(", "),
     labels: rawQueries.map((q) => q.label).join(" | "),
+  });
+  // 진단: 분석이 추출한 branches 구조 — node 압축·dangling remap 확인용.
+  log.info("topology_branches", {
+    branchCount: baseTopology.branches.length,
+    branches: baseTopology.branches.map((b) => ({
+      role: b.role,
+      between: b.betweenNodes ? b.betweenNodes.join("→") : "(auto)",
+      comps: b.components.map((c) => `${c.type}${c.value ? "=" + c.value : ""}`).join("+"),
+    })),
+    nodeAnnotations: (analysis.nodeAnnotations ?? []).map((a) => `${a.node}:${a.label ?? "(no label)"}`),
   });
 
   // ── Polarity variation enumeration — analysis가 GPT-Vision으로부터 V/I 소스의 극성
@@ -153,6 +166,19 @@ export async function runUniversalDcPipeline(args: {
     }
     // analysis에서 받은 loadPlaceholders는 보라색 dashed box로 그려져 중복 표기 → 제거.
     gen.netlistOpen.loadPlaceholders = [];
+
+    // ── Layout-level validation — cross-layout이 적용될 회로는 graph 검증으로 단락 회로 reject.
+    //   V 전압원 +단자가 wire-only path로 GND와 단락되는 layout은 의미 있는 문제가 안 되므로
+    //   문제 생성 이전에 throw (API 500 → 사용자가 즉시 인지).
+    if (detectCrossPattern(gen.netlistOpen)) {
+      try {
+        const cg = buildCircuitGraph(gen.netlistOpen);
+        validateCircuitGraph(cg);
+      } catch (e) {
+        log.error("layout_validation_failed", { message: (e as Error).message });
+        throw new Error(`회로 layout 단락 검증 실패: ${(e as Error).message}`);
+      }
+    }
 
     // PSPICE 교차 검증 (fire-and-forget) — ngspice 미설치 시 silent skip.
     //   variable R 값은 hide("R")됐지만 solver net에는 perturbed numeric 보존됨.
