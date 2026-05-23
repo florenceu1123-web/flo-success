@@ -237,22 +237,51 @@ export function classifyCircuitType(
     ].join(" ");
 
     // ★ Universal digital — N-변수 M-함수 K-map 결합 (임용 8번 형식 등).
-    //   트리거: 4+ 변수(A,B,C,D 등) OR f_숫자 패턴 2+ OR Σm(...) 표기 + K-map 키워드.
-    //   기존 archetype(combinational_gate 3-var 2-out 등)에 안 맞는 N-var/M-func 케이스 흡수.
+    //   기존 combinational_gate(3-var 2-out)에 안 맞는 N-var/M-func 케이스 흡수.
+    //   트리거 (OR — 어느 하나라도 매치하면 universal_digital):
+    //     · 4+ 입력 변수 (signals.inputs.length ≥ 4)
+    //     · 명시적 f_숫자 패턴 2개 이상
+    //     · Σm(...) 표기
+    //     · "여러 함수"·"각 함수"·"함수들"·"다수 함수" 같은 multi-function 키워드 + K-map
+    //     · 출력 시그널 1개(Z 등 단일 통합 출력) + K-map + "결합"·"합" 키워드
     const inputsAll = analysis.signals?.inputs ?? [];
+    const outputsAll = analysis.signals?.outputs ?? [];
     const has4PlusVars = inputsAll.length >= 4;
     const fSubscriptMatches = text.match(/f[_]?[1-9]/gi) ?? [];
     const distinctFCount = new Set(fSubscriptMatches.map((s) => (s.match(/(\d)/) ?? ["", ""])[1])).size;
     const hasMultiFunctions = distinctFCount >= 2;
     const sigmaMintermKw = /Σ\s*m\s*\(|sum\s+of\s+minterms|최소항의\s*합/i.test(text);
     const kmapKw = matchesKeyword(text, ["k-map", "kmap", "카르노", "karnaugh"]);
-    if ((has4PlusVars && (hasMultiFunctions || sigmaMintermKw)) ||
-        (hasMultiFunctions && kmapKw && sigmaMintermKw)) {
+    const multiFuncKw = matchesKeyword(text, [
+      "여러 함수", "여러개의 함수", "여러개 함수", "각 함수", "함수들", "다수 함수", "다수의 함수",
+      "여러 boolean", "각 boolean", "복수 함수", "복수 boolean",
+      "4개의 boolean", "여러 개의 부울", "여러 부울 함수", "각 부울 함수",
+      "4개의 함수", "4개 함수", "f_1", "f_2", "f1", "f2",
+    ]);
+    const combineKw = matchesKeyword(text, [
+      "결합", "결합하여", "통합", "OR로", "or로", "합 형태", "합의 형태",
+      "통합 회로", "통합회로", "최종 출력",
+    ]);
+    const singleZOutput = outputsAll.length === 1 && /^Z$|^z$|^F$|^Y$/i.test(outputsAll[0] ?? "");
+
+    if (
+      has4PlusVars ||
+      hasMultiFunctions ||
+      sigmaMintermKw ||
+      (multiFuncKw && kmapKw) ||
+      (singleZOutput && kmapKw && combineKw)
+    ) {
+      const triggered: string[] = [];
+      if (has4PlusVars) triggered.push(`N=${inputsAll.length}≥4`);
+      if (hasMultiFunctions) triggered.push(`M=${distinctFCount}≥2`);
+      if (sigmaMintermKw) triggered.push("Σm");
+      if (multiFuncKw && kmapKw) triggered.push("multi-func kw + kmap");
+      if (singleZOutput && kmapKw && combineKw) triggered.push("single Z + kmap + 결합");
       return {
         type: "universal_digital",
         params: {},
         confidence: "high",
-        reasoning: `digital + N-var(${inputsAll.length}) + M-func(${distinctFCount}) ${sigmaMintermKw ? "+ Σm" : ""} → universal_digital path`,
+        reasoning: `digital N-var/M-func — ${triggered.join(", ")} → universal_digital path`,
       };
     }
     // FF + 파형 + (선택)비동기 RESET — 임용 8번 형식 (waveform_analysis보다 우선).
