@@ -13,6 +13,7 @@ import { buildCircuitGraph } from "@/lib/graph/buildCircuitGraph";
 import { validateCircuitGraph } from "@/lib/graph/validateCircuitGraph";
 import { detectCrossPattern } from "@/lib/renderers/crossLayoutCircuitRenderer";
 import { detectFourNodeImyong } from "@/lib/renderers/fourNodeImyongRenderer";
+import { validateFigures } from "@/lib/validators/validateFigures";
 import {
   TOPIC_LABEL,
   type AnalysisResult,
@@ -217,6 +218,21 @@ export async function runUniversalDcPipeline(args: {
         diagram: gen.netlistOpen,
       },
     ];
+
+    // ── Figure-level critical validation — dangling node·floating pin은 그림으로 출력
+    //   할 가치 없음. 문제 생성 이전에 throw하여 잘못된 회로가 사용자에게 노출되지 않도록.
+    const figureVerdict = validateFigures(figureVariants);
+    const criticalRules = new Set(["netlist_dangling_node", "analog_circuit_open"]);
+    const criticalIssues = figureVerdict.issues.filter((iss) => criticalRules.has(iss.rule));
+    if (criticalIssues.length > 0) {
+      log.error("figure_critical_validation_failed", {
+        count: criticalIssues.length,
+        messages: criticalIssues.map((iss) => iss.message),
+      });
+      throw new Error(
+        `figure 검증 실패: ${criticalIssues.map((iss) => `[${iss.rule}] ${iss.message}`).join(" / ")}`,
+      );
+    }
 
     return {
       id: randomUUID(),
