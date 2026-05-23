@@ -457,6 +457,41 @@ function buildPrompt(subject: SubjectKey): string {
 - relatedConcepts에 "AND·OR·NOT" 같은 일반 단어만 적고 "멀티플렉서"·"선택선" 단어 누락
 - (나) 두 번째 figure를 누락하고 단일 figure로 처리
 
+【★ 절대 규칙: dangling node 금지 — node degree ≥ 2】
+topologySignature.branches에서 ★ 모든 non-GND node id는 최소 2개의 branch에 등장해야 한다 ★.
+한 component(branch)에만 등장하는 node는 floating pin이고, validator가 "netlist_dangling_node" /
+"analog_circuit_open" rule로 reject한다. 회로 figure가 생성되지 않고 사용자에게 노출되지 않는다.
+
+흔한 실수 케이스 — top rail 끝의 "R 한 개만 + 나머지는 vertical R":
+  원본 회로: top rail에 V_1 → 20Ω → V_3 → 10Ω → (단자 끝, 그 아래로 R_load 10Ω이 GND로)
+                                              ↘ V_3에서 GND로 가는 10Ω
+
+  GPT가 자주 잘못 추출하는 케이스 ✗:
+    branches = [
+      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["n_v1","n_v3"] },
+      { role:"top_rail_resistor", components:[{type:"R",value:"10Ω"}], betweenNodes:["n_v3","n_right"] },  ← n_right phantom
+      { role:"load_leg",          components:[{type:"R",value:"10Ω"}], betweenNodes:["n_v3","GND"] }       ← V_3 → GND 실제 R
+    ]
+    문제점: n_right는 어디에도 다른 연결이 없음(degree=1). 같은 10Ω을 두 번 추출한 셈.
+    원본에 단자 a-b 같은 측정점이 명시되어 있지 않으면 n_right 자체가 phantom이다.
+
+  올바른 추출 ✓:
+    branches = [
+      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["n_v1","n_v3"] },
+      { role:"load_leg",          components:[{type:"R",value:"10Ω"}], betweenNodes:["n_v3","GND"] }
+      // top rail 끝의 horizontal "10Ω"은 사실 V_3에서 GND로 떨어지는 vertical R과 같은 컴포넌트.
+      // ㄱ-자로 꺾여서 그려졌을 뿐. branches에서는 하나의 load_leg로만 표기.
+    ]
+
+판별 핵심:
+  · top rail 가장 오른쪽 R 다음에 단자 a/b 같은 ●표시·라벨이 있다 → 단자 노드(n_right)는 정당.
+    nodeAnnotations에 {node:"n_right",label:"a",style:"terminal_dot"} 추가.
+  · 그런 표시 없이 horizontal R이 끝나고 바로 vertical R이 GND로 떨어진다 → ㄱ-자로 같은 R.
+    horizontal top_rail_resistor를 만들지 말고 load_leg 하나로만.
+
+이 규칙은 좌측 끝(n_left 방향)에도 동일 적용. V 소스가 vertical leg면 n_left는 V leg에 묶이지만,
+끝 column에 ▷ vertical leg가 없으면 ▷ horizontal R도 만들지 말 것.
+
 【circuit_theory Multi-step DC + 가변 R — 절대 추출 규칙】
 회로에 (a) DC 전원(V·I)이 있고 (b) C/L이 없으며 (c) 다음 중 하나가 있으면 "Multi-step DC + 가변 R" 형식이다:
 - 회로에 가변 R 표시(점선 박스 또는 "R"만 단독 라벨된 vertical R)
@@ -517,6 +552,9 @@ function buildPrompt(subject: SubjectKey): string {
 - "0.5A" 전류원을 vertical source_leg로 추출 (원본이 horizontal mesh_only_branch면)
 - 다단계 step이 있는데 fillInTheBlanks에 [단계 N] 라벨 누락
 - C/L 없는 순수 DC인데 topicKey를 transient_rc·rlc_response 같은 걸로 잘못 지정
+- ★ V_3 우측 끝의 10Ω을 horizontal top_rail_resistor + 별도 vertical load_leg로 이중 추출:
+  같은 컴포넌트(ㄱ-자로 꺾여 vertical로 GND에 떨어지는 R)를 한 번만 추출. n_right 같은
+  단자 라벨이 명시된 게 아니면 phantom 노드 만들지 말 것. (dangling node 금지 규칙)
 
 【topologySignature.branches.betweenNodes — 4-mesh 이상 회로 정확 재현용】
 회로의 mesh 개수가 3개 이상이거나 평행 branch가 있으면 **반드시 betweenNodes 필드 명시**.
