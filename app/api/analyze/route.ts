@@ -38,8 +38,25 @@ export async function POST(req: NextRequest) {
     // ★ Reconciliation — inventory와 topologySignature.branches가 불일치하면 branches 보강.
     //   GPT가 한 branch에 multi-component 직렬로 압축하거나 horizontal V·multiple sources를
     //   누락하는 케이스. inventory는 component 수가 정확하지만 branches는 압축됨.
-    //   해결: inventory에 있는데 branches에 없는 component type을 추가 branches로 emit.
     const reconciled = reconcileBranches(withInventory, inventory);
+
+    // ★ Structural signature 엄격 검증 — count mismatch는 분석 실패로 reject.
+    //   reconciliation이 betweenNodes 없이 누락 component를 추가하므로 위치가 부정확해
+    //   잘못된 회로가 생성될 위험. 명확한 에러로 사용자에게 알리고 재분석 유도.
+    const verdict = verifyInventoryConsistency(reconciled, inventory);
+    if (!verdict.ok) {
+      log.warn("inventory_consistency_failed", verdict);
+      return NextResponse.json(
+        {
+          error:
+            `분석 결과의 component 카운트가 일치하지 않습니다 (component 일부 누락 가능). ` +
+            `Inventory: ${JSON.stringify(verdict.inventory)} / Branches: ${JSON.stringify(verdict.branches)}. ` +
+            `이미지를 다시 업로드해 재분석을 시도해 주세요.`,
+          inventoryMismatch: verdict,
+        },
+        { status: 502 },
+      );
+    }
 
     // circuit_type 분류 — 추가 GPT 호출 없이 derive
     const circuitType = classifyCircuitType(reconciled, subject as SubjectKey);
@@ -180,6 +197,42 @@ function reconcileBranches(
     final: newTopology.branches.length,
   });
   return { ...analysis, topologySignature: newTopology };
+}
+
+/**
+ * Inventory ↔ branches 일치 검증. 핵심 component type(R, V, I)이 inventory에서
+ * 더 많이 카운트됐는데 branches에 부족하면 fail. reconciliation 이후에도
+ * mismatch가 남아 있으면 분석 자체가 component를 놓친 것으로 판단.
+ */
+function verifyInventoryConsistency(
+  analysis: AnalysisResult,
+  inventory: ComponentInventoryItem[],
+): { ok: boolean; inventory: Record<string, number>; branches: Record<string, number>; missing: Record<string, number> } {
+  const invCount: Record<string, number> = {};
+  for (const item of inventory) {
+    const t = item.type.toUpperCase();
+    invCount[t] = (invCount[t] ?? 0) + 1;
+  }
+  const brCount: Record<string, number> = {};
+  for (const b of analysis.topologySignature?.branches ?? []) {
+    for (const c of b.components ?? []) {
+      const t = c.type.toUpperCase();
+      brCount[t] = (brCount[t] ?? 0) + 1;
+    }
+  }
+  const missing: Record<string, number> = {};
+  const checkTypes = ["R", "V", "I", "C", "L", "SW"];
+  for (const t of checkTypes) {
+    const inv = invCount[t] ?? 0;
+    const br = brCount[t] ?? 0;
+    if (inv > br) missing[t] = inv - br;
+  }
+  return {
+    ok: Object.keys(missing).length === 0,
+    inventory: invCount,
+    branches: brCount,
+    missing,
+  };
 }
 
 function inferRoleForType(type: string): string {
