@@ -776,6 +776,15 @@ export type NodeAnnotation = {
   node: string;
   label: string;
   style?: "terminal_dot" | "label_only";
+  /**
+   * Semantic role — pattern detector·layout template이 이름 무관하게 노드를
+   * 식별할 수 있도록 부여. 가능하면 모든 semantic node에 role 부여.
+   *   source_plus    : V/I 소스의 +단자 (예: V_s가 GND 외에 연결되는 top node)
+   *   main_unknown   : 주 측정 노드 (가변 R / R_L이 매달린 top node)
+   *   right_unknown  : 보조 측정 노드 (고정 load R이 매달린 top node)
+   *   ground         : GND
+   */
+  role?: "source_plus" | "main_unknown" | "right_unknown" | "ground";
 };
 
 /** 회로에 비어 있는 위치 — 학생이 채울 부하 (R_L), 빈 가지 등 */

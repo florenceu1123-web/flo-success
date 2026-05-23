@@ -148,15 +148,23 @@ function buildAnalysisSchema(subject: SubjectKey): Record<string, unknown> {
         anyOf: [
           {
             type: "array",
-            description: "단자 라벨(a/b/x/y 등). 발견되면 entry, 없으면 빈 배열.",
+            description:
+              "단자 라벨(a/b/x/y 등). 발견되면 entry, 없으면 빈 배열. role은 가능하면 부여 " +
+              "(source_plus | main_unknown | right_unknown | ground) — pattern detector가 이름 무관하게 매칭.",
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["node", "label", "style"],
+              required: ["node", "label", "style", "role"],
               properties: {
                 node: { type: "string" },
                 label: { type: "string" },
                 style: { type: "string", enum: ["terminal_dot", "label_only"] },
+                role: {
+                  anyOf: [
+                    { type: "string", enum: ["source_plus", "main_unknown", "right_unknown", "ground"] },
+                    { type: "null" },
+                  ],
+                },
               },
             },
           },
@@ -457,75 +465,61 @@ function buildPrompt(subject: SubjectKey): string {
 - relatedConcepts에 "AND·OR·NOT" 같은 일반 단어만 적고 "멀티플렉서"·"선택선" 단어 누락
 - (나) 두 번째 figure를 누락하고 단일 figure로 처리
 
-【★ 절대 규칙: semantic node만 추출 — 4 노드 한계】
-topologySignature.branches의 모든 node id는 ★ semantic node ★ 여야 한다. semantic node = 다음 중 하나:
-  (a) GND
-  (b) V/I 소스의 단자 (예: VS_PLUS)
-  (c) 회로 figure에 명시 라벨된 측정 노드 (V_1, V_2, V_3, V_o, V_x, a, b 등 — nodeAnnotations에 entry)
+【★ 절대 규칙: semantic node = role-based 식별】
+topologySignature.branches의 모든 node id는 ★ semantic role을 가지는 노드 ★ 여야 한다.
+
+semantic role (정확히 4가지):
+  - ground:        GND 노드. 회로의 0V 기준.
+  - source_plus:   V/I 소스의 비-GND 단자 (V의 +단자 / I의 입력측).
+  - main_unknown:  주 측정 노드. 가변 R 또는 R_L(부하 placeholder)이 매달려 학생이 풀어야 할 핵심 노드.
+  - right_unknown: 보조 측정 노드. 고정 R load가 매달리거나 또 다른 측정 라벨이 있는 노드.
 
 ★ 절대 만들지 말 것 ★:
-  - 분기점/junction routing을 위한 임시 노드 (예: n_mid, n_junction, anonymous)
-  - 같은 두 semantic node 사이의 직렬 R chain을 위한 중간 노드
-  - 두 horizontal R이 연결되어 보여도 그 사이에 라벨이 없으면 별도 node 만들지 말 것
+  - 위 4 role 중 어느 것에도 해당하지 않는 노드 (junction/intermediate/anonymous)
+  - 같은 두 role 노드 사이의 직렬 chain을 위한 중간 노드
+  - 두 horizontal R이 연결되어 보여도 그 사이가 어떤 role도 아니면 별도 node 만들지 말 것
+    → 같은 두 role 노드 사이 1개 R로 통합 (값이 다르면 직렬 합산 또는 평행 합산은 회로해석상 부적절,
+       이 경우 분석이 모호한 거니 주의)
 
 bend point·lane point·virtual point 같은 routing artifact는 ★ 분석 결과에 포함되지 않는다 ★.
-이런 시각적 분기점은 renderer가 layout 시 별도로 처리.
+시각적 분기점은 renderer가 layout 시 별도로 처리.
 
-예 — imyong 10번 형식 (semantic node 4개 한계):
-  semantic nodes: { VS_PLUS, V_1, V_3, GND }  (V_2 라벨이 없으면 V_2 노드 만들지 말 것)
-  branches 모두 위 4 노드 중 두 개를 잇는 형태로만 추출:
-    voltage_source_leg V=20V: VS_PLUS → GND
-    top_rail_resistor R=20Ω: VS_PLUS → V_1   (V·+에서 V_1로 직접)
-    top_rail_resistor R=10Ω: V_1 → V_3       (V_1에서 V_3로 직접, 중간 junction 없음!)
-    mesh_only_branch I=0.5A: V_1 → V_3       (R과 평행 — 같은 두 노드 사이)
-    load_leg R=R(가변): V_1 → GND
-    load_leg R=10Ω: V_3 → GND
+role 부여 방법 — 각 추출한 node에 대해 nodeAnnotations에 role 명시:
+  [
+    { node: "<id_a>", label: "<원본 라벨 또는 V_s>", style: "label_only", role: "source_plus" },
+    { node: "<id_b>", label: "<원본 라벨>",          style: "label_only", role: "main_unknown" },
+    { node: "<id_c>", label: "<원본 라벨>",          style: "label_only", role: "right_unknown" },
+    { node: "GND",    label: "GND",                  style: "label_only", role: "ground" }
+  ]
 
-흔한 잘못된 추출 ✗:
-  top_rail R 20Ω: VS_PLUS → n_v1
-  top_rail R 20Ω: n_v1 → n_mid        ← n_mid는 phantom junction
-  mesh_only I 0.5A: n_v1 → n_mid       ← n_mid 라벨 없는데 별도 노드
-  top_rail R 10Ω: n_mid → V_3
-  → n_mid가 nodeAnnotations에 없으면 semantic이 아니라 routing artifact.
-    이걸 별도 노드로 추출하면 안 된다. 위 예처럼 V_1↔V_3 사이 한 R + 한 I로 통합.
+표준 형식 — 2-node Nodal DC (가장 흔한 universal_dc 케이스):
+  semantic node 정확히 4개 + role 모두 부여.
+  branches:
+    V (source):       source_plus ↔ ground
+    R_VAR (가변):     main_unknown ↔ ground
+    R (load):         right_unknown ↔ ground
+    parallel(R + I):  main_unknown ↔ right_unknown
+    R (top):          source_plus ↔ main_unknown (≥ 1개)
 
-판별 기준: 회로 figure에 V_2 같은 명시 라벨이 보이지 않으면 그 위치는 semantic node가 아니다.
-horizontal R 두 개가 직렬로 보여도 그 사이에 라벨이 없으면 ★ 같은 두 semantic node 사이 한 R ★로 합쳐 추출.
+판별 기준: figure에서 명시 라벨(V_1·V_2·V_3·V_o·a·b 등)이 보이는 위치 + V 소스 +단자만 semantic.
+horizontal R 두 개가 직렬로 보여도 그 사이가 어떤 role도 부여할 만한 회로상 특징이 없으면
+같은 두 role 노드 사이 1개 R로 통합 추출.
 
 【★ 절대 규칙: dangling node 금지 — node degree ≥ 2】
-topologySignature.branches에서 ★ 모든 non-GND node id는 최소 2개의 branch에 등장해야 한다 ★.
+topologySignature.branches에서 ★ 모든 non-ground node id는 최소 2개의 branch에 등장해야 한다 ★.
 한 component(branch)에만 등장하는 node는 floating pin이고, validator가 "netlist_dangling_node" /
 "analog_circuit_open" rule로 reject한다. 회로 figure가 생성되지 않고 사용자에게 노출되지 않는다.
 
-흔한 실수 케이스 — top rail 끝의 "R 한 개만 + 나머지는 vertical R":
-  원본 회로: top rail에 V_1 → 20Ω → V_3 → 10Ω → (단자 끝, 그 아래로 R_load 10Ω이 GND로)
-                                              ↘ V_3에서 GND로 가는 10Ω
+이 규칙은 위 "semantic role" 규칙의 따름정리:
+  - 모든 node는 4 role 중 하나여야 한다 → role 있는 노드는 자연히 회로에 묶여 degree ≥ 2.
+  - role도 없고 degree=1인 노드는 phantom — 추출 자체가 잘못.
 
-  GPT가 자주 잘못 추출하는 케이스 ✗:
-    branches = [
-      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["n_v1","n_v3"] },
-      { role:"top_rail_resistor", components:[{type:"R",value:"10Ω"}], betweenNodes:["n_v3","n_right"] },  ← n_right phantom
-      { role:"load_leg",          components:[{type:"R",value:"10Ω"}], betweenNodes:["n_v3","GND"] }       ← V_3 → GND 실제 R
-    ]
-    문제점: n_right는 어디에도 다른 연결이 없음(degree=1). 같은 10Ω을 두 번 추출한 셈.
-    원본에 단자 a-b 같은 측정점이 명시되어 있지 않으면 n_right 자체가 phantom이다.
+판별 핵심 (role 우선, 단자 표시 부차):
+  · 단자 a/b 같은 ●표시·라벨이 있다 → role="right_unknown" 등 부여 가능. 정당한 측정 노드.
+  · 표시 없이 끝 column에 R 하나만 있고 그 아래 vertical R이 GND로 떨어진다 → ㄱ-자 R 하나.
+    horizontal과 vertical을 별도 branch로 추출하지 말고 load_leg 하나만.
 
-  올바른 추출 ✓:
-    branches = [
-      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["n_v1","n_v3"] },
-      { role:"load_leg",          components:[{type:"R",value:"10Ω"}], betweenNodes:["n_v3","GND"] }
-      // top rail 끝의 horizontal "10Ω"은 사실 V_3에서 GND로 떨어지는 vertical R과 같은 컴포넌트.
-      // ㄱ-자로 꺾여서 그려졌을 뿐. branches에서는 하나의 load_leg로만 표기.
-    ]
-
-판별 핵심:
-  · top rail 가장 오른쪽 R 다음에 단자 a/b 같은 ●표시·라벨이 있다 → 단자 노드(n_right)는 정당.
-    nodeAnnotations에 {node:"n_right",label:"a",style:"terminal_dot"} 추가.
-  · 그런 표시 없이 horizontal R이 끝나고 바로 vertical R이 GND로 떨어진다 → ㄱ-자로 같은 R.
-    horizontal top_rail_resistor를 만들지 말고 load_leg 하나로만.
-
-이 규칙은 좌측 끝(n_left 방향)에도 동일 적용. V 소스가 vertical leg면 n_left는 V leg에 묶이지만,
-끝 column에 ▷ vertical leg가 없으면 ▷ horizontal R도 만들지 말 것.
+좌·우 모든 끝 column에 동일 적용. role 부여 불가능한 노드 = phantom = 만들지 말 것.
 
 【circuit_theory Multi-step DC + 가변 R — 절대 추출 규칙】
 회로에 (a) DC 전원(V·I)이 있고 (b) C/L이 없으며 (c) 다음 중 하나가 있으면 "Multi-step DC + 가변 R" 형식이다:
@@ -557,27 +551,30 @@ topologySignature.branches에서 ★ 모든 non-GND node id는 최소 2개의 br
   20V 수직 전압원이 top rail 좌측 끝
   0.5A 수평 전류원이 (중간)→V_3 방향으로 top rail에 끼어있음
 
-→ 올바른 topologySignature.branches:
+→ 올바른 topologySignature.branches (role-based, ★ node id는 회로별로 달라도 됨, role이 본질 ★):
+  node ids 예: n_a(source_plus), n_b(main_unknown), n_c(right_unknown), GND.
   [
-    { "role":"top_rail_resistor", "components":[{"type":"R","value":"20Ω"}] },
-    { "role":"top_rail_resistor", "components":[{"type":"R","value":"20Ω"}] },
-    { "role":"mesh_only_branch",  "components":[{"type":"I","value":"0.5A"}] },
-    { "role":"top_rail_resistor", "components":[{"type":"R","value":"10Ω"}] },
-    { "role":"voltage_source_leg","components":[{"type":"V","value":"20V"}] },
-    { "role":"load_leg",          "components":[{"type":"R","value":"R"}] },
-    { "role":"load_leg",          "components":[{"type":"R","value":"10Ω"}] }
+    { "role":"top_rail_resistor", "components":[{"type":"R","value":"20Ω"}], "betweenNodes":["n_a","n_b"] },
+    { "role":"top_rail_resistor", "components":[{"type":"R","value":"10Ω"}], "betweenNodes":["n_b","n_c"] },
+    { "role":"mesh_only_branch",  "components":[{"type":"I","value":"0.5A"}], "betweenNodes":["n_b","n_c"] },
+    { "role":"voltage_source_leg","components":[{"type":"V","value":"20V"}], "betweenNodes":["n_a","GND"] },
+    { "role":"load_leg",          "components":[{"type":"R","value":"R"}],   "betweenNodes":["n_b","GND"] },
+    { "role":"load_leg",          "components":[{"type":"R","value":"10Ω"}], "betweenNodes":["n_c","GND"] }
   ]
-  features: { hasGround:true, hasMesh:true, meshCount:2 }
+  features: { hasGround:true, hasMesh:true, meshCount:3 }
 
-→ 올바른 nodeAnnotations:
+→ 올바른 nodeAnnotations (★ role 부여 필수 ★):
   [
-    { "node":"V_1_node", "label":"V_1", "style":"label_only" },
-    { "node":"V_3_node", "label":"V_3", "style":"label_only" }
+    { "node":"n_a", "label":"V_s",  "style":"label_only", "role":"source_plus" },
+    { "node":"n_b", "label":"V_1",  "style":"label_only", "role":"main_unknown" },
+    { "node":"n_c", "label":"V_3",  "style":"label_only", "role":"right_unknown" },
+    { "node":"GND", "label":"GND",  "style":"label_only", "role":"ground" }
   ]
-  (실제 node id 컨벤션은 회로별로 다를 수 있음 — 단, label은 반드시 "V_1"·"V_3" 정확 표기)
+  - label은 원본 figure에 보이는 그대로 (V_1, V_3 등 sparse 명명 OK).
+  - role은 회로 구조상의 역할(★ 라벨과 무관 ★).
 
 → 올바른 loadPlaceholders:
-  [{ "betweenNodes":["V_1_node","GND"], "label":"R", "emphasize":true }]
+  [{ "betweenNodes":["n_b","GND"], "label":"R", "emphasize":true }]
 
 → interpretation 예: "20V 직류 전원과 0.5A 전류원, 5개 저항(가변 R 포함)이 있는 회로. [단계 1] R=10Ω일 때 V_1·V_3 도출. [단계 2] 소비 전력 P_total. [단계 3] V_3=3.8V 되도록 R 조정 → R 값과 V_1."
 
