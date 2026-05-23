@@ -44,6 +44,9 @@ import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipel
 import { runUniversalDcPipeline } from "@/lib/pipeline/runUniversalDcPipeline";
 import { runUniversalAcPipeline } from "@/lib/pipeline/runUniversalAcPipeline";
 import { runUniversalDigitalPipeline } from "@/lib/pipeline/runUniversalDigitalPipeline";
+import { detectAnalogArchetype } from "@/lib/analysis/detectAnalogArchetype";
+import { generateCircuit } from "@/lib/generation/analog/generateCircuit";
+import { randomUUID } from "node:crypto";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -342,6 +345,12 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (circuitType === "opamp" && subjectKey === "electronics" && detectWienBridge(analysis)) {
+      log.info("dispatch", { route: "analog_archetype_dispatch", archetype: "WIEN_BRIDGE_OSCILLATOR", count: n });
+      // Analog archetype path — analysis → archetype detect → archetype-specific generator.
+      // 결정론 generator라 count > 1이면 id만 다른 사본 emit.
+      const base = generateCircuit({ family: "OPAMP", archetype: "WIEN_BRIDGE_OSCILLATOR" }) as GeneratedProblem;
+      problems = Array.from({ length: n }, () => ({ ...base, id: randomUUID() }));
     } else if (circuitType === "opamp" && subjectKey === "electronics") {
       log.info("dispatch", { route: "opamp_pipeline", count: n, mode });
       problems = await runOpampPipeline({
@@ -582,4 +591,23 @@ function shouldUseTopologyDriven(
   //   못 재현 → 원본 구조 손실. topology-driven으로 generic 재구성.
   if (inventoryCount >= 7) return true;
   return false;
+}
+
+/**
+ * Wien Bridge 검출 — analyzeImage 결과에서 키워드·인벤토리로 archetype 판정.
+ *   true면 분석 경로를 analog archetype dispatch로 전환.
+ */
+function detectWienBridge(analysis: AnalysisResult | null | undefined): boolean {
+  if (!analysis) return false;
+  const inv = analysis.componentInventory ?? [];
+  const hasR = inv.some((c) => c.type === "R");
+  const hasC = inv.some((c) => c.type === "C");
+  const hasOpAmp = inv.some((c) => c.type === "OPAMP");
+  const text = [
+    analysis.topic ?? "",
+    analysis.interpretation ?? "",
+    (analysis.relatedConcepts ?? []).join(" "),
+  ].join(" ");
+  const archetype = detectAnalogArchetype({ text, hasR, hasC, hasOpAmp });
+  return archetype === "WIEN_BRIDGE_OSCILLATOR";
 }

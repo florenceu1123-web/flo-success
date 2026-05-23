@@ -4,6 +4,7 @@
 // archetype enum은 lib/analog/archetypeRegistry.ts에서 단일 소스로 관리.
 
 import type { AnalogArchetype } from "@/lib/analog/archetypeRegistry";
+import { generateWienBridgeOscillator } from "./wienBridgeOscillator";
 
 export type AnalogAnalysis = {
   family: "OPAMP";
@@ -40,11 +41,8 @@ export function generateCircuit(a: AnalogAnalysis) {
 }
 
 // ── Generator stubs ──────────────────────────────────────────────────
-// 실제 구현은 archetype별 별도 파일로 채워질 예정.
-
-function generateWienBridgeOscillator(_a: AnalogAnalysis): unknown {
-  throw new Error("NOT_IMPLEMENTED: generateWienBridgeOscillator");
-}
+// WIEN_BRIDGE_OSCILLATOR는 wienBridgeOscillator.ts에서 import.
+// 나머지는 archetype별 별도 파일로 채워질 예정.
 
 function generateRCPhaseShiftOscillator(_a: AnalogAnalysis): unknown {
   throw new Error("NOT_IMPLEMENTED: generateRCPhaseShiftOscillator");
