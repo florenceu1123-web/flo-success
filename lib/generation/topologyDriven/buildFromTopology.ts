@@ -255,7 +255,11 @@ export function buildFromTopology(args: {
   // 4d) Dangling node 자동 처리 — GPT가 leaf component를 추출했지만 닫는 연결이 빠진 경우.
   //   degree 1 노드를 GND로 rename → 원래 의도가 "top→GND vertical leg"였을 가능성이 높음.
   //   solver도 일관되게 GND로 처리해 floating pin 검증 통과.
-  {
+  //   ★ 단, 입력 branches가 모두 명시적 betweenNodes를 가졌으면 사용자가 의도한 topology이므로
+  //     remap 비활성 — n_right처럼 끝 column이 정상적으로 degree=1인 케이스를 보존해야 함.
+  //     remap 결과 발생할 component 중복(R_top4 + R_leg3_1)으로 시각적 overlap 발생 방지.
+  const allHaveBetweenNodes = effectiveTopology.branches.every((b) => Array.isArray(b.betweenNodes) && b.betweenNodes.length === 2);
+  if (!allHaveBetweenNodes) {
     const degree = new Map<string, number>();
     for (const c of components) {
       for (const p of c.pins ?? []) {
