@@ -220,6 +220,30 @@ export type AnalysisResult = {
      *   combination circuit input label을 표시.
      */
     intermediateSignals?: string[];
+    /**
+     * Multi-stage gate spec — 각 중간/최종 게이트의 op + inputs를 명시.
+     *   provided 시 universal_digital pipeline이 이걸로 LogicDAG를 직접 빌드.
+     *   미제공 시 binary tree heuristic으로 fallback (모든 stage 같은 op).
+     *
+     *   id: X, Y, Z 등 게이트 출력 wire 이름. 마지막 entry가 최종 출력 (outputId).
+     *   op: 게이트 종류 (AND/OR/XOR/NAND/NOR/XNOR/NOT — stage별 다르게 가능).
+     *   inputs: function id (f1, f2, ...) 또는 이전 stage id (X, Y).
+     *
+     *   예 (임용 8번 multi-stage):
+     *     [
+     *       { id:"X", op:"AND", inputs:["f1","f2"] },
+     *       { id:"Y", op:"OR",  inputs:["f3","f4"] },
+     *       { id:"Z", op:"XOR", inputs:["X","Y"]   }
+     *     ]
+     *
+     *   ★ 절대 금지: f1·f2·f3·f4를 하나의 OR 게이트에 직접 연결한 단일 entry
+     *   ([{ id:"Z", op:"OR", inputs:["f1","f2","f3","f4"] }]) — multi-stage 손실.
+     */
+    intermediateGates?: Array<{
+      id: string;
+      op: "AND" | "OR" | "XOR" | "NAND" | "NOR" | "XNOR" | "NOT";
+      inputs: string[];
+    }>;
   };
   /** 원본 분석에서 결정된 figure 요구사항 — generate·validator가 그대로 강제 */
   figureRequirements?: FigureRequirement[];
@@ -417,6 +441,12 @@ export type StructureSignature = {
     inputs: string[];
     outputs: string[];
     intermediateSignals?: string[];   // 게이트 사이 wire (예: f_1, f_2, f_3, f_4)
+    /** Multi-stage gate spec (AnalysisResult.signals.intermediateGates와 동일 shape). */
+    intermediateGates?: Array<{
+      id: string;
+      op: "AND" | "OR" | "XOR" | "NAND" | "NOR" | "XNOR" | "NOT";
+      inputs: string[];
+    }>;
   };
   figureRequirements: {
     role: string;

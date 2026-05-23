@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { generateKmapSop, type KmapSopArchetype } from "@/lib/generation/topologies/kmapSop";
 import { buildContextHint, generateInParallel } from "./_common";
-import type { LogicDAG, LogicDAGNode } from "@/lib/graph/digitalSemantic";
+import type { GateOp, LogicDAG, LogicDAGNode } from "@/lib/graph/digitalSemantic";
 import { validateLogicDAG, intermediateSignalsOf } from "@/lib/graph/digitalSemantic";
 import { dagToLogicNetwork } from "@/lib/renderers/logicDagRenderer";
 import {
@@ -35,7 +35,7 @@ import {
 
 const log = createLogger("lib/pipeline/runUniversalDigitalPipeline");
 
-type GateOp = "OR" | "AND" | "XOR";
+type DefaultGateOp = "OR" | "AND" | "XOR";
 
 export async function runUniversalDigitalPipeline(args: {
   analysis?: AnalysisResult | null;
@@ -56,7 +56,8 @@ export async function runUniversalDigitalPipeline(args: {
   // 함수 개수 — signals.outputs 또는 interpretation에서 f_1·f_2·... 패턴 카운트.
   const M = inferFunctionCount(analysis, N);
 
-  // 결합 gate — interpretation에서 "OR로 결합"·"합 형태" 등 키워드 검색.
+  // 결합 gate (fallback 기본값) — interpretation에서 "OR로 결합"·"합 형태" 등 키워드 검색.
+  // analysis.signals.intermediateGates가 제공되면 그쪽 per-stage op 우선.
   const gateOp = inferGateOp(analysis);
 
   log.info("universal_digital_config", { N, M, gateOp, varInputs: inputs });
@@ -80,12 +81,23 @@ export async function runUniversalDigitalPipeline(args: {
       diagram: f.kmapDiagram,
     }));
 
-    // ── LogicDAG 생성 — 직접 단일 OR로 묶지 말 것. intermediate stage(X,Y) 보존.
-    //   파이프라인: minterms → kmap → LogicDAG → validate → render.
-    //   원본 회로에 명시된 intermediate gate(X = f1∧f2, Y = f3∨f4 등)가 있으면 그것 사용,
-    //   없으면 2-stage 기본 트리(pair-wise → 최종 결합) 자동 구성.
+    // ── LogicDAG 생성 — 파이프라인: minterms → kmap → LogicDAG → validate → render.
+    //   ★ 절대 금지: f_1·f_2·f_3·f_4를 하나의 OR/AND 게이트에 직접 연결 (multi-stage 손실).
+    //
+    //   우선순위:
+    //     (1) analysis.signals.intermediateGates가 explicit spec으로 제공되면 그것으로 직접 빌드.
+    //         stage별 다른 gate op (AND·OR·XOR 혼용) 지원.
+    //         예 — 임용 8번 user-specified:
+    //           [{id:"X",op:"AND",inputs:["f1","f2"]},
+    //            {id:"Y",op:"OR", inputs:["f3","f4"]},
+    //            {id:"Z",op:"XOR",inputs:["X","Y"]}]
+    //     (2) 미제공 시 intermediateSignals 라벨 + 단일 gateOp로 binary tree heuristic.
+    const funcIds = funcs.map((_, fi) => `f${fi + 1}`);
     const intermediateNames = analysis?.signals?.intermediateSignals ?? [];
-    const dag = buildLogicDag(funcs.map((_, fi) => `f${fi + 1}`), gateOp, intermediateNames);
+    const intermediateGates = analysis?.signals?.intermediateGates ?? [];
+    const dag = intermediateGates.length > 0
+      ? buildExplicitDag(funcIds, intermediateGates)
+      : buildLogicDag(funcIds, gateOp, intermediateNames);
     const dagErrors = validateLogicDAG(dag);
     if (dagErrors.length > 0) {
       log.warn("logic_dag_validation_failed", { errors: dagErrors });
@@ -109,8 +121,7 @@ export async function runUniversalDigitalPipeline(args: {
 
     // 텍스트 — 각 함수의 최소 SOP + multi-stage DAG 식.
     const sopList = funcs.map((f, fi) => `f_${fi + 1} = ${f.sopExpression}`).join("\n");
-    const opSym = gateOp === "OR" ? "+" : gateOp === "AND" ? "·" : "⊕";
-    // DAG의 각 gate를 stage별로 식 변환.
+    // DAG의 각 gate를 stage별로 식 변환 — per-gate op symbol 사용.
     const gateNodes = dag.nodes.filter(
       (n): n is Extract<LogicDAGNode, { kind: "gate" }> => n.kind === "gate",
     );
@@ -124,14 +135,17 @@ export async function runUniversalDigitalPipeline(args: {
       return node.label ?? id;
     };
     const stageEqs = gateNodes
-      .map((g) => `${labelOfNode(g.id)} = ${g.inputs.map(labelOfNode).join(` ${opSym} `)}`)
+      .map((g) => `${labelOfNode(g.id)} = ${g.inputs.map(labelOfNode).join(` ${opSymbolOf(g.gate)} `)}`)
       .join("\n");
+    // stage별 사용된 게이트 종류 요약 (조건 표시용).
+    const usedGateOps = Array.from(new Set(gateNodes.map((g) => g.gate)));
+    const intermediateSummary = intermediateSignalsOf(dag).join(", ") || "없음";
     const content = [
-      `${N}-변수(${inputs.length > 0 ? inputs.join(", ") : "A,B,C,D".slice(0, 2 * N - 1)}) 입력에 대한 ${M}개의 boolean 함수 + multi-stage ${gateOp} 결합 문제.`,
-      `각 함수는 minterm 셋으로 정의되며, 중간 신호(${intermediateSignalsOf(dag).join(", ") || "없음"})를 거쳐 최종 출력 Z를 만든다.`,
+      `${N}-변수(${inputs.length > 0 ? inputs.join(", ") : "A,B,C,D".slice(0, 2 * N - 1)}) 입력에 대한 ${M}개의 boolean 함수 + multi-stage 결합 문제.`,
+      `각 함수는 minterm 셋으로 정의되며, 중간 신호(${intermediateSummary})를 거쳐 최종 출력 ${dag.outputId}를 만든다.`,
       contextHint || topicLabel || "",
     ].filter(Boolean).join(" ");
-    const question = `[단계 1] 각 함수 f_1 ... f_${M}의 최소 SOP를 구한다.\n[단계 2] multi-stage 결합으로 최종 출력 Z를 구한다.`;
+    const question = `[단계 1] 각 함수 f_1 ... f_${M}의 최소 SOP를 구한다.\n[단계 2] multi-stage 결합으로 최종 출력 ${dag.outputId}를 구한다.`;
     const answer = `[단계 1]\n${sopList}\n[단계 2]\n${stageEqs}`;
 
     return {
@@ -140,7 +154,7 @@ export async function runUniversalDigitalPipeline(args: {
       conditions: [
         `입력 변수: ${N}개`,
         `함수 개수: ${M}`,
-        `결합 게이트: ${gateOp}`,
+        `결합 게이트: ${usedGateOps.join("·") || gateOp} (${gateNodes.length} stage)`,
       ],
       question,
       answer,
@@ -279,4 +293,48 @@ function buildLogicDag(
     }
   }
   return { outputId: "Z", nodes };
+}
+
+/**
+ * Explicit LogicDAG 빌드 — analysis.signals.intermediateGates의 stage spec을 그대로 사용.
+ *
+ *   funcIds: 함수 leaf ids (f1, f2, ...) — function kind 노드로 자동 추가.
+ *   gates: [{ id, op, inputs }] — 각 항목이 gate 노드. 배열의 마지막 항목 id를 outputId로 채택.
+ *
+ *   ★ intermediate signal X·Y 보존 절대 규칙 적용 path. flatten 금지.
+ */
+function buildExplicitDag(
+  funcIds: readonly string[],
+  gates: ReadonlyArray<{ id: string; op: GateOp; inputs: readonly string[] }>,
+): LogicDAG {
+  const nodes: LogicDAGNode[] = funcIds.map((id, i) => ({
+    id,
+    kind: "function",
+    label: `f_${i + 1}`,
+  }));
+  for (const g of gates) {
+    nodes.push({
+      id: g.id,
+      kind: "gate",
+      gate: g.op,
+      inputs: [...g.inputs],
+      label: g.id,
+    });
+  }
+  const outputId = gates.length > 0 ? gates[gates.length - 1].id : "Z";
+  return { outputId, nodes };
+}
+
+/** Gate op → 식 표시용 기호. AND="·", OR="+", XOR="⊕", NAND="↑", NOR="↓", XNOR="⊙", NOT="¬". */
+function opSymbolOf(op: GateOp): string {
+  switch (op) {
+    case "AND":  return "·";
+    case "OR":   return "+";
+    case "XOR":  return "⊕";
+    case "NAND": return "↑";
+    case "NOR":  return "↓";
+    case "XNOR": return "⊙";
+    case "NOT":  return "¬";
+    default:     return op;
+  }
 }

@@ -83,6 +83,29 @@ exam_mutation (=exam_similar, 기출변형):
 - logic_network의 모든 gate.inputs는 반드시 source(diagram.inputs 또는 다른 gate.output)에 연결.
 - 3변수 K-map = 2x4 = 8 cells, 4변수 K-map = 4x4 = 16 cells. 잘못된 cell 수 금지.
 
+[LOGIC_DAG_INTERMEDIATE_CONTRACT — 중간 signal 보존 절대 규칙]
+원본에 중간 출력(X, Y 같은 intermediate gate output)이 존재하면 반드시 보존한다. flatten 금지.
+- 절대로 f_1, f_2, f_3, f_4 같은 함수 leaf를 **하나의 OR/AND/XOR 게이트에 직접 연결하지 마라**. 원본이 (f_1·f_2)→X, (f_3·f_4)→Y, (X⊕Y)→Z 구조라면 X·Y를 intermediate gate node로 그대로 보존.
+- 최종 출력 Z의 inputs는 반드시 원본의 intermediate signal(X, Y 등)을 그대로 받는다. f_n을 직접 받지 않는다.
+- intermediate gate는 LogicDAG nodes에 별도 { kind: "gate", id: "X", label: "X" } 등으로 명시. inputs는 f_n leaf들. Z는 inputs=["X","Y"]로 X·Y를 참조.
+- logic_network figureVariant는 반드시 LogicDAG JSON shape으로 출력한다:
+  { outputId: "Z",
+    nodes: [
+      { id:"f1", kind:"function", label:"f_1" }, ...
+      { id:"X",  kind:"gate", gate:"AND", inputs:["f1","f2"], label:"X" },
+      { id:"Y",  kind:"gate", gate:"OR",  inputs:["f3","f4"], label:"Y" },
+      { id:"Z",  kind:"gate", gate:"XOR", inputs:["X","Y"],   label:"Z" }
+    ] }
+- 위반 예 (전부 reject):
+  · nodes에 X·Y 없이 Z.inputs=["f1","f2","f3","f4"] 단일 OR/AND
+  · X·Y를 별도 LogicDAG가 아니라 텍스트 라벨로만 처리
+  · outputId가 X 또는 Y (Z여야 함)
+
+[디지털 생성 파이프라인 — 고정 순서]
+generate → minterms 생성 → kmap 생성 → LogicDAG 생성 → validateLogicDag → renderLogicDagSvg
+- 단계 간 출력은 다음 단계의 입력. 순서 임의 변경 금지.
+- validateLogicDag 미통과 시 generate로 되돌아간다 (LogicDAG·kmap 부분 patch 금지, regenerate).
+
 [전자회로/회로이론 (analog_netlist)]
 - diagramType="analog_netlist". component+pin+node 포맷.
 - 모든 node degree ≥ 2 (dangling 금지).
