@@ -452,6 +452,43 @@ function buildPrompt(subject: SubjectKey): string {
 
 → interpretation 예: "OPAMP 두 단을 직렬 cascade한 회로로 두 입력 V_1·V_2로부터 V_o 출력 도출."
 
+【★ digital_logic 다중-K-map / 다중-함수 추출 절대 규칙】
+
+K-map 문제를 분석할 때 ★ K-map 개수와 차원을 정확히 카운트 ★:
+
+(1) K-map 차원 = 변수 개수 결정
+  - 2x2 → 2-변수 (A, B)
+  - 2x4 → 3-변수 (A, B, C)
+  - 4x4 → 4-변수 (A, B, C, D)
+  - 4x8 → 5-변수 (A, B, C, D, E)
+
+  ★ 4x4 K-map은 4-변수다 ★ — 3-변수로 줄여 보지 말 것.
+  행 라벨이 AB(00,01,11,10) + 열 라벨이 CD(00,01,11,10)이면 4-변수.
+
+(2) K-map 개수 = 함수 개수
+  - 원본에 K-map이 4개 그려져 있으면 → 함수 4개 (f_1, f_2, f_3, f_4)
+  - K-map이 2개면 → 함수 2개 (F, G 또는 X, Y)
+  - 절대 임의로 줄이지 말 것 (4개 → 2개로 축소 금지).
+
+(3) signals 추출
+  - inputs: 모든 K-map에 공통으로 사용된 변수 (예: [A, B, C, D])
+  - outputs: 함수 이름 = K-map title (예: [f_1, f_2, f_3, f_4] 또는 [Z] if 통합 출력)
+  - 만약 통합 출력 Z가 OR/AND로 결합되면 outputs에는 Z만 두고 interpretation에 "f_1, f_2, ... → Z 결합" 명시.
+
+(4) interpretation에 ★ 함수 이름과 minterm 표기 명시 ★
+  - "f_1 = Σm(1,2,3,7,9)" 형식으로 각 함수 적기.
+  - K-map 4개·변수 4개·결합 게이트 OR/AND를 명확히 설명.
+  - "각 함수의 최소합" / "f_1, f_2, ..." / "Σm(...)" 표기 보존.
+
+★ 잘못된 추출 (절대 금지) ★:
+  - 4-변수 K-map(4x4)을 3-변수(2x4)로 잘못 읽기 — 행/열 라벨 무시
+  - 4개 함수(f_1..f_4)를 2개 출력(F, G)으로 축소
+  - Σm 표기를 임의로 제거
+  - 4-변수 문제를 combinational_gate(3-var) 형식으로 단순화
+
+(이 케이스는 분류기가 universal_digital path로 라우팅하여 multi-K-map +
+결합 회로 layout이 자동 적용된다.)
+
 【digital_logic MUX 등가구현 — 절대 추출 규칙】
 원본 figure에 사다리꼴 box (좌측에 I_0·I_1·I_2·I_3, 하단에 S_0·S_1, 우측에 F) 또는 "MUX"/"멀티플렉서" 라벨이 있는 figure가 보이면, 이 문제는 MUX 등가구현 형식(임용 5번 형식)이다. 반드시:
 - topic 또는 interpretation에 "MUX" 또는 "멀티플렉서"라는 정확한 단어를 포함시킬 것. (예: "조합논리회로를 4×1 MUX로 등가구현")

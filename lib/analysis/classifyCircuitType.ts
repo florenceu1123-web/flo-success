@@ -257,6 +257,9 @@ export function classifyCircuitType(
       "여러 boolean", "각 boolean", "복수 함수", "복수 boolean",
       "4개의 boolean", "여러 개의 부울", "여러 부울 함수", "각 부울 함수",
       "4개의 함수", "4개 함수", "f_1", "f_2", "f1", "f2",
+      "두 출력", "두 개의 출력", "각 출력", "두 출력에 대한",
+      "F와 G", "X와 Y", "F·G", "X·Y",
+      "Σm", "minterm",
     ]);
     const combineKw = matchesKeyword(text, [
       "결합", "결합하여", "통합", "OR로", "or로", "합 형태", "합의 형태",
@@ -264,11 +267,14 @@ export function classifyCircuitType(
     ]);
     const singleZOutput = outputsAll.length === 1 && /^Z$|^z$|^F$|^Y$/i.test(outputsAll[0] ?? "");
 
+    // 추가 트리거: 2개 이상의 output (F, G) + K-map → universal_digital
+    const multiOutput = outputsAll.length >= 2;
     if (
       has4PlusVars ||
       hasMultiFunctions ||
       sigmaMintermKw ||
       (multiFuncKw && kmapKw) ||
+      (multiOutput && kmapKw) ||
       (singleZOutput && kmapKw && combineKw)
     ) {
       const triggered: string[] = [];
