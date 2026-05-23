@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { writeFile, unlink, mkdtemp } from "node:fs/promises";
+import { writeFile, readFile, unlink, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -33,12 +33,16 @@ export type NgspiceResult = {
 
 /**
  * ngspice 실행 가능 여부 체크 (PATH에서 찾기).
+ *  Windows ngspice는 --version에 반응 안 함 → 빈 deck 한 줄을 batch로 던져 ENOENT만 본다.
  */
 export async function isNgspiceAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
-    const child = spawn("ngspice", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    // 첫 줄이 .end만 있는 최소 deck. ngspice는 무시하고 exit하지만 ENOENT는 아님.
+    const child = spawn("ngspice", ["-b"], { stdio: ["pipe", "ignore", "ignore"] });
     child.on("error", () => resolve(false));
-    child.on("exit", (code) => resolve(code === 0));
+    child.on("exit", () => resolve(true));
+    child.stdin.write(".title probe\n.end\nquit\n");
+    child.stdin.end();
   });
 }
 
@@ -46,14 +50,18 @@ export async function isNgspiceAvailable(): Promise<boolean> {
  * SPICE 데크 텍스트를 받아 ngspice 실행.
  *  @param deckText  SPICE 회로 텍스트
  *  @param timeoutMs 최대 실행 시간 (기본 5초)
+ *
+ *  Windows ngspice는 batch mode(-b)에서 stdout으로 안 쓰고 -o 파일에만 출력 →
+ *  `-o tempfile`로 logfile 강제 후 종료 시 읽어서 stdout 자리에 반환.
  */
 export async function runNgspice(deckText: string, timeoutMs = 5000): Promise<NgspiceResult> {
   const dir = await mkdtemp(join(tmpdir(), "flo-spice-"));
   const deckPath = join(dir, "deck.cir");
+  const logPath = join(dir, "deck.log");
   await writeFile(deckPath, deckText, "utf8");
 
   return new Promise<NgspiceResult>((resolve, reject) => {
-    const child = spawn("ngspice", ["-b", deckPath], {
+    const child = spawn("ngspice", ["-b", "-o", logPath, deckPath], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -69,19 +77,31 @@ export async function runNgspice(deckText: string, timeoutMs = 5000): Promise<Ng
     child.on("error", (err) => {
       clearTimeout(t);
       void unlink(deckPath).catch(() => {});
+      void unlink(logPath).catch(() => {});
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         reject(new NgspiceNotInstalledError());
       } else {
         reject(err);
       }
     });
-    child.on("exit", (code) => {
+    child.on("exit", async (code) => {
       clearTimeout(t);
-      void unlink(deckPath).catch(() => {});
       if (timedOut) {
+        void unlink(deckPath).catch(() => {});
+        void unlink(logPath).catch(() => {});
         reject(new Error(`ngspice timed out after ${timeoutMs}ms`));
         return;
       }
+      // Windows ngspice는 log file에 결과 기록. stdout이 비었으면 log 파일에서 읽어서 채움.
+      if (!stdout.trim()) {
+        try {
+          stdout = await readFile(logPath, "utf8");
+        } catch {
+          // log 파일 없으면 stdout 그대로 (빈 문자열).
+        }
+      }
+      void unlink(deckPath).catch(() => {});
+      void unlink(logPath).catch(() => {});
       resolve({ stdout, stderr, exitCode: code ?? -1 });
     });
   });
