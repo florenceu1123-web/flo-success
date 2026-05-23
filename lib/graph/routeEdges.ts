@@ -43,19 +43,18 @@ export type RouteOrientation = "horizontal" | "vertical";
 const LANE_PITCH = 48;
 
 /**
- * 같은 group 내 lane offset 계산 — 대칭 stack.
+ * 같은 group 내 lane offset 계산 — main rail asymmetric stack.
+ *   첫 lane(index=0)은 main rail에 그대로(offset=0). 나머지는 아래로 분기.
  *   N=1: [0]
- *   N=2: [-LANE_PITCH/2, +LANE_PITCH/2]
- *   N=3: [-LANE_PITCH, 0, +LANE_PITCH]
- *   N=k: (i - (k-1)/2) * LANE_PITCH / max(1, ceil((k-1)/2))
- *   → 결국 (i - (k-1)/2) * LANE_PITCH/2 도 가능. 여기서는 단순 ±half pitch.
+ *   N=2: [0, +LANE_PITCH]      ← 첫째는 top rail, 둘째는 아래로
+ *   N=3: [0, +LANE_PITCH, +2*LANE_PITCH]
+ *
+ *   이렇게 하면 같은 top rail에 있는 다른 단일 R(예: R_top1)과 y 좌표가 일치해서
+ *   직선처럼 연속되어 보임. 평행 가지 R+I는 R이 top rail에 남고 I만 아래로 분기.
  */
 function laneOffsetForIndex(i: number, count: number): number {
   if (count <= 1) return 0;
-  if (count === 2) return i === 0 ? -LANE_PITCH / 2 : LANE_PITCH / 2;
-  // N≥3: 균등 stack
-  const half = (count - 1) / 2;
-  return (i - half) * LANE_PITCH;
+  return i * LANE_PITCH;
 }
 
 /**
