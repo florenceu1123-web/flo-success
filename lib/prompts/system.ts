@@ -121,6 +121,12 @@ generate → minterms 생성 → kmap 생성 → LogicDAG 생성 → validateLog
   · 올바른 예: { id:"R2", type:"R", value:"20Ω" }
 - ★ 스위치(SW) 포함 회로 → analysis.figureRequirements에 scope="per_state"·states=["switch_open","switch_closed"] 추가하고 두 figure 모두 생성.
 - ★ mesh 회로 → topology를 단순 series chain으로 평탄화 금지. 원본 mesh 개수·branch·node 개수를 보존.
+- ★ OPAMP 오실레이터(Wien Bridge·phase-shift·Colpitts/Hartley 등) 생성 시 — 음피드백 저항(R_3·R_f 등)은
+  반드시 V−와 V_out을 **직접 잇는 단일 2-pin R**로 출력. β(s) RC 망 안에 묻거나 다른 component와 직렬로 묶지 마라.
+  · 올바름: { id:"R_3", type:"R", pins:[{node:"Vminus"},{node:"Vout"}], value:"..." }
+  · 잘못됨: V_out → R_a → 중간node → R_3 → V_minus (chain). validator의 OPAMP feedback 검사가
+    단일 2-pin component만 인식 — chain이면 U1 에러 발생.
+  · 양피드백 β(s) 망은 V_out → 망(여러 R/C) → V+ 로 별도 구성 (음피드백과 분리).
 
 [multi-output 보존 — 절대 규칙]
 - 원본 분석 컨텍스트에 [원본 신호] outputs가 주어지면, 생성하는 logic_network는 그 outputs를 모두 포함해야 한다.

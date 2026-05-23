@@ -89,8 +89,11 @@ export function validateOpAmpCircuit(netlist: CircuitNetlist): string[] {
     });
     const isComparator = voConsumers.length === 0;
     if (isComparator) continue; // open-loop 비교기: feedback 검사 면제
-    // closed-loop 증폭기: feedback 의무 (V_out → V− 또는 V+ 2-pin component)
-    const hasFeedback = (netlist.components ?? []).some((c) => {
+    // closed-loop 증폭기: feedback 의무. 두 path 인정:
+    //   (1) 단일 2-pin component (V_out ↔ V− 또는 V+) — 표준 케이스.
+    //   (2) 2-pin component chain — V_out → ... → V− (또는 V+) BFS 도달. OPAMP 자기 자신은 제외.
+    //       오실레이터(Wien Bridge 등) β(s) 망처럼 여러 R/C가 직렬로 연결돼 feedback path 구성하는 경우 인정.
+    const directFeedback = (netlist.components ?? []).some((c) => {
       if (c.id === op.id) return false;
       if (!c.pins || c.pins.length !== 2) return false;
       const [a, b] = [c.pins[0].node, c.pins[1].node];
@@ -98,11 +101,62 @@ export function validateOpAmpCircuit(netlist: CircuitNetlist): string[] {
       const toVp = (a === voNode && b === vpNode) || (a === vpNode && b === voNode);
       return toVn || toVp;
     });
+    const hasFeedback = directFeedback || hasChainFeedback(netlist, op.id, voNode, vnNode, vpNode);
     if (!hasFeedback) {
       errors.push(`${op.id}: OPAMP feedback branch 누락 (output → − or + input)`);
     }
   }
   return errors;
+}
+
+/**
+ * Chain feedback 검출 — V_out에서 시작해 2-pin component들의 인접성으로 BFS,
+ *   V_minus 또는 V_plus에 도달하면 true. 다른 OPAMP의 pin은 traversal에서 제외 (서로 다른 stage 구분).
+ *   V_out 자체는 시작점이므로 통과한 다른 OPAMP의 vo 노드는 차단 (cascade 오인식 방지).
+ */
+function hasChainFeedback(
+  netlist: CircuitNetlist,
+  opampId: string,
+  voNode: string,
+  vnNode: string,
+  vpNode: string,
+): boolean {
+  const components = netlist.components ?? [];
+  // 다른 OPAMP들의 pin 노드는 traversal blocker (자기 자신 stage 외 confusion 방지)
+  const otherOpampNodes = new Set<string>();
+  for (const c of components) {
+    if (c.type !== "OPAMP" || c.id === opampId) continue;
+    for (const p of c.pins ?? []) {
+      if (p.node) otherOpampNodes.add(p.node);
+    }
+  }
+  // 2-pin component 인접 그래프 (OPAMP·전압원 제외 — wire/R/L/C/SW 등만 feedback path로 인정)
+  const adj = new Map<string, Set<string>>();
+  for (const c of components) {
+    if (c.id === opampId) continue;
+    if (c.type === "OPAMP") continue;
+    if (!c.pins || c.pins.length !== 2) continue;
+    const [a, b] = [c.pins[0].node, c.pins[1].node];
+    if (!a || !b || a === b) continue;
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a)!.add(b);
+    adj.get(b)!.add(a);
+  }
+  // BFS V_out → V_minus / V_plus
+  const visited = new Set<string>([voNode]);
+  const queue: string[] = [voNode];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    if (cur !== voNode && (cur === vnNode || cur === vpNode)) return true;
+    for (const next of adj.get(cur) ?? []) {
+      if (visited.has(next)) continue;
+      if (otherOpampNodes.has(next) && next !== vnNode && next !== vpNode) continue;
+      visited.add(next);
+      queue.push(next);
+    }
+  }
+  return false;
 }
 
 // =====================================================================

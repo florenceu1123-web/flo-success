@@ -317,6 +317,16 @@ function buildPrompt(subject: SubjectKey): string {
 - relatedConcepts는 5~8개.
 - topicKey는 반드시 [유효 TopicKey 목록] 중 하나만. 그 외 값(예: SubjectKey 그대로, 자유 문자열) 금지.
 - semantic의 4개 boolean은 이미지에서 판단된 사실 기반.
+- ★ hasWaveformEvolution=true는 **시간영역 파형이 figure로 그려져 있거나 학생이 파형을 그리는 문제**에 한정.
+  symbolic·해석적 문제(전달함수 H(s)·β(s) 도출, Barkhausen 발진 조건 1-Kβ(s)=0, 폐루프 극점, 주파수 응답 도출 등)는
+  RC/LC가 있어도 hasWaveformEvolution=false. 학생이 도출하는 게 **수식·조건**이지 **파형 그림**이 아님.
+  · 키워드 기준: "발진 조건", "Barkhausen", "β(s)", "전달함수", "특성방정식", "1-Kβ(s)=0",
+    "오실레이터", "안정한 선형영역에서 동작" — 이 중 하나라도 보이면 hasWaveformEvolution=false.
+  · 단, "v_o(t)를 그려라"·"파형을 도시하라"는 문구가 있으면 다시 true.
+- ★ OPAMP 오실레이터 (예: Wien Bridge, phase-shift, Colpitts/Hartley 변형) 인식 시:
+  topicKey는 "opamp", interpretation에 "오실레이터·발진 조건" 명시. semantic.requiresMultiFigure=true
+  (회로도 + 블록도 두 figure). 음피드백 저항(R_3)은 V−↔V_out **직접 2-pin** 저항으로 명시
+  (β(s) 망 안에 묻지 마라 — validator의 OPAMP feedback 검사가 단일 component만 인식).
 - signals.outputs는 문제에서 묻는 모든 출력 변수를 빠짐없이 포함 (multi-output이면 ["Y","Z"] 등 모두).
 - signals.inputs도 문제에 등장하는 모든 입력 변수를 포함.
 - 변수명은 원문 그대로 (예: V_o, Q_D, Z, A 등 대소문자·아래첨자 유지).

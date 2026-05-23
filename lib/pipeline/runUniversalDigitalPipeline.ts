@@ -239,22 +239,29 @@ function buildLogicDag(
   const intermName = (idx: number, fallback: string) =>
     intermediateNames[idx] ?? fallback;
 
+  // stage별 게이트 다양화 — 모든 stage 같은 op으로 collapse 금지 (typed logic synthesis).
+  //   fallback gateOp를 first-stage 기본값으로 쓰되, 다음 stage는 cycle로 변경.
+  //   순환열: [AND, OR, XOR] — gateOp 시작점 다음으로 진행.
+  const cycle: GateOp[] = ["AND", "OR", "XOR"];
+  const startIdx = Math.max(0, cycle.indexOf(gateOp));
+  const stageOp = (k: number): GateOp => cycle[(startIdx + k) % cycle.length];
+
   if (M === 2) {
-    nodes.push({ id: "Z", kind: "gate", gate: gateOp, inputs: [funcIds[0], funcIds[1]], label: "Z" });
+    nodes.push({ id: "Z", kind: "gate", gate: stageOp(0), inputs: [funcIds[0], funcIds[1]], label: "Z" });
     return { outputId: "Z", nodes };
   }
   if (M === 3) {
     const xId = intermName(0, "X");
-    nodes.push({ id: xId, kind: "gate", gate: gateOp, inputs: [funcIds[0], funcIds[1]], label: xId });
-    nodes.push({ id: "Z", kind: "gate", gate: gateOp, inputs: [xId, funcIds[2]], label: "Z" });
+    nodes.push({ id: xId, kind: "gate", gate: stageOp(0), inputs: [funcIds[0], funcIds[1]], label: xId });
+    nodes.push({ id: "Z", kind: "gate", gate: stageOp(1), inputs: [xId, funcIds[2]], label: "Z" });
     return { outputId: "Z", nodes };
   }
   if (M === 4) {
     const xId = intermName(0, "X");
     const yId = intermName(1, "Y");
-    nodes.push({ id: xId, kind: "gate", gate: gateOp, inputs: [funcIds[0], funcIds[1]], label: xId });
-    nodes.push({ id: yId, kind: "gate", gate: gateOp, inputs: [funcIds[2], funcIds[3]], label: yId });
-    nodes.push({ id: "Z", kind: "gate", gate: gateOp, inputs: [xId, yId], label: "Z" });
+    nodes.push({ id: xId, kind: "gate", gate: stageOp(0), inputs: [funcIds[0], funcIds[1]], label: xId });
+    nodes.push({ id: yId, kind: "gate", gate: stageOp(1), inputs: [funcIds[2], funcIds[3]], label: yId });
+    nodes.push({ id: "Z", kind: "gate", gate: stageOp(2), inputs: [xId, yId], label: "Z" });
     return { outputId: "Z", nodes };
   }
 
@@ -271,14 +278,14 @@ function buildLogicDag(
       const id = layer.length === 2 && next.length === 0
         ? "Z"
         : intermName(stageIdx, `G${stageIdx + 1}`);
-      stageIdx++;
       nodes.push({
         id,
         kind: "gate",
-        gate: gateOp,
+        gate: stageOp(stageIdx),
         inputs: [layer[i], layer[i + 1]],
         label: id,
       });
+      stageIdx++;
       next.push(id);
     }
     layer = next;

@@ -820,9 +820,15 @@ function orthogonalWire(
   // 같은 x → 직선
   if (Math.abs(a.x - b.x) < 1) return line(a, b);
 
-  // V-H-V 우선: midY를 row gap으로 snap, stagger로 horizontal channel 분산, lane으로 wire-wire 겹침 회피
-  const naturalMidY = (a.y + b.y) / 2 + stagger;
+  // 단일 L-bend 우선 (H 먼저, V 뒤) — 최단거리·최소 굴절. obstacle 가로지르지 않을 때만.
+  //   wire 신호 흐름이 좌→우(a.x < b.x)인 경우 H 먼저가 자연스럽다.
   const xRange: [number, number] = [Math.min(a.x, b.x), Math.max(a.x, b.x)];
+  if (!horizontalCrossesAny(a.y, a.x, b.x, obstacles)) {
+    return `<path d="M ${a.x} ${a.y} L ${b.x} ${a.y} L ${b.x} ${b.y}" stroke="black" fill="none" stroke-width="2"/>`;
+  }
+
+  // H 라인이 막히면 V-H-V로 우회: midY를 row gap으로 snap, stagger로 horizontal channel 분산, lane으로 wire-wire 겹침 회피
+  const naturalMidY = (a.y + b.y) / 2 + stagger;
   let midY = findFreeY(naturalMidY, obstacles, xRange);
   if (lanes) midY = lanes.assign(midY);
   return `<path d="M ${a.x} ${a.y} L ${a.x} ${midY} L ${b.x} ${midY} L ${b.x} ${b.y}" stroke="black" fill="none" stroke-width="2"/>`;
