@@ -169,6 +169,35 @@ export async function runUniversalDcPipeline(args: {
     // analysis에서 받은 loadPlaceholders는 보라색 dashed box로 그려져 중복 표기 → 제거.
     gen.netlistOpen.loadPlaceholders = [];
 
+    // ── Dangling node 자동 prune — GPT 분석이 phantom node(예: 임용 10번 V_3 우측 끝
+    //   10Ω을 ㄱ-자가 아닌 top_rail + 별도 load_leg로 이중 추출한 경우 만들어지는 n_right)를
+    //   생성한 케이스 보정. degree=1이면서 nodeAnnotation(단자 a 등) 없는 노드의 branch는
+    //   드롭. 솔버는 이미 풀렸으므로 figure만 정리.
+    {
+      const isGndAnn = (n: string) => n === (gen.netlistOpen.ground ?? "GND") || ["GND","ground","Ground","gnd","Gnd","0"].includes(n);
+      const annotatedNodes = new Set((analysis.nodeAnnotations ?? []).map((a) => a.node));
+      const degree = new Map<string, number>();
+      for (const c of gen.netlistOpen.components) {
+        for (const p of c.pins) {
+          if (isGndAnn(p.node)) continue;
+          degree.set(p.node, (degree.get(p.node) ?? 0) + 1);
+        }
+      }
+      const danglingNodes = new Set<string>();
+      for (const [node, deg] of degree) {
+        if (deg < 2 && !annotatedNodes.has(node)) danglingNodes.add(node);
+      }
+      if (danglingNodes.size > 0) {
+        const removedIds = new Set<string>();
+        gen.netlistOpen.components = gen.netlistOpen.components.filter((c) => {
+          const touchesDangling = c.pins.some((p) => danglingNodes.has(p.node));
+          if (touchesDangling) removedIds.add(c.id);
+          return !touchesDangling;
+        });
+        log.info("dangling_pruned", { nodes: [...danglingNodes], removedComponentIds: [...removedIds] });
+      }
+    }
+
     // ── nodeAnnotations 전파 — figure에 V_1·V_2 등 측정 노드 라벨 표시용.
     //   analysis.nodeAnnotations의 node id가 빌드된 netlist node id와 일치할 때만 추가.
     const builtNodeIds = new Set<string>();
