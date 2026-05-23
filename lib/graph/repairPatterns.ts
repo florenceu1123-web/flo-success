@@ -15,21 +15,34 @@ import type { CircuitComponent, CircuitNetlist } from "@/types";
 
 const GROUND_LABELS = new Set(["GND", "gnd", "Gnd", "0", "ground", "Ground"]);
 
-/** nodeAnnotations에서 role 검색 → 첫 매치 node id 반환. */
+/** nodeAnnotations에서 role 검색 → 첫 매치 node id 반환. role 누락 시 structural fallback. */
 function findNodeByRole(netlist: CircuitNetlist, role: "source_plus" | "main_unknown" | "right_unknown" | "ground"): string | null {
   for (const ann of netlist.nodeAnnotations ?? []) {
     if (ann.role === role) return ann.node;
   }
-  // ground는 nodeAnnotations에 없을 수도 있음 — netlist.ground 사용
+  // ★ Fallback: GPT가 role 누락한 케이스 대응 — component 구조로부터 추론.
   if (role === "ground") {
     const g = netlist.ground;
     if (g) return g;
-    // 또는 GND 라벨 노드 검색
     for (const c of netlist.components) {
       for (const p of c.pins) {
         if (GROUND_LABELS.has(p.node)) return p.node;
       }
     }
+    return null;
+  }
+  if (role === "source_plus") {
+    // V 소스의 positive pin (non-GND) 노드를 source_plus로 간주.
+    // 사용자 명시 fallback: "B. repair 함수에서 V source positive pin을 source_plus로 사용".
+    for (const c of netlist.components) {
+      if (c.type !== "V") continue;
+      const posPin = c.pins.find((p) => p.role === "positive" && !GROUND_LABELS.has(p.node));
+      if (posPin) return posPin.node;
+      // role 미지정 V → non-GND 단자 첫 번째
+      const nonGndPin = c.pins.find((p) => !GROUND_LABELS.has(p.node));
+      if (nonGndPin) return nonGndPin.node;
+    }
+    return null;
   }
   return null;
 }
