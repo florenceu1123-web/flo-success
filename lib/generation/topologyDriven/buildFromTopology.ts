@@ -434,8 +434,13 @@ function addComponent(
   if (t === "V" || t === "VS") {
     const Vraw = valueRand(comp.value, NICE_VOLTAGES);
     // 음수 값은 단자 swap으로 흡수 — 그림은 양수 + 극성 반전된 +/- 단자.
-    const flip = Vraw < 0;
-    const V = Math.abs(Vraw);
+    //   ★ 단, 한 단자가 GND인 경우(ground-referenced) swap 금지 — +단자가 GND가 되면
+    //     topology semantics 깨짐 (V·+ = 0V로 detector·validator가 short으로 오해).
+    //     이 경우 값 부호를 그대로 유지 (solver는 음수 V로 정확히 풀이).
+    const aIsGnd = a === GND, bIsGnd = b === GND;
+    const isGroundReferenced = aIsGnd || bIsGnd;
+    const flip = Vraw < 0 && !isGroundReferenced;
+    const V = flip ? Math.abs(Vraw) : Vraw;
     const [na, nb] = flip ? [b, a] : [a, b];
     usedValues[id] = V;
     components.push({
@@ -453,9 +458,12 @@ function addComponent(
   if (t === "I" || t === "IS") {
     const Iraw = valueRand(comp.value, NICE_CURRENTS);
     // 음수 값은 단자 swap으로 흡수 — 그림은 양수 + 화살표 방향 반전.
-    const flip = Iraw < 0;
-    const I = Math.abs(Iraw);
-    const [na, nb] = flip ? [b, a] : [a, b];
+    //   ★ 단, GND-referenced I 소스는 swap 금지 (V와 동일 이유).
+    const aIsGndI = a === GND, bIsGndI = b === GND;
+    const isGroundReferencedI = aIsGndI || bIsGndI;
+    const flipI = Iraw < 0 && !isGroundReferencedI;
+    const I = flipI ? Math.abs(Iraw) : Iraw;
+    const [na, nb] = flipI ? [b, a] : [a, b];
     usedValues[id] = I;
     components.push({
       id, type: "I", value: `${I}A`,
