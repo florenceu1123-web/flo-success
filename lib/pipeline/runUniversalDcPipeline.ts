@@ -14,6 +14,7 @@ import { validateCircuitGraph } from "@/lib/graph/validateCircuitGraph";
 import { detectCrossPattern } from "@/lib/renderers/crossLayoutCircuitRenderer";
 import { detectFourNodeImyong } from "@/lib/renderers/fourNodeImyongRenderer";
 import { validateFigures } from "@/lib/validators/validateFigures";
+import { repairLeftParallelFeed } from "@/lib/graph/repairPatterns";
 import {
   TOPIC_LABEL,
   type AnalysisResult,
@@ -209,6 +210,17 @@ export async function runUniversalDcPipeline(args: {
     const validAnns = (analysis.nodeAnnotations ?? []).filter((a) => builtNodeIds.has(a.node));
     if (validAnns.length > 0) {
       gen.netlistOpen.nodeAnnotations = validAnns;
+    }
+
+    // ── Pattern-specific repair: source_plus ↔ main_unknown 사이 R이 1개만 있으면
+    //   stacked 평행 가지를 inferred로 복원. routeEdges가 자동으로 lane 분리 처리.
+    //   (analyzer가 위아래 stacked R을 일관되게 못 보는 케이스 휴리스틱 보정.)
+    const repaired = repairLeftParallelFeed(gen.netlistOpen);
+    if (repaired !== gen.netlistOpen) {
+      log.info("left_parallel_feed_repaired", {
+        addedCount: repaired.components.length - gen.netlistOpen.components.length,
+      });
+      gen.netlistOpen = repaired;
     }
 
     // ── Layout-level validation — cross-layout이 적용될 회로는 graph 검증으로 단락 회로 reject.
