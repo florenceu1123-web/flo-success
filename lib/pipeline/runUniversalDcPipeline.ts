@@ -7,6 +7,8 @@ import { solveDcQueries, type DcQuery, type DcQueryResult } from "@/lib/solver/u
 import { validateDcResult } from "@/lib/solver/validateDcResult";
 import { writeUniversalDcText } from "@/lib/generation/topologies/universalDcTextWriter";
 import { buildContextHint, generateInParallel } from "./_common";
+import { solveMNA, type SolverNetwork } from "@/lib/solver/mna";
+import { verifyWithSpice } from "@/lib/verification/verifyWithSpice";
 import {
   TOPIC_LABEL,
   type AnalysisResult,
@@ -152,6 +154,10 @@ export async function runUniversalDcPipeline(args: {
     // analysis에서 받은 loadPlaceholders는 보라색 dashed box로 그려져 중복 표기 → 제거.
     gen.netlistOpen.loadPlaceholders = [];
 
+    // PSPICE 교차 검증 (fire-and-forget) — ngspice 미설치 시 silent skip.
+    //   variable R 값은 hide("R")됐지만 solver net에는 perturbed numeric 보존됨.
+    verifyAsync(gen.solverNetOpen, queryResults);
+
     // 텍스트
     const text = await writeUniversalDcText({
       generation: gen,
@@ -182,4 +188,31 @@ export async function runUniversalDcPipeline(args: {
       figureVariants,
     };
   });
+}
+
+/**
+ * Fire-and-forget ngspice 검증. ngspice 미설치 시 silent skip (verifyWithSpice가 graceful).
+ *   universal_dc는 다단계 query — node voltage·branch current·resistor power·inverseR sweep을 모두
+ *   포함. 1차 검증은 node voltages 일치 여부로 충분 (branch current·power는 V로부터 유도되므로
+ *   자동 검증됨).
+ */
+async function verifyAsync(net: SolverNetwork, queryResults: DcQueryResult[]): Promise<void> {
+  try {
+    const solverResult = solveMNA(net);
+    const verifyNodes = Array.from(new Set(
+      queryResults
+        .map((r) => (r.query.kind === "nodeVoltage" ? r.query.node : null))
+        .filter((n): n is string => typeof n === "string"),
+    ));
+    const verify = await verifyWithSpice({ net, solverResult, verifyNodes: verifyNodes.length > 0 ? verifyNodes : undefined });
+    if (verify.attempted && !verify.ok) {
+      log.warn("spice_verification_failed", { discrepancies: verify.discrepancies.slice(0, 3) });
+    } else if (verify.attempted && verify.ok) {
+      log.info("spice_verification_passed", { verifiedNodes: verifyNodes.length });
+    } else {
+      log.info("spice_verification_skipped", { reason: verify.reason });
+    }
+  } catch (e) {
+    log.warn("spice_verification_error", { message: (e as Error).message });
+  }
 }

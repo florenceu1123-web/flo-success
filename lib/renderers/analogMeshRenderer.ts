@@ -110,10 +110,11 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   }
 
   // 0.08 Cross pattern (외곽 perimeter + 내부 십자 cross) — 임용 10번 같은 4-mesh DC.
-  //   trigger: 내부 노드 간 평행 가지 + inner top node에 vertical leg.
-  if (detectCrossPattern(netlist)) {
-    return renderCrossLayout(netlist);
-  }
+  //   ⚠️ 2-row cell grid 배치에서 outer leg는 row=1(하반부)·inner leg는 row=0(상반부)로
+  //   분할되는데, 중앙 horizontal 빈 cell이 wire로 자동 생성되어 V·+ 와 inner leg의 GND
+  //   pin이 short되는 버그 존재. 현재 비활성화, netlistEdgeRenderer의 평행 branch offset
+  //   처리로 fallback. 향후 cellGridToCircuitGraph 재설계 시 재활성화 검토.
+  void detectCrossPattern; void renderCrossLayout;
 
   // 0.1 3-pin 이상이면 mesh layout 적용 불가 — fallback
   if (netlist.components.some((c) => (c.pins?.length ?? 0) > 2)) {
