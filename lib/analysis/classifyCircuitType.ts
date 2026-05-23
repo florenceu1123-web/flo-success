@@ -378,6 +378,8 @@ export function classifyCircuitType(
     counts,
     text,
     hasACInventory,
+    nodeAnnotations: analysis.nodeAnnotations,
+    topicInterpText: `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`,
   });
 
   // decide가 추가 hint params를 줬으면 외부 base params에 merge.
@@ -489,6 +491,10 @@ type DecideArgs = {
   counts: Counts;
   hasACInventory?: boolean;
   text: string;
+  /** topic + interpretation만 (relatedConcepts 제외) — 진짜 주제 키워드 판별용 */
+  topicInterpText?: string;
+  /** universal_dc 트리거용 — V_n 라벨 등 노드 어노테이션 */
+  nodeAnnotations?: AnalysisResult["nodeAnnotations"];
 };
 
 type DecideResult = {
@@ -500,7 +506,7 @@ type DecideResult = {
 };
 
 function decideType(args: DecideArgs): DecideResult {
-  const { topicKey, features, semantic, counts, text, hasACInventory } = args;
+  const { topicKey, features, semantic, counts, text, hasACInventory, nodeAnnotations, topicInterpText } = args;
 
   // SW 존재 판정 — counts.SW에만 의존하지 말 것. GPT가 inventory 추출 시 SW를 가끔 누락함.
   //   features.hasSwitch OR text의 SW/스위치 키워드도 인정해서 robust하게.
@@ -542,6 +548,45 @@ function decideType(args: DecideArgs): DecideResult {
       type: "switched_rlc_step",
       confidence: "high",
       reasoning: `RLC + SW(inferred) + ${counts.V > 0 && counts.I > 0 ? "dual-source(V·I)" : ""}${isSwitchedRlcText ? " + transient 키워드" : ""}`,
+    };
+  }
+
+  // 0-PRE-DC. Universal DC (archetype-free) — 모든 DC archetype보다 우선.
+  //   조건: L/C 없음(DC만) + 트리거 (가변 R OR 다단계 step OR V_n 노드 라벨 다수 OR V·I 혼합)
+  //   목적: 새 임용 DC 형식이 나와도 archetype 추가 없이 흡수 (규칙 기반).
+  const isVariableRkw = matchesKeyword(text, [
+    "가변", "variable", "조정하여", "조정하면", "조절하여",
+    "r의 값을 구", "r 값을 구",
+  ]);
+  const isMultiStepDc = /\[단계\s*[123]\]/.test(text) && counts.C === 0 && counts.L === 0;
+  const isDcOnly = counts.C === 0 && counts.L === 0 && (counts.V > 0 || counts.I > 0);
+  // V_n 노드 라벨 다수 추출 시그니처 — universal DC 형식의 강한 지표.
+  //   nodeAnnotations.label이 "V_숫자"·"V_o"·"V_x" 형식인 entry 개수 카운트.
+  const nodeLabelCount = (nodeAnnotations ?? []).filter((a) =>
+    typeof a.label === "string" && /^V[_]?(\d+|o|x|out|a|b)$/i.test(a.label),
+  ).length;
+  const hasMultipleNodeLabels = nodeLabelCount >= 2;
+  // V·I 혼합 — 임용 multi-source DC 시그니처
+  const hasMixedSources = counts.V > 0 && counts.I > 0;
+  // 기존 DC archetype의 강한 키워드 — topic·interpretation에 직접 나타날 때만 (relatedConcepts 보조 키워드는 약함).
+  //   "테브난의 정리"가 relatedConcepts에만 있는 케이스(GPT가 기본 회로해석 키워드 자동 추가)는
+  //   universal_dc 우선 사용. 진짜 thevenin 문제면 topic·interpretation에 명시됨.
+  const tipText = topicInterpText ?? text;
+  const isClassicTheveninCtx = matchesKeyword(tipText, EQUIVALENT_KEYWORDS) || matchesKeyword(tipText, MAX_POWER_KEYWORDS);
+  if (
+    isDcOnly &&
+    !isClassicTheveninCtx &&
+    (isVariableRkw || isMultiStepDc || hasMultipleNodeLabels || (hasMixedSources && counts.R >= 3))
+  ) {
+    const reasons: string[] = [];
+    if (isVariableRkw) reasons.push("가변 R");
+    if (isMultiStepDc) reasons.push("[단계 N] 다단계");
+    if (hasMultipleNodeLabels) reasons.push(`V_n 라벨 ${nodeLabelCount}개`);
+    if (hasMixedSources) reasons.push(`V·I 혼합 + R≥${counts.R}`);
+    return {
+      type: "universal_dc",
+      confidence: "high",
+      reasoning: `DC-only (V·I·R, no L/C) + ${reasons.join(", ")}`,
     };
   }
 

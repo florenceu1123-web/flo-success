@@ -38,6 +38,7 @@ import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGat
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
 import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipeline";
+import { runUniversalDcPipeline } from "@/lib/pipeline/runUniversalDcPipeline";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -153,6 +154,17 @@ export async function POST(req: NextRequest) {
         inventoryCount: analysis.componentInventory?.length ?? 0,
       });
       problems = await runTopologyDrivenPipeline({
+        analysis,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "universal_dc" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "universal_dc_pipeline", count: n, mode });
+      if (!analysis?.topologySignature) {
+        return NextResponse.json({ error: "universal_dc는 topologySignature 필수" }, { status: 400 });
+      }
+      problems = await runUniversalDcPipeline({
         analysis,
         mode: mode as GenerationMode,
         count: n,
@@ -482,6 +494,7 @@ function shouldUseTopologyDriven(
   const hasSupermesh = Boolean(features.hasSupermesh);
 
   // ac_superposition은 전용 generator로 명시 분기에서 처리. topology_driven으로 fallback 금지.
+  if (circuitType === "universal_dc") return false;
   if (circuitType === "ac_superposition") return false;
   // rlc_resonance도 전용 generator(공진곡선 figure 포함) 보존 — topology_driven은 회로만 만들고
   // 주파수응답 곡선 figure를 모르므로 fallback 금지.

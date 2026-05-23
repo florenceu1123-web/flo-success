@@ -383,6 +383,13 @@ export type TopologySignature = {
       type: string;
       value?: string | number;
     }>;
+    /**
+     * (선택) 명시적 노드 쌍 — 평행 branch와 비-순차 토폴로지에 사용.
+     *   미지정 시 branches 순서대로 자동 배치 (legacy).
+     *   같은 [a, b] 쌍에 여러 branch가 있으면 parallel로 처리 (mesh 추가 생성).
+     *   예) [["n1","n2"], ["n1","n2"]] → n1·n2 사이 2개 평행 branch (1 mesh 추가)
+     */
+    betweenNodes?: [string, string];
   }>;
 };
 

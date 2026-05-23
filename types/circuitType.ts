@@ -51,6 +51,8 @@ export type CircuitType =
   | "combinational_gate"    // 3-입력 2-출력 조합 회로 (F, G 동시 설계)
   | "fsm"                   // Mealy 4-state FSM (상태 전이도 + 구현 회로)
   | "waveform_analysis"     // 디지털 입력 파형 → 출력 파형 분석
+  // ── Universal (rule-based) ───────────────────
+  | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
   // ── fallback ─────────────────────────────────
   | "unsupported";          // electronics / digital_logic / 분류 실패
 
