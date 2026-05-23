@@ -80,11 +80,14 @@ export function resolveQueryNodes(
   netlist: CircuitNetlist,
   analysis: AnalysisResult,
 ): DcQuery[] {
-  // 네트워크 노드 추출 — top rail nodes (n0, n1, ...)
+  // 네트워크 노드 추출 — non-GND 노드 모두. 이전엔 startsWith("n") 강제로 "n0","n1"만
+  //   잡았는데, betweenNodes로 명시한 사용자 노드 이름(VS_PLUS, V1, V2 등)을 놓치고
+  //   labelToNode 매핑 실패 → V_n 라벨이 GND로 fallback되던 버그 fix.
+  const groundLabels = new Set(["GND", "ground", "Ground", "gnd", "Gnd", "0"]);
   const topNodes = new Set<string>();
   for (const c of netlist.components) {
     for (const p of c.pins) {
-      if (typeof p.node === "string" && p.node.startsWith("n") && !["GND", "ground"].includes(p.node)) {
+      if (typeof p.node === "string" && !groundLabels.has(p.node)) {
         topNodes.add(p.node);
       }
     }

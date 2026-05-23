@@ -12,6 +12,7 @@ import { verifyWithSpice } from "@/lib/verification/verifyWithSpice";
 import { buildCircuitGraph } from "@/lib/graph/buildCircuitGraph";
 import { validateCircuitGraph } from "@/lib/graph/validateCircuitGraph";
 import { detectCrossPattern } from "@/lib/renderers/crossLayoutCircuitRenderer";
+import { detectFourNodeImyong } from "@/lib/renderers/fourNodeImyongRenderer";
 import {
   TOPIC_LABEL,
   type AnalysisResult,
@@ -170,7 +171,10 @@ export async function runUniversalDcPipeline(args: {
     // ── Layout-level validation — cross-layout이 적용될 회로는 graph 검증으로 단락 회로 reject.
     //   V 전압원 +단자가 wire-only path로 GND와 단락되는 layout은 의미 있는 문제가 안 되므로
     //   문제 생성 이전에 throw (API 500 → 사용자가 즉시 인지).
-    if (detectCrossPattern(gen.netlistOpen)) {
+    //   ★ 4-노드 imyong 형식은 fourNodeImyongRenderer 전용 경로 사용 — 2-row cellGrid 단락 버그
+    //     없으므로 검증 skip.
+    const isFourNodeImyong = detectFourNodeImyong(gen.netlistOpen) !== null;
+    if (!isFourNodeImyong && detectCrossPattern(gen.netlistOpen)) {
       try {
         const cg = buildCircuitGraph(gen.netlistOpen);
         validateCircuitGraph(cg);

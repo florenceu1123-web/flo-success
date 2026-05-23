@@ -95,20 +95,10 @@ export function buildFromTopology(args: {
     }
     return b;
   });
-  const dedupedBranches: typeof normalizedBranches = [];
-  const seen = new Set<string>();
-  for (const b of normalizedBranches) {
-    if (!b.betweenNodes) {
-      dedupedBranches.push(b);
-      continue;
-    }
-    const compFp = b.components.map((c) => `${(c.type ?? "").toUpperCase()}:${c.value ?? ""}`).sort().join(",");
-    const nodesKey = [...b.betweenNodes].sort().join("|");
-    const key = `${b.role}|${nodesKey}|${compFp}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    dedupedBranches.push(b);
-  }
+  // 명시적 평행 branch (같은 betweenNodes·같은 component 두 번) 보존 — 사용자가
+  //   의도적으로 2개의 동일 R을 평행으로 두는 케이스 지원. dedupe 시도 시 평행 가지가
+  //   하나로 줄어 mesh count·해석 결과가 모두 어긋남. 입력 신뢰 원칙.
+  const dedupedBranches = normalizedBranches;
   const effectiveTopology: TopologySignature = { ...topology, branches: dedupedBranches };
 
   // ── 1) branches 분류 ────────────────────────────────────
@@ -292,10 +282,12 @@ export function buildFromTopology(args: {
     }
   }
 
-  // ── 4e) Component dedupe — 동일 (type, value, pins as set) component는 중복 제거.
-  //   GPT가 betweenNodes 없이 생성한 R_top4 + R_leg3_1 처럼 결과적으로 같은 노드 쌍 + 같은 값을 갖는 케이스.
-  //   Planar 검증: 같은 두 노드 사이 동일 element 두 개는 의미상 1개.
-  {
+  // ── 4e) Component dedupe — DISABLED.
+  //   이전엔 동일 (type·value·pins) 컴포넌트를 중복으로 간주해 제거했으나, 명시적
+  //   평행 branch(같은 두 노드 사이 동일 R 두 개)가 사라져 mesh count·해석 결과가
+  //   어긋남. 입력 신뢰 원칙으로 dedupe 비활성. GPT 출력이 잘못된 중복이라면 prompt
+  //   단계에서 해결할 것.
+  if (false) {
     const seen = new Set<string>();
     const kept: typeof components = [];
     const removedIds = new Set<string>();

@@ -12,6 +12,7 @@ import { hasSwitchedRlcStep, renderSwitchedRlcStepCircuit } from "./switchedRlcS
 import { hasSwitchedRlc5leg, renderSwitchedRlc5legCircuit } from "./switchedRlc5legCircuitRenderer";
 import { hasAcParallelBranches, renderAcParallelBranchesCircuit } from "./acParallelBranchesCircuitRenderer";
 import { detectCrossPattern, renderCrossLayout } from "./crossLayoutCircuitRenderer";
+import { detectFourNodeImyong, renderFourNodeImyong } from "./fourNodeImyongRenderer";
 
 // =====================================================================
 // analog mesh renderer — 2-rail layout
@@ -107,6 +108,17 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   if (hasMosfet(netlist)) {
     const svg = renderMosfetBiasCircuit(netlist);
     if (svg) return svg;
+  }
+
+  // 0.075 4-노드 imyong 10번 형식 — V·+단자(VS_PLUS) ≠ V1 케이스. universal_dc 핵심 형식.
+  //   사용자 명시 layout 제약:
+  //     VS_PLUS 좌상, V1 중상, V2 우상, GND 중하; V 소스는 좌측 leg vertical, 직접 VS_PLUS-GND 세로 금지.
+  //   cross-layout 의 V·+↔GND wire-only short 버그를 회피하는 dedicated 경로.
+  {
+    const detected = detectFourNodeImyong(netlist);
+    if (detected) {
+      return renderFourNodeImyong(netlist, detected);
+    }
   }
 
   // 0.08 Cross pattern (외곽 perimeter + 내부 십자 cross) — 임용 10번 같은 4-mesh DC.
