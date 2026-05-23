@@ -21,7 +21,8 @@
 
 import type { CircuitComponent, CircuitNetlist, NodeAnnotation } from "@/types";
 import { renderComponentOnEdge } from "./netlistEdgeRenderer";
-import { groupEdgesByNodePair, canonicalPair } from "@/lib/graph/groupEdgesByNodePair";
+import { canonicalPair } from "@/lib/graph/groupEdgesByNodePair";
+import { routeEdges, type RoutedEdge } from "@/lib/graph/routeEdges";
 
 const GROUND_LABELS = new Set(["GND", "gnd", "Gnd", "0", "ground", "Ground"]);
 
@@ -156,34 +157,54 @@ export function renderFourNodeImyong(
   const N = columns.length;
   svg.push(`<path d="M ${colX(0)} ${BOT_Y} L ${colX(N - 1)} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`);
 
-  // ── 2) Horizontal branches — 같은 노드 쌍은 ±offset stack.
-  type HBranch = { c: CircuitComponent; a: string; b: string };
-  const horizBranches: HBranch[] = horizontals.map((c) => {
-    const [p1, p2] = c.pins;
-    return { c, a: p1.node, b: p2.node };
-  });
-  const horizGroups = groupEdgesByNodePair(horizBranches);
-  for (const [, group] of horizGroups) {
-    const M = group.length;
-    group.forEach((b, i) => {
-      const offset = M > 1 ? (i - (M - 1) / 2) * 36 : 0;
-      const from = nodePos[b.a];
-      const to = nodePos[b.b];
-      if (!from || !to) return;
-      const y = TOP_Y + offset;
-      if (offset !== 0) {
-        svg.push(`<path d="M ${from.x} ${from.y} L ${from.x} ${y}" stroke="black" stroke-width="2" fill="none"/>`);
-        svg.push(`<path d="M ${to.x} ${to.y} L ${to.x} ${y}" stroke="black" stroke-width="2" fill="none"/>`);
-      }
-      const cx = (from.x + to.x) / 2;
-      const cy = y;
+  // ── 2) Horizontal branches — routeEdges로 lane 부여 + 독립 rail로 렌더.
+  //   같은 두 노드 사이 평행 가지는 각자 horizontal rail에 (lane offset ±half-pitch)
+  //   stub(semantic node → lane y) + lane rail(component body 가운데) + stub(반대편).
+  type HEdge = { id: string; from: string; to: string; comp: CircuitComponent };
+  const hEdges: HEdge[] = horizontals.map((c, i) => ({
+    id: c.id ?? `h_${i}`,
+    from: c.pins[0].node,
+    to: c.pins[1].node,
+    comp: c,
+  }));
+  const routed: RoutedEdge[] = routeEdges(hEdges, nodePos, "horizontal");
+  const edgeById = new Map(hEdges.map((e) => [e.id, e]));
+  for (const re of routed) {
+    const e = edgeById.get(re.edgeId);
+    if (!e) continue;
+    // path: from anchor → (bend in) → (bend out) → to anchor.
+    // offset = 0이면 [from, to] (직선), offset != 0이면 4-점 polyline.
+    const pts = re.path;
+    // 0~last-1 segment 별로 그림. 마지막 segment(가운데, component 들어가는 segment)는 일부 빈 공간으로.
+    if (pts.length === 2) {
+      // 단일 lane (offset=0) — 직선 위에 component.
+      const [a, b] = pts;
+      const cx = (a.x + b.x) / 2;
+      const cy = (a.y + b.y) / 2;
       svg.push(`<rect x="${cx - HALF - 2}" y="${cy - HALF}" width="${(HALF + 2) * 2}" height="${HALF * 2}" fill="white"/>`);
-      const xMin = Math.min(from.x, to.x);
-      const xMax = Math.max(from.x, to.x);
+      const xMin = Math.min(a.x, b.x);
+      const xMax = Math.max(a.x, b.x);
       svg.push(`<path d="M ${xMin} ${cy} L ${cx - HALF} ${cy}" stroke="black" stroke-width="2" fill="none"/>`);
       svg.push(`<path d="M ${cx + HALF} ${cy} L ${xMax} ${cy}" stroke="black" stroke-width="2" fill="none"/>`);
-      svg.push(renderComponentOnEdge(b.c, { x: cx, y: cy }, "horizontal"));
-    });
+      svg.push(renderComponentOnEdge(e.comp, { x: cx, y: cy }, "horizontal"));
+    } else {
+      // 4-점 polyline — stub_in + lane_rail + stub_out.
+      // pts[0]=fromAnchor, pts[1]=bend_in, pts[2]=bend_out, pts[3]=toAnchor.
+      const [a, bi, bo, b] = pts;
+      const laneY = bi.y;
+      // stubs
+      svg.push(`<path d="M ${a.x} ${a.y} L ${bi.x} ${bi.y}" stroke="black" stroke-width="2" fill="none"/>`);
+      svg.push(`<path d="M ${b.x} ${b.y} L ${bo.x} ${bo.y}" stroke="black" stroke-width="2" fill="none"/>`);
+      // lane rail (component 양옆)
+      const cx = (bi.x + bo.x) / 2;
+      const cy = laneY;
+      svg.push(`<rect x="${cx - HALF - 2}" y="${cy - HALF}" width="${(HALF + 2) * 2}" height="${HALF * 2}" fill="white"/>`);
+      const xMin = Math.min(bi.x, bo.x);
+      const xMax = Math.max(bi.x, bo.x);
+      svg.push(`<path d="M ${xMin} ${cy} L ${cx - HALF} ${cy}" stroke="black" stroke-width="2" fill="none"/>`);
+      svg.push(`<path d="M ${cx + HALF} ${cy} L ${xMax} ${cy}" stroke="black" stroke-width="2" fill="none"/>`);
+      svg.push(renderComponentOnEdge(e.comp, { x: cx, y: cy }, "horizontal"));
+    }
   }
 
   // ── 3) Vertical legs — full-height between top node and bottom rail.
