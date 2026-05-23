@@ -6,11 +6,14 @@
 import { randomUUID } from "node:crypto";
 import type {
   BlockDiagram,
+  CircuitComponent,
   CircuitNetlist,
   FigureVariant,
   GeneratedProblem,
+  PinSide,
 } from "@/types";
 import type { AnalogAnalysis } from "./generateCircuit";
+import { buildWienBridgeSubgraph } from "@/lib/analog/subcircuit/wienBridge";
 
 /** Wien Bridge 표준 component 값 — 일정 (deterministic). variant 모드는 향후 추가. */
 const VALUES = {
@@ -35,7 +38,61 @@ export function generateWienBridgeOscillator(_a: AnalogAnalysis): GeneratedProbl
   const K = 1 + R3_kohm / R1_kohm;     // = 3 by design
   const R3_R1_ratio = R3_kohm / R1_kohm; // = 2
 
-  // ── (가) Wien Bridge 회로 ──
+  // ── (가) Wien Bridge 회로 — subcircuit expansion 방식 ──
+  //
+  //   canonical 구조:
+  //     V+ (양피드백) = frequency-selective positive feedback (RC bridge β(s))
+  //     V− (음피드백) = resistive negative feedback (R_1·R_3 분배기 → K = 1 + R_3/R_1)
+  //
+  //   V+ path는 buildWienBridgeSubgraph()의 template subgraph로 정확히 생성.
+  //   V− path는 R_1·R_3 두 R로 직접 구성. OPAMP를 두 path가 만나는 hub로 사용.
+
+  // V+ path subcircuit expansion — buildWienBridgeSubgraph → CircuitComponent[].
+  //   subgraph 노드명을 회로 노드명으로 mapping (WienMid → n_Z1).
+  //   subgraph 컴포넌트 id를 회로 id로 mapping (R1→R_a, C1→C_a, R2→R_b, C2→C_b).
+  const wienSubgraph = buildWienBridgeSubgraph();
+  const wienNodeMap: Record<string, string> = {
+    Vout: "Vout", Vplus: "Vplus", WienMid: "n_Z1", GND: "GND",
+  };
+  const wienIdMap: Record<string, string> = {
+    R1: "R_a", C1: "C_a", R2: "R_b", C2: "C_b",
+  };
+  // 각 component의 pin side hint — series chain·shunt branch별로 다름.
+  const wienPinSides: Record<string, [PinSide, PinSide]> = {
+    R_a: ["bottom", "right"],
+    C_a: ["left",   "right"],
+    R_b: ["bottom", "top"],
+    C_b: ["bottom", "top"],
+  };
+  const wienComponents: CircuitComponent[] = wienSubgraph.components.map((sc) => {
+    const id = wienIdMap[sc.id];
+    const [side1, side2] = wienPinSides[id];
+    return {
+      id,
+      type: sc.type as CircuitComponent["type"],
+      value: sc.type === "R" ? `${R_kohm}kΩ` : `${C_nF}nF`,
+      pins: [
+        { id: "p1", node: wienNodeMap[sc.between[0]], side: side1 },
+        { id: "p2", node: wienNodeMap[sc.between[1]], side: side2 },
+      ],
+    };
+  });
+  //
+  //   layout: OPAMP를 중심으로 위쪽(V−)에는 저항 분배기, 아래쪽(V+)에는 RC bridge를
+  //          분리 배치 → 두 피드백 경로가 시각적으로 구분되도록.
+  //
+  //   ┌─── R_3 ───────────┐   (V− 음피드백 — 위쪽 rail)
+  //   │                    │
+  //   V−                   │
+  //   │                    │
+  //   R_1                OPAMP ── V_o
+  //   │                    │
+  //   GND                  │
+  //   V+                   │
+  //   │                    │
+  //   R_b∥C_b           Z_1=R_a+C_a (V+ 양피드백 — 아래쪽 rail)
+  //   │                    │
+  //   GND ─────────────────┘
   const netlist: CircuitNetlist = {
     ground: "GND",
     components: [
@@ -47,52 +104,25 @@ export function generateWienBridgeOscillator(_a: AnalogAnalysis): GeneratedProbl
           { id: "p3", node: "Vout",   side: "right", role: "output" },
         ],
       },
-      // 음피드백 — V− → GND R_1
+      // ── V− 저항 분배기 (음피드백) ──
+      // R_1: V− → GND (분배기 ground side)
       {
         id: "R_1", type: "R", value: `${R1_kohm}kΩ`,
         pins: [
-          { id: "p1", node: "Vminus", side: "top" },
-          { id: "p2", node: "GND",    side: "bottom" },
+          { id: "p1", node: "Vminus", side: "bottom" },
+          { id: "p2", node: "GND",    side: "top" },
         ],
       },
-      // 음피드백 — V_out → V− R_3 (단일 2-pin: validator U1 통과 보장)
+      // R_3: V_out → V− (분배기 feedback side) — 단일 2-pin (validator U1 통과)
       {
         id: "R_3", type: "R", value: `${R3_kohm}kΩ`,
         pins: [
-          { id: "p1", node: "Vminus", side: "left" },
-          { id: "p2", node: "Vout",   side: "right" },
+          { id: "p1", node: "Vminus", side: "top" },
+          { id: "p2", node: "Vout",   side: "top" },
         ],
       },
-      // 양피드백 RC 망 Z_1: Vout → R_a → midZ1 → C_a → Vplus (R+C 직렬)
-      {
-        id: "R_a", type: "R", value: `${R_kohm}kΩ`,
-        pins: [
-          { id: "p1", node: "Vout",  side: "left" },
-          { id: "p2", node: "midZ1", side: "right" },
-        ],
-      },
-      {
-        id: "C_a", type: "C", value: `${C_nF}nF`,
-        pins: [
-          { id: "p1", node: "midZ1", side: "left" },
-          { id: "p2", node: "Vplus", side: "right" },
-        ],
-      },
-      // 양피드백 RC 망 Z_2: Vplus → R_b ∥ C_b → GND (R∥C)
-      {
-        id: "R_b", type: "R", value: `${R_kohm}kΩ`,
-        pins: [
-          { id: "p1", node: "Vplus", side: "top" },
-          { id: "p2", node: "GND",   side: "bottom" },
-        ],
-      },
-      {
-        id: "C_b", type: "C", value: `${C_nF}nF`,
-        pins: [
-          { id: "p1", node: "Vplus", side: "top" },
-          { id: "p2", node: "GND",   side: "bottom" },
-        ],
-      },
+      // ── V+ RC bridge (양피드백 — frequency-selective) — subcircuit expansion ──
+      ...wienComponents,
     ],
     nodeAnnotations: [
       { node: "Vminus", label: "V−",  style: "label_only" },
@@ -101,12 +131,20 @@ export function generateWienBridgeOscillator(_a: AnalogAnalysis): GeneratedProbl
     ],
     measurementMarks: [{ kind: "voltage", refs: ["Vout", "GND"], label: "V_o" }],
     positions: {
-      Vminus: { x: 220, y: 200 },
-      Vplus:  { x: 220, y: 360 },
-      Vout:   { x: 540, y: 280 },
-      midZ1:  { x: 540, y: 460 },
-      U1:     { x: 360, y: 280 },
-      GND:    { x: 360, y: 600 },
+      // 노드 좌표 — OPAMP 중심으로 V− 위·V+ 아래로 분리.
+      Vminus: { x: 240, y: 200 },
+      Vplus:  { x: 240, y: 420 },
+      Vout:   { x: 620, y: 310 },
+      n_Z1:   { x: 440, y: 500 },
+      U1:     { x: 420, y: 310 },
+      GND:    { x: 240, y: 600 },
+      // 컴포넌트 좌표 — 노드 사이에 배치.
+      R_1: { x: 240, y: 300 },   // V− → GND 수직
+      R_3: { x: 430, y: 140 },   // V− → V_out 상단 수평
+      R_a: { x: 540, y: 500 },   // V_out → n_Z1 (V_out 아래로 내려 좌측으로)
+      C_a: { x: 340, y: 500 },   // n_Z1 → V+ 하단 수평
+      R_b: { x: 200, y: 510 },   // V+ → GND 수직 (좌)
+      C_b: { x: 280, y: 510 },   // V+ → GND 수직 (우, R_b 옆)
     },
   };
 

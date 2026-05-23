@@ -46,7 +46,9 @@ import { runUniversalAcPipeline } from "@/lib/pipeline/runUniversalAcPipeline";
 import { runUniversalDigitalPipeline } from "@/lib/pipeline/runUniversalDigitalPipeline";
 import { detectOpampArchetype } from "@/lib/analysis/detectOpampArchetype";
 import { generateCircuit } from "@/lib/generation/analog/generateCircuit";
+import { validateWienNetwork } from "@/lib/validators/validateWienNetwork";
 import { randomUUID } from "node:crypto";
+import type { CircuitNetlist } from "@/types";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
@@ -363,6 +365,20 @@ export async function POST(req: NextRequest) {
       }
       log.info("dispatch", { route: "analog_archetype_dispatch", archetype, count: n });
       const base = generateCircuit({ family: "OPAMP", archetype }) as GeneratedProblem;
+      // ── Archetype-specific post-generation validation ──
+      if (archetype === "WIEN_BRIDGE_OSCILLATOR") {
+        const netlistFig = base.figureVariants?.find((f) => f.diagramType === "analog_netlist");
+        if (!netlistFig) {
+          throw new GenerateError("WIEN_NETWORK_VALIDATION_FAILED: analog_netlist figure 누락");
+        }
+        const result = validateWienNetwork(netlistFig.diagram as CircuitNetlist);
+        if (!result.ok) {
+          throw new GenerateError(
+            `WIEN_NETWORK_VALIDATION_FAILED: ${result.errors.join(", ")}`,
+          );
+        }
+        log.info("validate_wien_network", { ok: true });
+      }
       problems = Array.from({ length: n }, () => ({ ...base, id: randomUUID() }));
     } else if (circuitType === "opamp_time_domain" && subjectKey === "electronics") {
       log.info("dispatch", { route: "opamp_time_domain_pipeline", count: n, mode });
