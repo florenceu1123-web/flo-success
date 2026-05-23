@@ -514,10 +514,27 @@ topologySignature.branches에서 ★ 모든 non-ground node id는 최소 2개의
   - 모든 node는 4 role 중 하나여야 한다 → role 있는 노드는 자연히 회로에 묶여 degree ≥ 2.
   - role도 없고 degree=1인 노드는 phantom — 추출 자체가 잘못.
 
-판별 핵심 (role 우선, 단자 표시 부차):
-  · 단자 a/b 같은 ●표시·라벨이 있다 → role="right_unknown" 등 부여 가능. 정당한 측정 노드.
-  · 표시 없이 끝 column에 R 하나만 있고 그 아래 vertical R이 GND로 떨어진다 → ㄱ-자 R 하나.
-    horizontal과 vertical을 별도 branch로 추출하지 말고 load_leg 하나만.
+★ 흔한 실수 케이스: ㄱ-자(L-shape) R을 horizontal + vertical 두 branch로 이중 추출 ★
+
+  원본 회로에서 가장 우측 측정 노드(role: right_unknown)에서 우측·아래로 ㄱ-자로 꺾여
+  GND에 떨어지는 R이 종종 있다. 이 R은 ★ 물리적으로 1개 ★.
+
+  잘못된 추출 ✗ (validator가 reject함):
+    branches = [
+      { role:"top_rail_resistor", components:[{type:"R",value:"10Ω"}], betweenNodes:["right_unknown 노드", "n_right"] },
+      { role:"load_leg",          components:[{type:"R",value:"10Ω"}], betweenNodes:["right_unknown 노드", "GND"] }
+    ]
+    → 같은 ㄱ-자 R을 두 번 추출. n_right는 어디에도 다른 연결 없는 phantom.
+
+  올바른 추출 ✓:
+    branches = [
+      { role:"load_leg", components:[{type:"R",value:"10Ω"}], betweenNodes:["right_unknown 노드", "GND"] }
+    ]
+    → ㄱ-자 R 하나만 load_leg로. n_right 같은 phantom 노드 생성 X.
+
+  판별: 우측 끝 R 다음에 ★ 명시 단자 a/b ●표시나 V 라벨이 있는가? ★
+    YES → 그 노드는 측정점 → nodeAnnotations에 role 부여 가능 → 정당.
+    NO  → ㄱ-자로 GND에 닿는 단일 R → load_leg 하나로만 추출.
 
 좌·우 모든 끝 column에 동일 적용. role 부여 불가능한 노드 = phantom = 만들지 말 것.
 
