@@ -514,6 +514,30 @@ topologySignature.branches에서 ★ 모든 non-ground node id는 최소 2개의
   - 모든 node는 4 role 중 하나여야 한다 → role 있는 노드는 자연히 회로에 묶여 degree ≥ 2.
   - role도 없고 degree=1인 노드는 phantom — 추출 자체가 잘못.
 
+★ 흔한 실수 케이스: 위아래로 쌓인(stacked) 두 R을 직렬 + 중간 junction으로 잘못 추출 ★
+
+  원본 회로에서 같은 x 위치 범위에 두 R이 위아래로 나란히 그려져 있다면:
+  → 이는 ★ 같은 두 노드 사이의 평행 가지(parallel branch) ★. 직렬 아님.
+  → 시각: 양 끝이 같은 vertical wire에 연결되고 가운데에 R 두 개가 stack.
+
+  잘못된 추출 ✗:
+    branches = [
+      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["A","n_mid"] },
+      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["n_mid","B"] }
+    ]
+    → 두 R을 직렬로 보고 중간에 n_mid 만듦. n_mid는 어디에도 라벨 없는 phantom.
+
+  올바른 추출 ✓:
+    branches = [
+      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["A","B"] },
+      { role:"top_rail_resistor", components:[{type:"R",value:"20Ω"}], betweenNodes:["A","B"] }
+    ]
+    → 같은 betweenNodes로 두 entry. 자동으로 평행 가지(mesh +1)로 처리.
+
+  판별: 두 R의 좌·우 끝점이 같은 vertical wire(또는 같은 node label)에 연결되어 있는가?
+    YES → 평행 (같은 betweenNodes)
+    NO  → 직렬 (다른 betweenNodes, 단 중간 노드는 명시 라벨이 있어야 함)
+
 ★ 흔한 실수 케이스: ㄱ-자(L-shape) R을 horizontal + vertical 두 branch로 이중 추출 ★
 
   원본 회로에서 가장 우측 측정 노드(role: right_unknown)에서 우측·아래로 ㄱ-자로 꺾여
