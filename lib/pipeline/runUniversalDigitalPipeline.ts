@@ -64,7 +64,7 @@ export async function runUniversalDigitalPipeline(args: {
   return generateInParallel(count, async (i, seed) => {
     // M번 K-map 함수 생성 — seed variation으로 독립 boolean function들.
     const archetype: KmapSopArchetype = N === 3 ? "kmap_3var" : "kmap_4var";
-    const funcs = [];
+    const funcs: ReturnType<typeof generateKmapSop>[] = [];
     for (let fi = 0; fi < M; fi++) {
       const fnSeed = seed + fi * 7919;  // prime spacing
       const gen = generateKmapSop({ archetype, seed: fnSeed });
@@ -107,17 +107,32 @@ export async function runUniversalDigitalPipeline(args: {
       diagram: combination,
     };
 
-    // 텍스트 — 각 함수의 최소 SOP + 결합 식.
+    // 텍스트 — 각 함수의 최소 SOP + multi-stage DAG 식.
     const sopList = funcs.map((f, fi) => `f_${fi + 1} = ${f.sopExpression}`).join("\n");
     const opSym = gateOp === "OR" ? "+" : gateOp === "AND" ? "·" : "⊕";
-    const combined = funcs.map((_, fi) => `f_${fi + 1}`).join(` ${opSym} `);
+    // DAG의 각 gate를 stage별로 식 변환.
+    const gateNodes = dag.nodes.filter(
+      (n): n is Extract<LogicDAGNode, { kind: "gate" }> => n.kind === "gate",
+    );
+    const labelOfNode = (id: string): string => {
+      const node = dag.nodes.find((n) => n.id === id);
+      if (!node) return id;
+      if (node.kind === "function") {
+        const fi = funcs.findIndex((_, i) => `f${i + 1}` === id);
+        return fi >= 0 ? `f_${fi + 1}` : (node.label ?? id);
+      }
+      return node.label ?? id;
+    };
+    const stageEqs = gateNodes
+      .map((g) => `${labelOfNode(g.id)} = ${g.inputs.map(labelOfNode).join(` ${opSym} `)}`)
+      .join("\n");
     const content = [
-      `${N}-변수(${inputs.length > 0 ? inputs.join(", ") : "A,B,C,D".slice(0, 2 * N - 1)}) 입력에 대한 ${M}개의 boolean 함수 + ${gateOp} 결합 문제.`,
-      `각 함수는 minterm 셋으로 정의되며, ${gateOp} gate로 결합해 최종 출력을 만든다.`,
+      `${N}-변수(${inputs.length > 0 ? inputs.join(", ") : "A,B,C,D".slice(0, 2 * N - 1)}) 입력에 대한 ${M}개의 boolean 함수 + multi-stage ${gateOp} 결합 문제.`,
+      `각 함수는 minterm 셋으로 정의되며, 중간 신호(${intermediateSignalsOf(dag).join(", ") || "없음"})를 거쳐 최종 출력 Z를 만든다.`,
       contextHint || topicLabel || "",
     ].filter(Boolean).join(" ");
-    const question = `[단계 1] 각 함수 f_1 ... f_${M}의 최소 SOP를 구한다.\n[단계 2] 결합 출력 Z = ${combined}을(를) 구한다.`;
-    const answer = `[단계 1]\n${sopList}\n[단계 2] Z = ${combined}`;
+    const question = `[단계 1] 각 함수 f_1 ... f_${M}의 최소 SOP를 구한다.\n[단계 2] multi-stage 결합으로 최종 출력 Z를 구한다.`;
+    const answer = `[단계 1]\n${sopList}\n[단계 2]\n${stageEqs}`;
 
     return {
       id: randomUUID(),
