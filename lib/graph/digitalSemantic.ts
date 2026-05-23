@@ -53,6 +53,93 @@ export type GateNode = {
   readonly inputs: readonly string[];  // DigitalFunction name 또는 다른 GateNode id
 };
 
+// ─── LogicDAG — multi-stage 게이트 결합 표현 ────────────────────────────
+
+/**
+ * LogicDAG node — function leaf 또는 gate.
+ *   leaf (kind="function"): K-map으로 정의된 boolean 함수의 출력 wire.
+ *   gate (kind="gate"): inputs (다른 node id)을 받아 새 신호 emit.
+ *
+ *   label은 시각화·텍스트 표시용 (id와 다를 수 있음 — 예: id="X", label="X").
+ */
+export type LogicDAGNode =
+  | { readonly id: string; readonly kind: "function"; readonly label?: string }
+  | { readonly id: string; readonly kind: "gate"; readonly gate: GateOp; readonly inputs: readonly string[]; readonly label?: string };
+
+/**
+ * LogicDAG — function leaf들과 multi-stage gate들의 directed acyclic graph.
+ *   outputId: 최종 출력 node id (보통 최상단 gate).
+ *   nodes: 모든 leaf + gate. topological sort 가능해야 함 (cycle 금지).
+ *
+ *   예 — 임용 8번 풀이 모델 (사용자 제시):
+ *     {
+ *       outputId: "Z",
+ *       nodes: [
+ *         { id:"f1", kind:"function", label:"f_1" },
+ *         { id:"f2", kind:"function", label:"f_2" },
+ *         { id:"f3", kind:"function", label:"f_3" },
+ *         { id:"f4", kind:"function", label:"f_4" },
+ *         { id:"X",  kind:"gate", gate:"AND", inputs:["f1","f2"], label:"X" },
+ *         { id:"Y",  kind:"gate", gate:"OR",  inputs:["f3","f4"], label:"Y" },
+ *         { id:"Z",  kind:"gate", gate:"XOR", inputs:["X","Y"],  label:"Z" }
+ *       ]
+ *     }
+ *
+ *   intermediateSignals = DAG에서 leaf도 outputId도 아닌 gate들의 label/id.
+ *   universal_digital pipeline·renderer가 이 구조로 multi-stage 회로 layout.
+ */
+export type LogicDAG = {
+  readonly outputId: string;
+  readonly nodes: readonly LogicDAGNode[];
+};
+
+/**
+ * LogicDAG에서 intermediate signal 추출 — function leaf도 outputId도 아닌 gate들.
+ */
+export function intermediateSignalsOf(dag: LogicDAG): string[] {
+  return dag.nodes
+    .filter((n): n is Extract<LogicDAGNode, { kind: "gate" }> => n.kind === "gate")
+    .filter((n) => n.id !== dag.outputId)
+    .map((n) => n.label ?? n.id);
+}
+
+/**
+ * LogicDAG 검증 — cycle / unknown reference / missing outputId.
+ */
+export function validateLogicDAG(dag: LogicDAG): string[] {
+  const errors: string[] = [];
+  const ids = new Set(dag.nodes.map((n) => n.id));
+  if (!ids.has(dag.outputId)) {
+    errors.push(`LogicDAG: outputId "${dag.outputId}" not in nodes`);
+  }
+  for (const n of dag.nodes) {
+    if (n.kind !== "gate") continue;
+    for (const inp of n.inputs) {
+      if (!ids.has(inp)) errors.push(`LogicDAG node ${n.id}: unknown input "${inp}"`);
+    }
+  }
+  // cycle 검사 — topological sort
+  const visited = new Set<string>();
+  const onStack = new Set<string>();
+  const byId = new Map(dag.nodes.map((n) => [n.id, n] as const));
+  const dfs = (id: string): boolean => {
+    if (onStack.has(id)) return true;
+    if (visited.has(id)) return false;
+    visited.add(id);
+    onStack.add(id);
+    const node = byId.get(id);
+    if (node?.kind === "gate") {
+      for (const inp of node.inputs) {
+        if (dfs(inp)) return true;
+      }
+    }
+    onStack.delete(id);
+    return false;
+  };
+  if (dfs(dag.outputId)) errors.push("LogicDAG: cycle detected");
+  return errors;
+}
+
 /**
  * Output specification — 최종 출력은 GateNode id 또는 DigitalFunction name을 직접 가리킴.
  */

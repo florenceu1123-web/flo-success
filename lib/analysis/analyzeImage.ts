@@ -480,6 +480,18 @@ K-map 문제를 분석할 때 ★ K-map 개수와 차원을 정확히 카운트 
   - K-map 4개·변수 4개·결합 게이트 OR/AND를 명확히 설명.
   - "각 함수의 최소합" / "f_1, f_2, ..." / "Σm(...)" 표기 보존.
 
+(5) ★ intermediateSignals 추출 — multi-stage gate network 보존 ★
+  signals.intermediateSignals에 ★ 게이트 사이 wire 이름 명시 ★ 하라:
+  - 회로에 명시된 중간 출력(X, Y 등)이 있으면 ["X","Y"] 등으로.
+  - 원본의 multi-stage 구조 절대 평탄화하지 말 것 (예: f_1·f_2·f_3·f_4를
+    하나의 OR로 직접 묶는 식으로 단순화 금지).
+  - 회로가 (f_1 ∧ f_2) → X, (f_3 ∨ f_4) → Y, (X ⊕ Y) → Z 같이 stage가
+    있으면 X, Y를 intermediateSignals에 넣고 outputs는 [Z].
+  - 명시 라벨이 없어도 multi-stage 구조면 자동 라벨(X1, X2, ...) 부여.
+
+  ★ 절대 금지 ★: f_1·f_2·f_3·f_4를 하나의 OR/AND 게이트에 직접 연결한
+  단순 형태로 환원 (원본 회로의 multi-stage 구조 손실).
+
 ★ 잘못된 추출 (절대 금지) ★:
   - 4-변수 K-map(4x4)을 3-변수(2x4)로 잘못 읽기 — 행/열 라벨 무시
   - 4개 함수(f_1..f_4)를 2개 출력(F, G)으로 축소

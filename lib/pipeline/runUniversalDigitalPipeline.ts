@@ -21,13 +21,15 @@ import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { generateKmapSop, type KmapSopArchetype } from "@/lib/generation/topologies/kmapSop";
 import { buildContextHint, generateInParallel } from "./_common";
+import type { LogicDAG, LogicDAGNode } from "@/lib/graph/digitalSemantic";
+import { validateLogicDAG, intermediateSignalsOf } from "@/lib/graph/digitalSemantic";
+import { dagToLogicNetwork } from "@/lib/renderers/logicDagRenderer";
 import {
   TOPIC_LABEL,
   type AnalysisResult,
   type FigureVariant,
   type GeneratedProblem,
   type GenerationMode,
-  type LogicNetworkDiagram,
   type TopicKey,
 } from "@/types";
 
@@ -78,13 +80,28 @@ export async function runUniversalDigitalPipeline(args: {
       diagram: f.kmapDiagram,
     }));
 
-    // Combination circuit — 모든 함수의 SOP 출력을 gate로 묶음.
-    //   각 함수가 produce하는 minimal SOP 출력 wire를 입력으로 받는 단일 gate.
-    //   logic_network로 그림.
-    const combination = buildCombinationDiagram(funcs, gateOp);
+    // ── LogicDAG 생성 — 직접 단일 OR로 묶지 말 것. intermediate stage(X,Y) 보존.
+    //   파이프라인: minterms → kmap → LogicDAG → validate → render.
+    //   원본 회로에 명시된 intermediate gate(X = f1∧f2, Y = f3∨f4 등)가 있으면 그것 사용,
+    //   없으면 2-stage 기본 트리(pair-wise → 최종 결합) 자동 구성.
+    const intermediateNames = analysis?.signals?.intermediateSignals ?? [];
+    const dag = buildLogicDag(funcs.map((_, fi) => `f${fi + 1}`), gateOp, intermediateNames);
+    const dagErrors = validateLogicDAG(dag);
+    if (dagErrors.length > 0) {
+      log.warn("logic_dag_validation_failed", { errors: dagErrors });
+    } else {
+      log.info("logic_dag_built", {
+        nodes: dag.nodes.length,
+        outputId: dag.outputId,
+        intermediates: intermediateSignalsOf(dag),
+      });
+    }
+    const combination = dagToLogicNetwork(dag, Object.fromEntries(
+      funcs.map((_, fi) => [`f${fi + 1}`, `f_${fi + 1}`]),
+    ));
     const combFigure: FigureVariant = {
       id: `fig_combination_${i + 1}`,
-      label: `통합 회로 (${gateOp} 결합)`,
+      label: `통합 회로 (multi-stage DAG)`,
       role: "implementation_circuit",
       diagramType: "logic_network",
       diagram: combination,
@@ -156,24 +173,95 @@ function inferGateOp(analysis: AnalysisResult | null | undefined): GateOp {
 }
 
 /**
- * Combination diagram — M개 함수 출력 wire를 하나의 gate로 묶는 logic_network.
- *   각 함수는 "f_i" 라벨의 input wire로 표현. (개별 함수의 내부 회로는 별도 K-map figure에서 표시.)
+ * LogicDAG 구성 — 함수 ids(f1..fM)을 multi-stage gate로 묶어 최종 출력 Z.
+ *
+ *   ★ 절대 단일 OR로 직접 묶지 말 것 ★ — intermediate stage(X, Y)를 반드시 보존.
+ *
+ *   intermediateNames가 제공되면 그 이름들을 stage 출력 라벨로 사용 (분석에서 명시 추출).
+ *   미제공 시 2-stage 기본 트리:
+ *     M=2: Z = gate(f1, f2)
+ *     M=3: X = gate(f1, f2); Z = gate(X, f3)
+ *     M=4: X = gate(f1, f2); Y = gate(f3, f4); Z = gate(X, Y)
+ *     M≥5: 함수 쌍별 묶고 다시 묶기 (binary tree)
+ *
+ *   stage gate type은 기본 gateOp. 향후 stage별 다른 gate(AND·XOR 등) 지원 가능.
  */
-function buildCombinationDiagram(
-  funcs: ReturnType<typeof generateKmapSop>[],
+function buildLogicDag(
+  funcIds: readonly string[],
   gateOp: GateOp,
-): LogicNetworkDiagram {
-  const M = funcs.length;
-  return {
-    inputs: funcs.map((_, i) => `f_${i + 1}`),
-    outputs: ["Z"],
-    gates: [
-      {
-        id: "combine",
-        type: gateOp,
-        inputs: funcs.map((_, i) => `f_${i + 1}`),
-        output: "Z",
-      },
-    ],
-  };
+  intermediateNames: readonly string[],
+): LogicDAG {
+  const M = funcIds.length;
+  const nodes: LogicDAGNode[] = funcIds.map((id, i) => ({
+    id,
+    kind: "function",
+    label: `f_${i + 1}`,
+  }));
+
+  if (M === 0) {
+    return { outputId: "Z", nodes: [{ id: "Z", kind: "gate", gate: "OR", inputs: [], label: "Z" }] };
+  }
+  if (M === 1) {
+    nodes.push({ id: "Z", kind: "gate", gate: gateOp, inputs: [funcIds[0]], label: "Z" });
+    return { outputId: "Z", nodes };
+  }
+
+  // M ≥ 2: binary tree로 묶는다. intermediateNames가 충분하면 그 이름 사용.
+  const intermName = (idx: number, fallback: string) =>
+    intermediateNames[idx] ?? fallback;
+
+  if (M === 2) {
+    nodes.push({ id: "Z", kind: "gate", gate: gateOp, inputs: [funcIds[0], funcIds[1]], label: "Z" });
+    return { outputId: "Z", nodes };
+  }
+  if (M === 3) {
+    const xId = intermName(0, "X");
+    nodes.push({ id: xId, kind: "gate", gate: gateOp, inputs: [funcIds[0], funcIds[1]], label: xId });
+    nodes.push({ id: "Z", kind: "gate", gate: gateOp, inputs: [xId, funcIds[2]], label: "Z" });
+    return { outputId: "Z", nodes };
+  }
+  if (M === 4) {
+    const xId = intermName(0, "X");
+    const yId = intermName(1, "Y");
+    nodes.push({ id: xId, kind: "gate", gate: gateOp, inputs: [funcIds[0], funcIds[1]], label: xId });
+    nodes.push({ id: yId, kind: "gate", gate: gateOp, inputs: [funcIds[2], funcIds[3]], label: yId });
+    nodes.push({ id: "Z", kind: "gate", gate: gateOp, inputs: [xId, yId], label: "Z" });
+    return { outputId: "Z", nodes };
+  }
+
+  // M ≥ 5: 일반 binary tree
+  let layer: string[] = [...funcIds];
+  let stageIdx = 0;
+  while (layer.length > 1) {
+    const next: string[] = [];
+    for (let i = 0; i < layer.length; i += 2) {
+      if (i + 1 >= layer.length) {
+        next.push(layer[i]);
+        continue;
+      }
+      const id = layer.length === 2 && next.length === 0
+        ? "Z"
+        : intermName(stageIdx, `G${stageIdx + 1}`);
+      stageIdx++;
+      nodes.push({
+        id,
+        kind: "gate",
+        gate: gateOp,
+        inputs: [layer[i], layer[i + 1]],
+        label: id,
+      });
+      next.push(id);
+    }
+    layer = next;
+  }
+  const outputId = layer[0];
+  // 마지막 node가 Z가 아니면 outputId를 Z로 rename
+  if (outputId !== "Z") {
+    const lastNode = nodes[nodes.length - 1];
+    if (lastNode.kind === "gate") {
+      nodes[nodes.length - 1] = { ...lastNode, id: "Z", label: "Z" };
+      // 다른 노드들에서 outputId 참조 update 불필요 (마지막 node는 누구도 참조 안 함)
+    }
+  }
+  return { outputId: "Z", nodes };
 }

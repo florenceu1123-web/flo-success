@@ -212,6 +212,14 @@ export type AnalysisResult = {
   signals?: {
     inputs: string[];
     outputs: string[];
+    /**
+     * 중간 신호 — 게이트 사이의 wire (입력도 출력도 아닌 것).
+     *   예) 임용 8번: f_1, f_2, f_3, f_4 (각 K-map의 minimized SOP 출력 wire)
+     *   여러 stage gate network에서 stage 간 신호 이름.
+     *   universal_digital pipeline·renderer가 이 이름으로 K-map figure title·
+     *   combination circuit input label을 표시.
+     */
+    intermediateSignals?: string[];
   };
   /** 원본 분석에서 결정된 figure 요구사항 — generate·validator가 그대로 강제 */
   figureRequirements?: FigureRequirement[];
@@ -408,6 +416,7 @@ export type StructureSignature = {
   signals?: {
     inputs: string[];
     outputs: string[];
+    intermediateSignals?: string[];   // 게이트 사이 wire (예: f_1, f_2, f_3, f_4)
   };
   figureRequirements: {
     role: string;
