@@ -76,9 +76,11 @@ export function repairLeftParallelFeed(netlist: CircuitNetlist): CircuitNetlist 
 
   if (feeds.length === 1) {
     const orig = feeds[0];
+    // user-facing label로 노출되므로 내부 jargon("_repaired") 제거.
+    //   기존 R_top1 등과 구분하기 위해 _par suffix만.
     const newR: CircuitComponent = {
       ...orig,
-      id: "R_left_parallel_repaired",
+      id: `${orig.id}_par`,
       value: orig.value,
       pins: [
         { id: "p1", node: src, side: "top" },

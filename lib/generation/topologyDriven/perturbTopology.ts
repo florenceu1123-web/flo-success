@@ -23,23 +23,33 @@ export function perturbTopology(
   const rand = makeSeededRand(seed);
   const flip = options?.polarityFlipIndices;
   let sourceCounter = 0;
+  const GROUND_LABELS = new Set(["GND", "gnd", "Gnd", "0", "ground", "Ground"]);
   return {
     ...topology,
-    branches: topology.branches.map((branch) => ({
-      ...branch,
-      components: branch.components.map((c) => {
-        const parsed = parseValue(c.value);
-        if (!parsed || !Number.isFinite(parsed.numeric)) return c;
-        const t = (c.type ?? "").toUpperCase();
-        const isSource = t === "V" || t === "I" || t === "VS" || t === "IS";
-        let newNumeric = perturbNumeric(parsed.numeric, c.type, mode, rand);
-        if (isSource) {
-          const idx = sourceCounter++;
-          if (flip?.has(idx)) newNumeric = -newNumeric;
-        }
-        return { ...c, value: formatBack(newNumeric, parsed.suffix, c.value) };
-      }),
-    })),
+    branches: topology.branches.map((branch) => {
+      // ground-referenced branch — 단자 중 하나가 GND → 극성이 구조적으로 결정됨.
+      //   이런 source는 polarity flip variation을 의미 없음 (V·+ at GND = "short" 오해 발생).
+      //   value를 음수로 두지 말고 flip을 무시.
+      const [n1, n2] = branch.betweenNodes ?? ["", ""];
+      const isGroundReferenced = GROUND_LABELS.has(n1) || GROUND_LABELS.has(n2);
+      return {
+        ...branch,
+        components: branch.components.map((c) => {
+          const parsed = parseValue(c.value);
+          if (!parsed || !Number.isFinite(parsed.numeric)) return c;
+          const t = (c.type ?? "").toUpperCase();
+          const isSource = t === "V" || t === "I" || t === "VS" || t === "IS";
+          let newNumeric = perturbNumeric(parsed.numeric, c.type, mode, rand);
+          if (isSource) {
+            const idx = sourceCounter++;
+            if (flip?.has(idx) && !isGroundReferenced) {
+              newNumeric = -newNumeric;
+            }
+          }
+          return { ...c, value: formatBack(newNumeric, parsed.suffix, c.value) };
+        }),
+      };
+    }),
   };
 }
 

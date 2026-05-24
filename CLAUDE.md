@@ -36,6 +36,131 @@ flo-success/
 
 ---
 
+# 🚨 절대 원칙 — LLM은 문제 구조 JSON만, layout은 archetype renderer (2026-05-25 도입)
+
+## Circuit Generation Architecture Principle
+
+LLM **must not** directly draw circuits.
+
+LLM outputs **only semantic problem JSON**:
+- problem type
+- archetype
+- nodes/roles
+- component values
+- required analysis steps
+
+Layout/rendering is handled **only by deterministic archetype renderers**.
+
+**Flow**:
+```
+Image/Prompt
+  → Analysis JSON
+  → Archetype Detection
+  → Archetype JSON
+  → Archetype Validator
+  → Slot-based Renderer
+  → SVG
+```
+
+**Do not** use free auto-routing for known exam archetypes.
+If an archetype is detected, dispatch to its **fixed renderer before universal_dc**.
+
+## 작업 원칙 (Do / Don't)
+
+- ❌ 자동 라우터 계속 수정
+- ❌ 원칙 없이 코드 추가
+- ✅ 먼저 아키텍처 원칙 고정
+- ✅ archetype별 작업 단위로 (스키마 + detector + renderer + dispatch) 함께 commit
+
+## 새 archetype 도입 시 표준 6 단계
+
+1. **CLAUDE.md에 원칙 문서화** — 해당 archetype의 slot 스키마·layout·구조 JSON 명세
+2. **`lib/analog/archetypeRegistry.ts`** — `AnalogArchetype` enum + 구조 JSON 타입 추가
+3. **detector** — `lib/analysis/` 에 새 archetype 인식 logic (분석 결과에서 archetype 라벨 결정)
+4. **fixed-slot renderer** — `lib/renderers/{archetype}Circuit.ts` 고정 좌표 SVG 생성
+5. **dispatch wiring** — `app/api/generate/route.ts` 에서 archetype 매칭 시 universal path **앞에** 라우팅
+6. **smoke test** — `/api/generate` HTTP 200 + 생성 SVG 시각 확인
+
+---
+
+## 한글 상세 설명 (위 원칙의 해설)
+
+**LLM이 회로를 그리게 하지 말고**, LLM은 **"문제 구조 JSON"만 만들게 한다**.
+그 다음 **문제 유형별 renderer가 고정된 슬롯에 소자를 배치**한다.
+
+## 책임 분리
+
+| 단계 | 담당 | 출력 |
+|---|---|---|
+| 1. semantic 추출 | LLM Vision | **문제 구조 JSON** — 소자 종류·값·문제 단계·정답 변수만. **위치·좌표·배치 정보 금지**. |
+| 2. archetype 결정 | classifier (rule + LLM 보조) | archetype id (예: `IMYONG_10_DC_NODAL`, `WIEN_BRIDGE_OSCILLATOR`) |
+| 3. layout 배치 | archetype-specific renderer | **고정 슬롯 좌표**에 소자 배치 → SVG |
+
+## 왜 이렇게 하는가
+- LLM은 회로 위치를 일관되게 못 그림 — phantom node, 좌표 부정확, dangling component 발생
+- 같은 구조 문제 N번 생성해도 매번 다른 layout 나옴 → 시각적 불안정
+- archetype별 고정 slot은 결정론적 — 같은 JSON → 같은 SVG 보장
+
+## archetype renderer가 받는 "문제 구조 JSON" 예 — imyong 10 형식
+
+```ts
+type Imyong10DcStructure = {
+  archetype: "IMYONG_10_DC_NODAL";
+  values: {
+    V_s: number;        // 좌측 V 소스 (예: 20)
+    R_left_top: number; // V_s ↔ V_1 위쪽 R (예: 20)
+    R_left_mid: number; // V_s ↔ V_1 아래쪽 R (예: 20)
+    R_v1_v2: number;    // V_1 ↔ V_2 위쪽 R (예: 10)
+    I_src: number;      // V_1 ↔ V_2 아래쪽 I (예: 0.5)
+    R_right: number;    // V_2 ↔ GND R (예: 10)
+    // R_var는 변수 (학생 도출 대상) → value 없음
+  };
+  query: {
+    targetNode: "V_1" | "V_2" | "V_3";
+    targetValue: number;  // 예: V_2 = 3.8V 조건
+  };
+};
+```
+
+## 고정 슬롯 스키마 (imyong 10 archetype)
+
+| slot id | 위치 | 소자 |
+|---|---|---|
+| `slot_left_source` | 좌측 vertical leg (VS_PLUS↔GND) | V 소스 |
+| `slot_left_top_R` | VS_PLUS↔V1 사이 위쪽 horizontal | R |
+| `slot_left_mid_R` | VS_PLUS↔V1 사이 아래쪽 horizontal | R (parallel) |
+| `slot_center_Rvar` | V1↔GND vertical | R (가변, "R"만 표시) |
+| `slot_v1_v2_top_R` | V1↔V2 사이 위쪽 horizontal | R |
+| `slot_v1_v2_mid_I` | V1↔V2 사이 아래쪽 horizontal | I 소스 |
+| `slot_right_R` | V2↔GND vertical | R |
+
+## 고정 layout (imyong 10 archetype)
+
+```
+VS_PLUS ┬─ R_left_top ─┬ V1 ┬─ R_v1_v2 ─┬ V2
+        └─ R_left_mid ─┘    └─ I_src ───┘
+                 │                    │
+                R_var                R_right
+                 │                    │
+                GND ──────────────────┘
+```
+
+renderer는 이 JSON을 받아서 **항상 같은 좌표에 배치**한다. seed·perturbation은 *value*에만 적용,
+*위치/연결성*은 결정론.
+
+## 적용 범위
+
+- **점진 전환** — 이미 archetype 있는 케이스부터 (Wien Bridge, opamp_positive_feedback 등) 이 원칙 적용
+- **universal_dc 같은 free-form path**는 LLM 출력의 위치성을 그대로 쓰지만, archetype에 잡히면 고정 layout으로 우선 라우팅
+- 새 archetype은 반드시 (1) 구조 JSON 스키마 + (2) 고정 slot renderer 둘 다 함께 작성
+
+## 기존 원칙과의 관계
+- [[feedback_universal_path]] (rule-based universal path 우선)은 archetype 폭증 방지가 목적.
+  이 원칙은 archetype을 **추가할 때**의 작성 방식 — 둘은 모순 아님 (universal로 흡수 안 되는 fixed-template archetype에 한해 적용).
+- [[feedback_fix_vs_rule]] (코드 fix 대신 prompt 규칙)과도 양립 — LLM이 구조 JSON 잘 만들도록 prompt 강화하면 됨.
+
+---
+
 # 🚨 절대 원칙 — Rule-Based Universal Path 우선 (2026-05-23 도입)
 
 **새 임용 형식이 들어와도 archetype 추가 금지.** 규칙 기반 universal path로 흡수한다.

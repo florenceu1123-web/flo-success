@@ -12,6 +12,8 @@ import type {
   MuxGarCircuitDiagram,
   RlcResonanceMaxPowerCircuitDiagram,
 } from "@/types";
+import type { Imyong10DcNodalStructure } from "@/lib/analog/archetypeRegistry";
+import { renderImyong10DcNodalCircuit } from "./imyong10DcNodalCircuit";
 import { DiagramMissing, FigureHeader, PlaceholderFigure } from "./_placeholder";
 import { renderAnalogMeshSVG } from "./analogMeshRenderer";
 import { renderBlockDiagramSVG } from "./blockDiagramRenderer";
@@ -60,6 +62,8 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderCharacteristicCurveSVG(figure.diagram as CharacteristicCurveDiagram));
     case "mux_diagram":
       return wrapSvg(figure, renderMuxDiagramSVG(figure.diagram as MuxDiagram));
+    case "imyong_10_dc_nodal":
+      return wrapSvg(figure, renderImyong10DcNodalCircuit(figure.diagram as Imyong10DcNodalStructure));
     case "mux_gar_circuit":
       return wrapSvg(figure, renderMuxGarCircuitSVG(figure.diagram as MuxGarCircuitDiagram));
     case "rlc_resonance_max_power_circuit":

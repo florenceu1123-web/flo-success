@@ -1,4 +1,4 @@
-import { getOpenAI, DEFAULT_MODEL } from "@/lib/openai";
+import { getOpenAI, DEFAULT_MODEL, withRateLimitRetry } from "@/lib/openai";
 import { createLogger } from "@/lib/logger";
 import { SUBJECT_HINT } from "@/lib/prompts";
 import { buildStructuralEnvelope } from "./buildStructuralEnvelope";
@@ -821,7 +821,7 @@ export async function analyzeImage(args: {
   // Phase 2: Structured Outputs (json_schema strict) — 핵심 필드 schema 강제.
   // GPT가 topologySignature.branches·nodeAnnotations·loadPlaceholders 같은
   // 중요 필드를 누락하던 문제 해결. strict mode 제약 때문에 nullable은 ["type","null"].
-  const completion = await openai.chat.completions.create({
+  const completion = await withRateLimitRetry(() => openai.chat.completions.create({
     model: DEFAULT_MODEL,
     messages: [{
       role: "user",
@@ -839,7 +839,7 @@ export async function analyzeImage(args: {
       },
     },
     max_tokens: 2200,
-  });
+  }));
 
   const raw = completion.choices[0]?.message?.content ?? "{}";
   let parsed: unknown;

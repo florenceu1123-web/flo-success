@@ -32,13 +32,20 @@ export type NgspiceResult = {
 };
 
 /**
+ * Windows ngspice는 GUI 버전과 console 버전(ngspice_con.exe)이 별도 binary.
+ *   GUI는 batch 모드에서도 fatal error 시 dialog 팝업 → 자동화 시 막힘.
+ *   console 버전을 우선 사용하고 없으면 일반 ngspice fallback.
+ */
+const NGSPICE_BIN = process.platform === "win32" ? "ngspice_con" : "ngspice";
+
+/**
  * ngspice 실행 가능 여부 체크 (PATH에서 찾기).
  *  Windows ngspice는 --version에 반응 안 함 → 빈 deck 한 줄을 batch로 던져 ENOENT만 본다.
  */
 export async function isNgspiceAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
     // 첫 줄이 .end만 있는 최소 deck. ngspice는 무시하고 exit하지만 ENOENT는 아님.
-    const child = spawn("ngspice", ["-b"], { stdio: ["pipe", "ignore", "ignore"] });
+    const child = spawn(NGSPICE_BIN, ["-b"], { stdio: ["pipe", "ignore", "ignore"] });
     child.on("error", () => resolve(false));
     child.on("exit", () => resolve(true));
     child.stdin.write(".title probe\n.end\nquit\n");
@@ -61,7 +68,7 @@ export async function runNgspice(deckText: string, timeoutMs = 5000): Promise<Ng
   await writeFile(deckPath, deckText, "utf8");
 
   return new Promise<NgspiceResult>((resolve, reject) => {
-    const child = spawn("ngspice", ["-b", "-o", logPath, deckPath], {
+    const child = spawn(NGSPICE_BIN, ["-b", "-o", logPath, deckPath], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

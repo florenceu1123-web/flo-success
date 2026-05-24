@@ -184,8 +184,8 @@ export function renderWienBridgeOscillatorCircuit(netlist: CircuitNetlist): stri
   svg += line(VMINUS_COL_X, VMINUS_PIN.y, VMINUS_COL_X, R3_TOP_Y);
   svg += dot(VMINUS_COL_X, VMINUS_PIN.y);
   // R_3 horizontal: VMINUS_COL_X → VOUT_COL_X at R3_TOP_Y
-  svg += line(VMINUS_COL_X, R3_TOP_Y, R1_COL_X + 80, R3_TOP_Y); // wire to R_3 left
   const r3Cx = (VMINUS_COL_X + VOUT_COL_X) / 2;
+  svg += line(VMINUS_COL_X, R3_TOP_Y, r3Cx - 20, R3_TOP_Y); // wire to R_3 left terminal
   svg += resistorH(r3Cx, R3_TOP_Y, "R_3", r3Val);
   svg += line(r3Cx + 20, R3_TOP_Y, VOUT_COL_X, R3_TOP_Y);
   // Vout column down from R3 to OPAMP output

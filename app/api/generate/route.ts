@@ -42,6 +42,8 @@ import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisP
 import { runMuxImplementationPipeline } from "@/lib/pipeline/runMuxImplementationPipeline";
 import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipeline";
 import { runUniversalDcPipeline } from "@/lib/pipeline/runUniversalDcPipeline";
+import { detectImyong10Archetype, countInventoryByType } from "@/lib/analysis/detectImyong10Archetype";
+import { generateImyong10DcNodal } from "@/lib/generation/dc/generateImyong10DcNodal";
 import { runUniversalAcPipeline } from "@/lib/pipeline/runUniversalAcPipeline";
 import { runUniversalDigitalPipeline } from "@/lib/pipeline/runUniversalDigitalPipeline";
 import { detectOpampArchetype } from "@/lib/analysis/detectOpampArchetype";
@@ -180,6 +182,29 @@ export async function POST(req: NextRequest) {
         mode: mode as GenerationMode,
         count: n,
         topicKey: expectedTopicKey,
+      });
+    } else if (
+      circuitType === "universal_dc" &&
+      subjectKey === "circuit_theory" &&
+      analysis &&
+      detectImyong10Archetype({
+        analysis,
+        inventoryCounts: countInventoryByType(analysis.componentInventory),
+        extraText: [
+          analysis.topic ?? "",
+          analysis.interpretation ?? "",
+          ...(analysis.relatedConcepts ?? []),
+          ...((analysis.fillInTheBlanks ?? []).map((b) => b.sentence)),
+        ],
+      }) === "IMYONG_10_DC_NODAL"
+    ) {
+      // CLAUDE.md "Circuit Generation Architecture Principle" — archetype-specific dispatch
+      // 정책: archetype 검출 시 universal_dc보다 먼저 라우팅, 고정-slot renderer 사용.
+      log.info("dispatch", { route: "imyong_10_dc_nodal", count: n, mode });
+      problems = generateImyong10DcNodal({
+        analysis,
+        mode: mode as GenerationMode,
+        count: n,
       });
     } else if (circuitType === "universal_dc" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "universal_dc_pipeline", count: n, mode });

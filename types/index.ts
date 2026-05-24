@@ -326,6 +326,7 @@ export type DiagramType =
   | "mixed_circuit"
   | "characteristic_curve"
   | "mux_diagram"
+  | "imyong_10_dc_nodal"     // archetype-specific fixed-slot renderer
   | "mux_gar_circuit"
   | "rlc_resonance_max_power_circuit";
 
