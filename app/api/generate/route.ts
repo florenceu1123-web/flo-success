@@ -205,6 +205,7 @@ export async function POST(req: NextRequest) {
         analysis,
         mode: mode as GenerationMode,
         count: n,
+        topicKey: expectedTopicKey,
       });
     } else if (circuitType === "universal_dc" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "universal_dc_pipeline", count: n, mode });

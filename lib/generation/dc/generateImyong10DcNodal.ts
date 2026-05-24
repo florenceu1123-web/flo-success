@@ -21,6 +21,7 @@ import type {
   FigureVariant,
   GeneratedProblem,
   GenerationMode,
+  TopicKey,
 } from "@/types";
 
 /** 임용 10번 표준 값 — perturb의 시드 base. */
@@ -84,6 +85,7 @@ export function generateImyong10DcNodal(args: {
   analysis: AnalysisResult;
   mode: GenerationMode;
   count: number;
+  topicKey?: TopicKey;
 }): GeneratedProblem[] {
   void args.analysis;  // 향후 inventory에서 값 추출 가능; 현재는 canonical 사용
   void args.mode;
@@ -153,7 +155,7 @@ export function generateImyong10DcNodal(args: {
     question,
     answer,
     solution,
-    topicKey: "dc_resistive",
+    topicKey: args.topicKey ?? "nodal_analysis",
     figureVariants,
   };
 

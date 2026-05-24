@@ -13,7 +13,15 @@ const SUPPORTED_DIAGRAM_TYPES: DiagramType[] = [
   "analog_netlist", "logic_network", "kmap", "waveform", "truth_table",
   "concept_diagram", "block_diagram", "mixed_circuit", "characteristic_curve",
   "mux_diagram", "mux_gar_circuit", "rlc_resonance_max_power_circuit",
+  "imyong_10_dc_nodal",
 ];
+
+/** 회로 figure로 간주되는 diagramType — analog 계열 + archetype 전용 fixed-slot. */
+const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
+  "analog_netlist",
+  "logic_network",
+  "imyong_10_dc_nodal",
+]);
 
 /**
  * 본문/조건/질문에 그림 참조 표현이 있는지 검사한다.
@@ -106,9 +114,7 @@ export function validateProblem(args: {
 
   // 4. topology 없음 (회로 figure가 하나도 없으면)
   //    개념·도식 해석형(characteristic_curve, concept_diagram만 있는 경우)은 회로 figure 면제.
-  const hasCircuitFigure = figs.some((f) =>
-    f.diagramType === "analog_netlist" || f.diagramType === "logic_network",
-  );
+  const hasCircuitFigure = figs.some((f) => CIRCUIT_FIGURE_TYPES.has(f.diagramType));
   const hasConceptOnly = figs.length > 0 && figs.every((f) =>
     f.diagramType === "characteristic_curve" ||
     f.diagramType === "concept_diagram" ||
