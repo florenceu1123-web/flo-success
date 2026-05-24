@@ -15,22 +15,49 @@ import type {
 import type { AnalogAnalysis } from "./generateCircuit";
 import { buildWienBridgeSubgraph } from "@/lib/analog/subcircuit/wienBridge";
 
-/** Wien Bridge 표준 component 값 — 일정 (deterministic). variant 모드는 향후 추가. */
-const VALUES = {
-  R_kohm: 10,    // RC 망 공통 저항 R
-  C_nF: 16,      // RC 망 공통 캡 C  (ω_0 = 1/(RC) ≈ 6250 rad/s, f_0 ≈ 994 Hz)
-  R1_kohm: 10,   // V− → GND 저항
-  R3_kohm: 20,   // V− → V_out 음피드백 저항 (R_3/R_1 = 2 → K = 3)
-};
+// Nice value pools — 임용 관습 깔끔한 수치.
+const NICE_R_KOHM = [4, 5, 6.8, 8, 10, 12, 15, 20, 22];
+const NICE_C_NF   = [10, 16, 22, 33, 47, 68, 100, 160];
+const NICE_R1_KOHM = [5, 10, 12, 15, 20, 22];
+// R_3 / R_1 = 2 (K = 3 발진 조건 — 물리적 고정).
+
+/** seeded random — Mulberry32. */
+function makeRand(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function pick<T>(pool: readonly T[], rand: () => number): T {
+  return pool[Math.floor(rand() * pool.length)];
+}
+
+/** seed 기반 perturbed values 생성. R_3/R_1=2는 발진 조건이라 고정. */
+function pickValues(seed: number): { R_kohm: number; C_nF: number; R1_kohm: number; R3_kohm: number } {
+  const rand = makeRand(seed);
+  const R_kohm = pick(NICE_R_KOHM, rand);
+  const C_nF = pick(NICE_C_NF, rand);
+  const R1_kohm = pick(NICE_R1_KOHM, rand);
+  const R3_kohm = R1_kohm * 2;  // 발진 조건 K=3 → R_3 = 2·R_1 (물리 고정)
+  return { R_kohm, C_nF, R1_kohm, R3_kohm };
+}
 
 /**
  * Wien Bridge oscillator 문제 생성.
  *   (가) Wien Bridge 회로 (analog_netlist),
  *   (나) 피드백 블록도 (block_diagram),
  *   3-단계 풀이 (K · β(s) · R_3/R_1).
+ *
+ *   호출별 seed로 R·C·R_1 변동. R_3/R_1 ratio는 발진 조건 K=3로 고정 (정답).
  */
 export function generateWienBridgeOscillator(_a: AnalogAnalysis): GeneratedProblem {
-  const { R_kohm, C_nF, R1_kohm, R3_kohm } = VALUES;
+  const seed = Date.now() ^ Math.floor(Math.random() * 0x7fffffff);
+  const { R_kohm, C_nF, R1_kohm, R3_kohm } = pickValues(seed);
   const R_ohm = R_kohm * 1000;
   const C_F = C_nF * 1e-9;
   const omega_0 = 1 / (R_ohm * C_F);   // rad/s

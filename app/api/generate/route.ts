@@ -390,22 +390,27 @@ export async function POST(req: NextRequest) {
         );
       }
       log.info("dispatch", { route: "analog_archetype_dispatch", archetype, count: n });
-      const base = generateCircuit({ family: "OPAMP", archetype }) as GeneratedProblem;
-      // ── Archetype-specific post-generation validation ──
-      if (archetype === "WIEN_BRIDGE_OSCILLATOR") {
-        const netlistFig = base.figureVariants?.find((f) => f.diagramType === "analog_netlist");
-        if (!netlistFig) {
-          throw new GenerateError("WIEN_NETWORK_VALIDATION_FAILED: analog_netlist figure 누락");
+      // N개 problem 각각 별도 generate — generator 내부 seed가 매번 다른 값 생성.
+      // 동일 base × N copy 했던 옛 패턴은 결정론 generator에 대해 모두 같은 결과 emit.
+      problems = [];
+      for (let pi = 0; pi < n; pi++) {
+        const generated = generateCircuit({ family: "OPAMP", archetype }) as GeneratedProblem;
+        // ── Archetype-specific post-generation validation ──
+        if (archetype === "WIEN_BRIDGE_OSCILLATOR") {
+          const netlistFig = generated.figureVariants?.find((f) => f.diagramType === "analog_netlist");
+          if (!netlistFig) {
+            throw new GenerateError("WIEN_NETWORK_VALIDATION_FAILED: analog_netlist figure 누락");
+          }
+          const result = validateWienNetwork(netlistFig.diagram as CircuitNetlist);
+          if (!result.ok) {
+            throw new GenerateError(
+              `WIEN_NETWORK_VALIDATION_FAILED: ${result.errors.join(", ")}`,
+            );
+          }
         }
-        const result = validateWienNetwork(netlistFig.diagram as CircuitNetlist);
-        if (!result.ok) {
-          throw new GenerateError(
-            `WIEN_NETWORK_VALIDATION_FAILED: ${result.errors.join(", ")}`,
-          );
-        }
-        log.info("validate_wien_network", { ok: true });
+        problems.push({ ...generated, id: randomUUID() });
       }
-      problems = Array.from({ length: n }, () => ({ ...base, id: randomUUID() }));
+      log.info("validate_archetype_outputs", { archetype, count: problems.length });
     } else if (circuitType === "opamp_time_domain" && subjectKey === "electronics") {
       log.info("dispatch", { route: "opamp_time_domain_pipeline", count: n, mode });
       problems = await runOpampTimeDomainPipeline({
