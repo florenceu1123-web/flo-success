@@ -136,15 +136,22 @@ export function renderWaveform(figure: FigureVariant) {
     })
     .join("");
 
-  // 좌측 신호명 라벨 + 0/1 눈금
+  // 좌측 신호명 라벨 + 눈금. vMin이 0이 아니면(예: bipolar AC) 실제 vMin 표기 + 0 라인 추가.
   const laneLabels = lanes
     .map((L) => {
       const labelY = (L.top + L.bottom) / 2 + 4;
-      const yZero = L.yOf(L.vMin);
-      const yOne = L.yOf(L.vMax);
-      return `<text x="${PAD_L - 12}" y="${labelY}" text-anchor="end" font-size="13" font-weight="600" fill="#111827">${escapeSvg(L.sig.name)}</text>` +
-        `<text x="${PAD_L - 4}" y="${yZero + 4}" text-anchor="end" font-size="10" fill="#6b7280">0</text>` +
-        `<text x="${PAD_L - 4}" y="${yOne + 4}" text-anchor="end" font-size="10" fill="#6b7280">${formatNumber(L.vMax)}</text>`;
+      const yMinAbs = L.yOf(L.vMin);
+      const yMaxAbs = L.yOf(L.vMax);
+      let labels = `<text x="${PAD_L - 12}" y="${labelY}" text-anchor="end" font-size="13" font-weight="600" fill="#111827">${escapeSvg(L.sig.name)}</text>` +
+        `<text x="${PAD_L - 4}" y="${yMinAbs + 4}" text-anchor="end" font-size="10" fill="#6b7280">${formatNumber(L.vMin)}</text>` +
+        `<text x="${PAD_L - 4}" y="${yMaxAbs + 4}" text-anchor="end" font-size="10" fill="#6b7280">${formatNumber(L.vMax)}</text>`;
+      // bipolar (vMin < 0 < vMax)면 v=0 라인 + "0" 라벨 추가
+      if (L.vMin < 0 && L.vMax > 0) {
+        const yZeroLevel = L.yOf(0);
+        labels += `<line x1="${PAD_L}" y1="${yZeroLevel}" x2="${PAD_L + PLOT_W}" y2="${yZeroLevel}" stroke="#9ca3af" stroke-width="0.8" stroke-dasharray="3 3"/>` +
+          `<text x="${PAD_L - 4}" y="${yZeroLevel + 4}" text-anchor="end" font-size="10" fill="#6b7280">0</text>`;
+      }
+      return labels;
     })
     .join("");
 
