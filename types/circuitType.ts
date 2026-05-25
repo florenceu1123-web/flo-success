@@ -102,6 +102,11 @@ export type CircuitTypeParams = {
   // ── RLC 공진 (rlc_resonance) ─────────────────
   /** "series" | "parallel" — RLC 토폴로지. exam_similar는 원본 유지, exam_variant는 임의 선택. */
   rlcTopology?: "series" | "parallel";
+  // ── BJT 다중 트랜지스터 (전류미러·차동증폭기 등) ──
+  /** 전류미러/차동증폭기 등 multi-BJT 토폴로지 플래그. bjt_bias 파이프라인에서 분기. */
+  multiBjtMirror?: boolean;
+  /** 인벤토리에서 추출한 BJT(NPN/PNP/트랜지스터) 개수. */
+  bjtCount?: number;
 };
 
 /**

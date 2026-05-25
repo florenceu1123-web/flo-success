@@ -103,7 +103,33 @@ export function classifyCircuitType(
         reasoning: "electronics + 출력특성곡선/동작영역/㉠㉡ 키워드 → 개념·도식 해석형",
       };
     }
-    // BJT DC bias 회로 — small_signal보다 우선. DC bias 특유 키워드 또는 family="bjt_bias".
+    // Multi-device cascode/current mirror/차동증폭기 — 단일-소자 bias archetype보다 우선.
+    //   기존 MOSFET cascode_mirror 패턴을 일반화: BJT 인벤토리도 같은 규칙으로 인식.
+    const cascodeKeywords = [
+      "cascode", "캐스코드", "케스코드",
+      "current mirror", "전류 거울", "전류거울", "거울 회로", "전류 미러", "전류미러",
+      "차동증폭기", "차동 증폭기", "차동쌍", "차동 쌍",
+      "differential amplifier", "differential pair", "diff amp", "diff-amp", "diff pair", "diff-pair",
+      "m1", "m2", "m3",  // multi-device 식별
+    ];
+    const bjtInventory = (analysis.componentInventory ?? []).filter((c) =>
+      ["BJT", "NPN", "PNP", "TRANSISTOR", "트랜지스터"].includes(String(c.type ?? "").toUpperCase()),
+    );
+    const mosfetInventory = (analysis.componentInventory ?? []).filter((c) =>
+      ["MOSFET", "NMOS", "PMOS"].includes(String(c.type ?? "").toUpperCase()),
+    );
+    const isCascodeText = matchesKeyword(text, cascodeKeywords);
+    // BJT 다중 트랜지스터 + 전류미러/차동 키워드 — bjt_bias·bjt_small_signal보다 우선.
+    //   universal path 원칙: 새 archetype 추가 대신 기존 bjt_bias 파이프라인에 params 전달.
+    if (bjtInventory.length >= 2 && isCascodeText) {
+      return {
+        type: "bjt_bias",
+        params: { multiBjtMirror: true, bjtCount: bjtInventory.length },
+        confidence: "high",
+        reasoning: `electronics + BJT ${bjtInventory.length}개 + 전류미러/차동 키워드 (multi-BJT bias)`,
+      };
+    }
+    // BJT DC bias 회로 (단일) — small_signal보다 우선. DC bias 특유 키워드 또는 family="bjt_bias".
     const bjtBiasKeywords = [
       "직류 바이어스", "직류바이어스", "dc bias", "dc 바이어스",
       "v_be = 0.7", "vbe = 0.7", "v_be=0.7", "vbe=0.7",
@@ -123,15 +149,6 @@ export function classifyCircuitType(
     }
     // NMOS multi-FET cascode current mirror (임용 10번 정확 재현) — mosfet_bias보다 우선.
     //   트리거: MOSFET 2개 이상 OR cascode/mirror 키워드 OR M1·M2·M3 같은 multi-device id 인벤토리.
-    const cascodeKeywords = [
-      "cascode", "캐스코드", "케스코드",
-      "current mirror", "전류 거울", "전류거울", "거울 회로",
-      "m1", "m2", "m3",  // multi-device 식별
-    ];
-    const mosfetInventory = (analysis.componentInventory ?? []).filter((c) =>
-      ["MOSFET", "NMOS", "PMOS"].includes(String(c.type ?? "").toUpperCase()),
-    );
-    const isCascodeText = matchesKeyword(text, cascodeKeywords);
     if (mosfetInventory.length >= 2 || (mosfetInventory.length >= 1 && isCascodeText)) {
       return {
         type: "mosfet_cascode_mirror",
