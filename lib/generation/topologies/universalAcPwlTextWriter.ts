@@ -33,7 +33,7 @@ export async function writeUniversalAcPwlText(args: {
 회로는 코드가 이미 결정 — 너는 문제 문장과 단계별 풀이만 작성.
 
 [회로 구조]
-교류 전원 v_i(t) = ${v.V_i_peak}sin(ωt) V (주기 T = ${v.T_ms} ms).
+교류 전원 v_i(t) = -${v.V_i_peak}sin(ωt) V (주기 T = ${v.T_ms} ms).
 SW(단자1↔단자2) — t<0일 때 단자1, t=0일 때 단자2로 이동.
 직류 클램프 전원 V_CC = ${v.V_CC} V (양 단자, +값).
 직렬 캐패시터 C = ${v.C_uF} μF (입력측 ↔ 클램프 노드).
@@ -57,8 +57,8 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
 
 [출력 JSON]
 {
-  "content":    "그림은 스위치와 다이오드가 포함된 응용 회로이며, 교류 전원 v_i(t) = ${v.V_i_peak}sin(ωt) V는 주기 T = ${v.T_ms} ms를 가진다. 제시된 <해석 절차>에 따라 각 단계별로 풀이 과정과 함께 결과를 서술하시오. (단, t<0일 때 회로는 정상 상태이며, t=0일 때 스위치는 단자1에서 단자2로 이동한다. 이상적으로 동작하는 다이오드 D_1과 D_2의 순방향 전압 강하는 영(0)으로 가정한다. R_L에 의한 캐패시터 C의 방전은 무시한다.)",
-  "conditions": ["v_i(t) = ${v.V_i_peak}sin(ωt) V, T = ${v.T_ms} ms", "V_CC = ${v.V_CC} V, C = ${v.C_uF} μF, R_L = ${v.R_L_kohm} kΩ", "다이오드 이상적 (V_F = 0)", "R_L에 의한 C 방전 무시", "소수점 셋째자리 이하 절사"],
+  "content":    "그림은 스위치와 다이오드가 포함된 응용 회로이며, 교류 전원 v_i(t) = -${v.V_i_peak}sin(ωt) V는 주기 T = ${v.T_ms} ms를 가진다. 제시된 <해석 절차>에 따라 각 단계별로 풀이 과정과 함께 결과를 서술하시오. (단, t<0일 때 회로는 정상 상태이며, t=0일 때 스위치는 단자1에서 단자2로 이동한다. 이상적으로 동작하는 다이오드 D_1과 D_2의 순방향 전압 강하는 영(0)으로 가정한다. R_L에 의한 캐패시터 C의 방전은 무시한다.)",
+  "conditions": ["v_i(t) = -${v.V_i_peak}sin(ωt) V, T = ${v.T_ms} ms", "V_CC = ${v.V_CC} V, C = ${v.C_uF} μF, R_L = ${v.R_L_kohm} kΩ", "다이오드 이상적 (V_F = 0)", "R_L에 의한 C 방전 무시", "소수점 셋째자리 이하 절사"],
   "question":   "[단계 1] t = T/2일 때, V_o(t) [V]를 구하시오.\\n[단계 2] t = T일 때, V_o(t) [V]를 구하시오.\\n[단계 3] t ≥ T일 때, V_o(t) [V]의 최댓값과 최솟값을 각각 구하시오.",
   "answer":     "[단계1] V_o(T/2) = ${a.step1_Vo_at_halfT} V\\n[단계2] V_o(T) = ${a.step2_Vo_at_T} V\\n[단계3] 최댓값 = ${a.step3_Vo_max} V, 최솟값 = ${a.step3_Vo_min} V",
   "solution":   "[단계1] t<0에서 회로 정상 상태, t=0에 SW가 단자2로 이동하므로 V_i는 분리됨. 캐패시터 C에 저장된 전하와 클램프 다이오드(D_1, D_2)에 의해 V_o가 결정된다. t = T/2일 때 시뮬레이션 결과 V_o = ${a.step1_Vo_at_halfT} V.\\n[단계2] 한 주기가 지난 t = T에서도 클램프 동작이 지속되며 V_o = ${a.step2_Vo_at_T} V.\\n[단계3] t ≥ T 정상상태에서는 V_o가 D_2 → 0 V (최솟값)과 D_1 → V_CC = ${v.V_CC} V (최댓값) 사이에서 클램프된다. 시뮬 결과 최댓값 = ${a.step3_Vo_max} V, 최솟값 = ${a.step3_Vo_min} V."

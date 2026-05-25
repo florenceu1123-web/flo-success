@@ -86,8 +86,9 @@ export function generateUniversalAcPwl(args: {
     vsources: [{ id: "V_CC", a: "n_vcc", b: "GND", V: V_CC }],
     isources: [],
   };
+  // 원본 임용 6번: v_i(t) = -V_peak·sin(ωt) — 음의 반주기 먼저(0→-peak→0→+peak→0)
   const vSourcesTimeVarying: TimeVaryingVSource[] = [
-    { id: "V_i", a: "v_in", b: "GND", vFunc: (t: number) => V_i_peak * Math.sin(omega * t) },
+    { id: "V_i", a: "v_in", b: "GND", vFunc: (t: number) => -V_i_peak * Math.sin(omega * t) },
   ];
   const capacitors: CapacitorBranch[] = [
     { id: "C", a: "v_in", b: "n_clamp", C: C_farad, V0: 0 },
@@ -111,7 +112,7 @@ export function generateUniversalAcPwl(args: {
     {
       id: "V_i",
       type: "V",
-      value: `${V_i_peak}sin(ωt) V`,
+      value: `-${V_i_peak}sin(ωt) V`,
       pins: [
         { id: "p", node: "v_in", side: "top" },
         { id: "n", node: "GND", side: "bottom" },
@@ -186,11 +187,11 @@ export function generateUniversalAcPwl(args: {
   };
 
   // ─── 파형 데이터 추출 ─────────────────────────────────
-  // v_i(t): 한 주기를 60 sample (analytic, ms 단위 t)
+  // v_i(t) = -V_peak·sin(ωt), 한 주기를 60 sample (analytic, ms 단위 t)
   const viWaveform: WaveformSamples = [];
   for (let k = 0; k <= 60; k++) {
     const t_sec = (k / 60) * T_sec;
-    viWaveform.push({ t: t_sec * 1000, v: V_i_peak * Math.sin(omega * t_sec) });
+    viWaveform.push({ t: t_sec * 1000, v: -V_i_peak * Math.sin(omega * t_sec) });
   }
   // v_o(t): 마지막 주기 [(periods-1)*T, periods*T]에서 sample 추출, t를 한 주기 기준(0~T_ms)으로 shift
   const lastStart = (periods - 1) * T_sec;
