@@ -5,9 +5,11 @@ import { assembleProblem, buildContextHint, generateInParallel } from "./_common
 import {
   TOPIC_LABEL,
   type AnalysisResult,
+  type FigureVariant,
   type GeneratedProblem,
   type GenerationMode,
   type TopicKey,
+  type WaveformDiagram,
 } from "@/types";
 
 const log = createLogger("lib/pipeline/runUniversalAcPwlPipeline");
@@ -38,6 +40,43 @@ export async function runUniversalAcPwlPipeline(args: {
       answer: gen.answer,
     });
     const text = await writeUniversalAcPwlText({ generation: gen, mode, topicLabel, contextHint });
+
+    // 추가 figure: v_i(t) 입력 파형 (문제용) + v_o(t) 출력 파형 (풀이용)
+    const viDiagram: WaveformDiagram = {
+      signals: [{ name: "v_i(t)", samples: gen.viWaveform, shape: "linear" }],
+      unit: { time: "ms", value: "V" },
+      xAxis: { symbol: "t", unit: "ms" },
+      markers: [
+        { t: gen.values.T_ms / 2, label: "T/2" },
+        { t: gen.values.T_ms, label: "T" },
+      ],
+    };
+    const voDiagram: WaveformDiagram = {
+      signals: [{ name: "v_o(t)", samples: gen.voWaveform, shape: "linear" }],
+      unit: { time: "ms", value: "V" },
+      xAxis: { symbol: "t", unit: "ms" },
+      yMarkers: [
+        { v: gen.answer.step3_Vo_max, label: "V_o,max" },
+        { v: gen.answer.step3_Vo_min, label: "V_o,min" },
+      ],
+    };
+    const extraFigures: FigureVariant[] = [
+      {
+        id: `fig_vi_${i + 1}`,
+        label: "v_i(t) 입력 파형 (한 주기)",
+        role: "input_waveform",
+        diagramType: "waveform",
+        diagram: viDiagram,
+      },
+      {
+        id: `fig_vo_${i + 1}`,
+        label: "v_o(t) 출력 파형 (정상상태 한 주기)",
+        role: "solution_waveform",
+        diagramType: "waveform",
+        diagram: voDiagram,
+      },
+    ];
+
     return assembleProblem({
       text,
       netlist: gen.netlist,
@@ -45,6 +84,7 @@ export async function runUniversalAcPwlPipeline(args: {
       figureRole: "original_circuit",
       figureIdSuffix: i + 1,
       topicKey,
+      extraFigures,
     });
   });
 }

@@ -26,6 +26,8 @@ import type { DiodeBranch } from "@/lib/solver/diodeMnaPwl";
 import type { SolverNetwork } from "@/lib/solver/mna";
 import { extractImyong6Answers } from "@/lib/solver/diodeSwitchEvent";
 
+export type WaveformSamples = Array<{ t: number; v: number }>;
+
 export type UniversalAcPwlGeneration = {
   netlist: CircuitNetlist;
   /** 정답 (시뮬에서 추출한 단계별 결과) */
@@ -43,6 +45,10 @@ export type UniversalAcPwlGeneration = {
     C_uF: number;        // 캐패시턴스 (μF)
     R_L_kohm: number;    // 부하저항 (kΩ)
   };
+  /** v_i(t) 파형 샘플 (한 주기, t in ms) — 문제 figure 용. */
+  viWaveform: WaveformSamples;
+  /** v_o(t) 파형 샘플 (정상상태 마지막 주기, t in ms) — 풀이 figure 용. */
+  voWaveform: WaveformSamples;
 };
 
 /** 소수점 셋째자리 절사 (임용 6번 규칙). */
@@ -179,6 +185,22 @@ export function generateUniversalAcPwl(args: {
     measurementMarks,
   };
 
+  // ─── 파형 데이터 추출 ─────────────────────────────────
+  // v_i(t): 한 주기를 60 sample (analytic, ms 단위 t)
+  const viWaveform: WaveformSamples = [];
+  for (let k = 0; k <= 60; k++) {
+    const t_sec = (k / 60) * T_sec;
+    viWaveform.push({ t: t_sec * 1000, v: V_i_peak * Math.sin(omega * t_sec) });
+  }
+  // v_o(t): 마지막 주기 [(periods-1)*T, periods*T]에서 sample 추출, t를 한 주기 기준(0~T_ms)으로 shift
+  const lastStart = (periods - 1) * T_sec;
+  const lastEnd = periods * T_sec;
+  const voWaveform: WaveformSamples = [];
+  for (const s of samples) {
+    if (s.t < lastStart || s.t > lastEnd) continue;
+    voWaveform.push({ t: (s.t - lastStart) * 1000, v: s.nodeVoltages.n_clamp ?? 0 });
+  }
+
   return {
     netlist,
     answer: {
@@ -188,5 +210,7 @@ export function generateUniversalAcPwl(args: {
       step3_Vo_max: trunc3(raw.step3_Vo_max),
     },
     values: { V_CC, V_i_peak, T_ms, C_uF, R_L_kohm },
+    viWaveform,
+    voWaveform,
   };
 }
