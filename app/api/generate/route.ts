@@ -45,6 +45,7 @@ import { runUniversalDcPipeline } from "@/lib/pipeline/runUniversalDcPipeline";
 import { detectImyong10Archetype, countInventoryByType } from "@/lib/analysis/detectImyong10Archetype";
 import { generateImyong10DcNodal } from "@/lib/generation/dc/generateImyong10DcNodal";
 import { runUniversalAcPipeline } from "@/lib/pipeline/runUniversalAcPipeline";
+import { runUniversalAcPwlPipeline } from "@/lib/pipeline/runUniversalAcPwlPipeline";
 import { runUniversalDigitalPipeline } from "@/lib/pipeline/runUniversalDigitalPipeline";
 import { detectOpampArchetype } from "@/lib/analysis/detectOpampArchetype";
 import { generateCircuit } from "@/lib/generation/analog/generateCircuit";
@@ -230,19 +231,13 @@ export async function POST(req: NextRequest) {
         topicKey: expectedTopicKey,
       });
     } else if (circuitType === "universal_ac_pwl" && subjectKey === "circuit_theory") {
-      // universal_ac_pwl — Phase 1: classifier만, solver 미구현. 명시 에러로 노출하여 다음 phase TODO 가시화.
-      log.warn("dispatch_unsupported", {
-        route: "universal_ac_pwl_pipeline",
-        circuitType,
-        diodeCount: analysis?.circuitType?.params?.diodeCount,
-        hasSwitch: analysis?.circuitType?.params?.hasSwitch,
+      log.info("dispatch", { route: "universal_ac_pwl_pipeline", count: n, mode });
+      problems = await runUniversalAcPwlPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
       });
-      return NextResponse.json({
-        error: "universal_ac_pwl (다이오드+SW+AC) 솔버는 Phase 2 미구현입니다. 임용 6번 형식 인식만 완료.",
-        circuitType,
-        params: analysis?.circuitType?.params,
-        phase: 1,
-      }, { status: 501 });
     } else if (circuitType === "universal_digital" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "universal_digital_pipeline", count: n, mode });
       problems = await runUniversalDigitalPipeline({
