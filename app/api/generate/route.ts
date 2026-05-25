@@ -230,8 +230,9 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
-    } else if (circuitType === "universal_ac_pwl" && subjectKey === "circuit_theory") {
-      log.info("dispatch", { route: "universal_ac_pwl_pipeline", count: n, mode });
+    } else if (circuitType === "universal_ac_pwl") {
+      // circuit_theory·electronics 모두에서 다이오드+SW+AC 형식 지원 (subject 선택 무관).
+      log.info("dispatch", { route: "universal_ac_pwl_pipeline", count: n, mode, subject: subjectKey });
       problems = await runUniversalAcPwlPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,

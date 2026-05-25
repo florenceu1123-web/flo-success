@@ -31,6 +31,48 @@ export function classifyCircuitType(
   analysis: AnalysisResult,
   subject: SubjectKey,
 ): CircuitTypeClassification {
+  // ── ★ PRE-SUBJECT — Universal AC PWL (다이오드+SW+AC) ─────────
+  //   임용 6번 형식: 다이오드+SW+AC clamp/정류 회로. subject(circuit_theory·electronics)와
+  //   무관하게 component 시그니처로 라우팅. counts.D ≥ 1 + SW(inferred) + AC source signal.
+  if (subject !== "digital_logic" && subject !== "mixed_signal") {
+    const counts = aggregateComponentCounts(analysis);
+    const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""} ${(analysis.relatedConcepts ?? []).join(" ")}`.toLowerCase();
+    const inv = analysis.componentInventory ?? [];
+    const hasACInventory = inv.some((c) => {
+      const v = String(c.value ?? "").toLowerCase();
+      return /sin|cos|sinusoidal|v_i\(t\)|vi\(t\)|sin\(/.test(v);
+    });
+    const switchedExplicitKw = matchesKeyword(text, [
+      "스위치", "switch", "sw가", "sw는", "sw_", " sw ", "(sw)",
+      "단자 a에서", "a에서 단자 b", "a → b", "a->b", "t=0에", "t = 0에", "t=0이",
+      "단자1", "단자2", "단자 1", "단자 2",
+    ]);
+    const hasSwitchInferred = counts.SW > 0 || Boolean(analysis.topologySignature?.features?.hasSwitch) || switchedExplicitKw;
+    const isAcSourceText = matchesKeyword(text, [
+      "교류", "ac source", "ac 회로", "정현파", "sinusoidal",
+      "v_i(t)", "vi(t)", "vs(t)", "v_s(t)", "v_in(t)",
+      "주기", "period", "한 주기", "주기 t",
+    ]);
+    const hasAcSourceSignal = hasACInventory || isAcSourceText;
+    if (counts.D >= 1 && hasSwitchInferred && hasAcSourceSignal) {
+      const result: CircuitTypeClassification = {
+        type: "universal_ac_pwl",
+        params: {
+          hasDiode: true,
+          diodeCount: counts.D,
+          hasSwitch: true,
+          hasACSource: true,
+          capacitorCount: counts.C,
+          resistorCount: counts.R,
+        },
+        confidence: "high",
+        reasoning: `[PRE-SUBJECT] 다이오드 ${counts.D}개 + SW(inferred) + AC source → universal_ac_pwl (subject=${subject})`,
+      };
+      classifierLog.info("classify_result", { ...result, route: "pre_subject_pwl", subject });
+      return result;
+    }
+  }
+
   // mixed_signal: 전자회로 + 디지털논리회로 혼합 — 임용 8번 (2-bit JK 카운터 + DAC + 비교기) 등
   if (subject === "mixed_signal") {
     const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
