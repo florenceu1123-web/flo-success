@@ -3,10 +3,15 @@
  *
  *  - 변형 수치(V_CC, V_i_peak, T, C, R_L)를 randomize
  *  - 표준 netlist 생성 (V_i, V_CC, SW, C, D_1, D_2, R_L) — diodePwlCircuitRenderer로 시각화
- *  - simulateTimeStepPwl로 V_o(t) 시뮬레이션 후 extractImyong6Answers로 3단계 답 추출
+ *  - **두-phase simulateSwitchEvent** 기반:
+ *      preSwitch (t<0): SW=단자2 (C 좌측 GND) → V_C(0⁻) 계산
+ *      postSwitch (t≥0): SW=단자1 (C 좌측 v_in) → V_C(0⁻)이 V0로 자동 주입
+ *  - extractImyong6Answers로 3단계 답 추출
  *
- *  Phase 5 deliverable. SW event 의미는 v1에서 visual only — 시뮬은 단일 phase
- *  (t=0~M·T, V_C(0)=0) 가정으로 단순화.
+ *  SW convention (renderer의 closed_to_term1과 일관):
+ *    단자1 = V_i (signal line) 측 — POST-switch
+ *    단자2 = GND (common ground rail) 측 — PRE-switch
+ *    common = C 좌측
  */
 
 import type {
@@ -17,14 +22,14 @@ import type {
   MeasurementMark,
 } from "@/types";
 import { makeRand, pick } from "./_helpers";
-import {
-  simulateTimeStepPwl,
-  type TimeVaryingVSource,
-  type CapacitorBranch,
-} from "@/lib/solver/diodeTimeStepPwl";
+import type { TimeVaryingVSource, CapacitorBranch } from "@/lib/solver/diodeTimeStepPwl";
 import type { DiodeBranch } from "@/lib/solver/diodeMnaPwl";
 import type { SolverNetwork } from "@/lib/solver/mna";
-import { extractImyong6Answers } from "@/lib/solver/diodeSwitchEvent";
+import {
+  simulateSwitchEvent,
+  extractImyong6Answers,
+  type CircuitPhase,
+} from "@/lib/solver/diodeSwitchEvent";
 
 export type WaveformSamples = Array<{ t: number; v: number }>;
 
@@ -45,6 +50,8 @@ export type UniversalAcPwlGeneration = {
     C_uF: number;        // 캐패시턴스 (μF)
     R_L_kohm: number;    // 부하저항 (kΩ)
   };
+  /** preSwitch 종료 시점 V_C (= V_C(0⁻)). textWriter narration용. */
+  V_C_initial: number;
   /** v_i(t) 파형 샘플 (한 주기, t in ms) — 문제 figure 용. */
   viWaveform: WaveformSamples;
   /** v_o(t) 파형 샘플 (정상상태 마지막 주기, t in ms) — 풀이 figure 용. */
@@ -75,37 +82,66 @@ export function generateUniversalAcPwl(args: {
   const C_farad = C_uF * 1e-6;
   const R_L_ohm = R_L_kohm * 1000;
 
-  // ─── 시뮬 setup (단일 phase, post-switch 동작) ──────────────
-  //   nodes: v_in (AC 끝), n_clamp (V_o 측정점), n_vcc (V_CC + 단자), GND
-  //   V_i: v_in → GND (sinusoidal). V_CC: n_vcc → GND (DC). R_L: n_clamp → GND.
-  //   C: v_in ↔ n_clamp. D_1: n_clamp(anode) → n_vcc(cathode). D_2: GND(anode) → n_clamp(cathode).
-  const baseNet: SolverNetwork = {
-    nodeIds: ["v_in", "n_clamp", "n_vcc"],
-    groundId: "GND",
-    resistors: [{ id: "R_L", a: "n_clamp", b: "GND", R: R_L_ohm }],
-    vsources: [{ id: "V_CC", a: "n_vcc", b: "GND", V: V_CC }],
-    isources: [],
-  };
-  // 원본 임용 6번: v_i(t) = -V_peak·sin(ωt) — 음의 반주기 먼저(0→-peak→0→+peak→0)
-  const vSourcesTimeVarying: TimeVaryingVSource[] = [
-    { id: "V_i", a: "v_in", b: "GND", vFunc: (t: number) => -V_i_peak * Math.sin(omega * t) },
-  ];
-  const capacitors: CapacitorBranch[] = [
-    { id: "C", a: "v_in", b: "n_clamp", C: C_farad, V0: 0 },
-  ];
+  // ─── 두-phase 회로 정의 ─────────────────────────────────
+  //   공통 nodes: n_clamp (V_o 측정점), n_vcc (V_CC + 단자). GND는 groundId.
+  //   공통 컴포넌트: V_CC, R_L, D_1, D_2 (양 phase 공통)
+  //
+  //   pre  : C 좌측 = GND   → C: a="GND", b="n_clamp", V_C(pre) = -V_clamp
+  //   post : C 좌측 = v_in  → C: a="v_in", b="n_clamp", V_C(post) = V(v_in) - V_clamp
+  //
+  //   ⚠️ a/b 컨벤션 차이로 handoff 시 부호 처리 필요.
+  //   simulateSwitchEvent는 preFinal.capacitorVoltages.C 값을 그대로 postSwitch.C.V0에
+  //   넣는다. preSwitch에서 V(GND)=0, V_clamp(t<0)≈0이므로 V_C(pre)=0 → V0=0.
+  //   post의 V_C 초기값도 V(v_in,0) - V_clamp(0⁺) = 0 - 0 = 0 → 일관성 OK.
   const diodes: DiodeBranch[] = [
     { id: "D_1", anode: "n_clamp", cathode: "n_vcc" },
     { id: "D_2", anode: "GND", cathode: "n_clamp" },
   ];
-
-  // 시뮬레이션 — 10 주기 (정상상태 도달까지)
-  const periods = 10;
-  const dt = T_sec / 200;
-  const samples = simulateTimeStepPwl({
-    baseNet, vSourcesTimeVarying, capacitors, diodes,
-    options: { tStart: 0, tEnd: periods * T_sec, dt, sampleEvery: 1 },
+  const baseClampNet = (extraNodes: string[]): SolverNetwork => ({
+    nodeIds: [...extraNodes, "n_clamp", "n_vcc"],
+    groundId: "GND",
+    resistors: [{ id: "R_L", a: "n_clamp", b: "GND", R: R_L_ohm }],
+    vsources: [{ id: "V_CC", a: "n_vcc", b: "GND", V: V_CC }],
+    isources: [],
   });
-  const raw = extractImyong6Answers(samples, "n_clamp", T_sec, periods);
+
+  const preSwitchPhase: CircuitPhase = {
+    baseNet: baseClampNet([]),
+    // SW가 단자2(GND)에 있으므로 V_i는 회로에서 분리됨 (time-varying source 없음)
+    vSourcesTimeVarying: [],
+    capacitors: [{ id: "C", a: "GND", b: "n_clamp", C: C_farad, V0: 0 }],
+    diodes,
+  };
+
+  const vSourcesTimeVarying: TimeVaryingVSource[] = [
+    // 원본 임용 6번: v_i(t) = -V_peak·sin(ωt) — 음의 반주기 먼저(0→-peak→0→+peak→0)
+    { id: "V_i", a: "v_in", b: "GND", vFunc: (t: number) => -V_i_peak * Math.sin(omega * t) },
+  ];
+  const postCapacitors: CapacitorBranch[] = [
+    // V0는 simulateSwitchEvent가 preSwitch 최종값으로 덮어씀
+    { id: "C", a: "v_in", b: "n_clamp", C: C_farad, V0: 0 },
+  ];
+  const postSwitchPhase: CircuitPhase = {
+    baseNet: baseClampNet(["v_in"]),
+    vSourcesTimeVarying,
+    capacitors: postCapacitors,
+    diodes,
+  };
+
+  // 시뮬레이션 — pre 3주기, post 10주기 (post 마지막 주기를 정상상태로 사용)
+  const preSwitchPeriods = 3;
+  const postSwitchPeriods = 10;
+  const dt = T_sec / 200;
+  const simResult = simulateSwitchEvent({
+    preSwitch: preSwitchPhase,
+    postSwitch: postSwitchPhase,
+    T: T_sec,
+    preSwitchPeriods,
+    postSwitchPeriods,
+    dt,
+  });
+  const V_C_initial = simResult.preSwitchFinalCapVoltages.C ?? 0;
+  const raw = extractImyong6Answers(simResult.postSwitchSamples, "n_clamp", T_sec, postSwitchPeriods);
 
   // ─── netlist (renderer 입력용 — diodePwlCircuitRenderer 매칭 id) ────
   const components: CircuitComponent[] = [
@@ -193,11 +229,11 @@ export function generateUniversalAcPwl(args: {
     const t_sec = (k / 60) * T_sec;
     viWaveform.push({ t: t_sec * 1000, v: -V_i_peak * Math.sin(omega * t_sec) });
   }
-  // v_o(t): 마지막 주기 [(periods-1)*T, periods*T]에서 sample 추출, t를 한 주기 기준(0~T_ms)으로 shift
-  const lastStart = (periods - 1) * T_sec;
-  const lastEnd = periods * T_sec;
+  // v_o(t): postSwitch 마지막 주기 [(periods-1)*T, periods*T]에서 sample 추출, t를 한 주기 기준(0~T_ms)으로 shift
+  const lastStart = (postSwitchPeriods - 1) * T_sec;
+  const lastEnd = postSwitchPeriods * T_sec;
   const voWaveform: WaveformSamples = [];
-  for (const s of samples) {
+  for (const s of simResult.postSwitchSamples) {
     if (s.t < lastStart || s.t > lastEnd) continue;
     voWaveform.push({ t: (s.t - lastStart) * 1000, v: s.nodeVoltages.n_clamp ?? 0 });
   }
@@ -211,6 +247,7 @@ export function generateUniversalAcPwl(args: {
       step3_Vo_max: trunc3(raw.step3_Vo_max),
     },
     values: { V_CC, V_i_peak, T_ms, C_uF, R_L_kohm },
+    V_C_initial: trunc3(V_C_initial),
     viWaveform,
     voWaveform,
   };

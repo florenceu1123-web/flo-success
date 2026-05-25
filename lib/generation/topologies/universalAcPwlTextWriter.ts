@@ -15,13 +15,21 @@ export type UniversalAcPwlTextOutput = {
 };
 
 /**
- * 임용 6번 형식 (SW + 다이오드 + AC 클램프) 문제 텍스트 생성 — v2.
+ * 임용 6번 형식 (SW + 다이오드 + AC 클램프) 문제 텍스트 생성 — v2.1.
  *
  *  v2 개선:
  *   - 클램퍼 동작 골격(D_1·D_2 ON 조건·V_C 충전 phase·정상상태) 단계별 풀이 reasoning 제공
  *   - "시뮬 결과" 톤 제거, 회로 분석 톤으로
  *   - content 템플릿 박지 않고 핵심 사실만 명시 → GPT 자연 한국어 자유
  *   - solution validation (다이오드·클램프·캐패시터 키워드 누락 시 warn)
+ *
+ *  v2.1 (두-phase 모델링 도입 후 정정):
+ *   - SW 컨벤션 정정 (renderer의 closed_to_term1과 일관):
+ *       단자1 = V_i (signal line) 측 — POST-switch
+ *       단자2 = GND (common ground rail) 측 — PRE-switch
+ *       common = C 좌측
+ *     → t<0 SW=단자2 (C 좌측 GND), t=0에 단자1로 이동 (V_i 전달)
+ *   - V_C(0⁻) (= generation.V_C_initial) narration에 반영
  *
  *  솔버가 강제한 수치(V_o@T/2·V_o@T·min/max)는 enforcedAnswer로 변경 금지.
  */
@@ -46,7 +54,9 @@ export async function writeUniversalAcPwlText(args: {
 
 [회로 구조 — 그림은 이미 결정, 다시 만들지 마라]
 교류 전원: v_i(t) = -${v.V_i_peak}sin(ωt) V (주기 T = ${v.T_ms} ms, ω = 2π/T)
-SW: SPDT, common 단자가 v_i(t) 측. t<0이면 단자1(개방, 회로 분리), t=0에 단자2로 이동(C와 연결).
+SW: SPDT, common 단자가 C 측. 단자1 = v_i(t) 측 (신호선), 단자2 = GND 측 (공통 그라운드).
+  t<0: SW가 단자2에 있음 → C 좌측이 GND에 접지 → V_C(0⁻) = ${generation.V_C_initial} V (전하 없음, 정상상태).
+  t=0: SW가 단자1로 이동 → C 좌측이 v_i(t)에 연결 → 교류 신호가 C를 통해 클램프 노드에 전달.
 직류 전원: V_CC = ${v.V_CC} V (+극이 D_1 cathode 측)
 캐패시터: C = ${v.C_uF} μF (SW common → 클램프 노드 직렬)
 다이오드 (이상적, V_F=0):
@@ -55,8 +65,9 @@ SW: SPDT, common 단자가 v_i(t) 측. t<0이면 단자1(개방, 회로 분리),
 부하저항: R_L = ${v.R_L_kohm} kΩ (클램프 노드 → GND, V_o 측정점)
 
 [클램퍼 동작 골격 — 풀이 reasoning]
-정의: v_o(t) = v_i(t) + V_C(t)  (V_C = v_in 측 - 클램프 측, C 양단 전압)
+정의: v_o(t) = v_i(t) + V_C(t)  (V_C = v_in 측 - 클램프 측, C 양단 전압. t≥0 SW=단자1 기준)
 가정 (문제에 명시): 다이오드 V_F = 0, R_L에 의한 C 방전 무시 → 다이오드 OFF 구간에서 V_C 일정.
+초기조건: V_C(0⁻) = ${generation.V_C_initial} V (t<0 SW=단자2 정상상태에서 자동 결정).
 
 ─ Phase A (0 ≤ t ≤ T/2, v_i 음의 반주기) ─
 v_i가 0→-V_p→0 (음수). v_o = v_i + V_C가 음수로 향함.
@@ -90,11 +101,11 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
 
 [출력 JSON]
 {
-  "content":    "본문 한 단락. (1) '그림은 스위치와 다이오드가 포함된 응용 회로이다' 류로 시작, (2) v_i(t) = -${v.V_i_peak}sin(ωt) V·주기 T = ${v.T_ms} ms 명시, (3) <해석 절차>에 따라 단계별로 풀이 과정과 결과를 서술하라는 지시, (4) 단서 괄호: t<0 정상상태, t=0 SW 단자1→단자2 이동, D_1·D_2 이상적(V_F=0), R_L에 의한 C 방전 무시. 자연스러운 한국어 한 단락으로.",
+  "content":    "본문 한 단락. (1) '그림은 스위치와 다이오드가 포함된 응용 회로이다' 류로 시작, (2) v_i(t) = -${v.V_i_peak}sin(ωt) V·주기 T = ${v.T_ms} ms 명시, (3) <해석 절차>에 따라 단계별로 풀이 과정과 결과를 서술하라는 지시, (4) 단서 괄호: t<0에서 SW는 단자2(GND)에 있어 정상상태(V_C=0), t=0에 SW가 단자1로 이동, D_1·D_2 이상적(V_F=0), R_L에 의한 C 방전 무시. 자연스러운 한국어 한 단락으로.",
   "conditions": ["v_i(t) = -${v.V_i_peak}sin(ωt) V (주기 T = ${v.T_ms} ms)", "V_CC = ${v.V_CC} V", "C = ${v.C_uF} μF", "R_L = ${v.R_L_kohm} kΩ", "다이오드 D_1·D_2 이상적 (순방향 전압 강하 0V)", "R_L에 의한 C의 방전 무시", "각 단계 결과는 소수점 셋째자리 이하 절사"],
   "question":   "[단계 1] t = T/2일 때, V_o(t) [V]를 구하시오.\\n[단계 2] t = T일 때, V_o(t) [V]를 구하시오.\\n[단계 3] t ≥ T 정상상태에서 V_o(t)의 최댓값과 최솟값 [V]를 각각 구하시오.",
   "answer":     "[단계 1] V_o(T/2) = ${a.step1_Vo_at_halfT} V\\n[단계 2] V_o(T) = ${a.step2_Vo_at_T} V\\n[단계 3] 최댓값 = ${a.step3_Vo_max} V, 최솟값 = ${a.step3_Vo_min} V",
-  "solution":   "[단계 1]에서 (Phase A 골격을 자연스러운 한국어로): t=0에 SW가 단자2로 이동하면 v_i가 C를 통해 클램프 노드에 전달된다. 0≤t≤T/2 동안 v_i가 음수이므로 v_o = v_i + V_C가 음으로 향해 D_2(a=GND, c=클램프)가 ON되어 V_o=0이 되고, V_C = -v_i로 충전된다. t=T/4에서 V_C = ${v.V_i_peak}V로 최대 충전, 이후 D_2 OFF되고 R_L에 의한 방전을 무시하므로 V_C는 ${v.V_i_peak}V로 유지된다. t=T/2에서 v_i=0이므로 V_o = 0 + ${v.V_i_peak} = ${a.step1_Vo_at_halfT}V.\\n[단계 2]에서 (Phase B 골격): T/2≤t≤T 동안 v_i가 양수로 상승. ${phaseBNarration}\\n[단계 3]에서 (Phase C 골격): t≥T 정상상태에서는 양의 반주기에서 D_1${d1Clamps ? ", 음의 반주기에서 D_2가 교대로 ON되어 V_o가 [0, V_CC] 범위에서 양쪽 클램프" : "는 ON되지 않고, 음의 반주기에서 D_2만 ON되어 V_o ≥ 0 한쪽 클램프"}된다. 따라서 최댓값 = ${a.step3_Vo_max}V${d1Clamps ? " (D_1 clamp)" : ""}, 최솟값 = ${a.step3_Vo_min}V (D_2 clamp)."
+  "solution":   "[단계 1]에서 (Phase A 골격을 자연스러운 한국어로): t<0에서 SW가 단자2(GND)에 있어 C 좌측이 접지되고 클램프 노드에는 AC 입력이 없으므로 V_C(0⁻) = ${generation.V_C_initial}V (정상상태). t=0에 SW가 단자1로 이동하면 v_i가 C를 통해 클램프 노드에 전달된다. 0≤t≤T/2 동안 v_i가 음수이므로 v_o = v_i + V_C가 음으로 향해 D_2(a=GND, c=클램프)가 ON되어 V_o=0이 되고, V_C = -v_i로 충전된다. t=T/4에서 V_C = ${v.V_i_peak}V로 최대 충전, 이후 D_2 OFF되고 R_L에 의한 방전을 무시하므로 V_C는 ${v.V_i_peak}V로 유지된다. t=T/2에서 v_i=0이므로 V_o = 0 + ${v.V_i_peak} = ${a.step1_Vo_at_halfT}V.\\n[단계 2]에서 (Phase B 골격): T/2≤t≤T 동안 v_i가 양수로 상승. ${phaseBNarration}\\n[단계 3]에서 (Phase C 골격): t≥T 정상상태에서는 양의 반주기에서 D_1${d1Clamps ? ", 음의 반주기에서 D_2가 교대로 ON되어 V_o가 [0, V_CC] 범위에서 양쪽 클램프" : "는 ON되지 않고, 음의 반주기에서 D_2만 ON되어 V_o ≥ 0 한쪽 클램프"}된다. 따라서 최댓값 = ${a.step3_Vo_max}V${d1Clamps ? " (D_1 clamp)" : ""}, 최솟값 = ${a.step3_Vo_min}V (D_2 clamp)."
 }
 
 [엄수 규칙]
