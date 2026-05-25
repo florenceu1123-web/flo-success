@@ -57,6 +57,7 @@ export type CircuitType =
   // ── Universal (rule-based) ───────────────────
   | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
   | "universal_ac"          // 임의 AC 회로(R/L/C/V/I) + phasor/공진/최대전력 query — archetype-free
+  | "universal_ac_pwl"      // 임의 AC + 다이오드(piecewise-linear) + 스위치(event) — 시간영역 sample (임용 6번 형식). Phase 2~ (현재는 분류만, 솔버 미구현)
   | "universal_digital"     // 임의 N-변수 M-함수 K-map + gate combination — digital_logic archetype-free
   // ── fallback ─────────────────────────────────
   | "unsupported";          // electronics / digital_logic / 분류 실패
@@ -107,6 +108,15 @@ export type CircuitTypeParams = {
   multiBjtMirror?: boolean;
   /** 인벤토리에서 추출한 BJT(NPN/PNP/트랜지스터) 개수. */
   bjtCount?: number;
+  // ── universal_ac_pwl (다이오드 + SW + AC) ────
+  /** 다이오드 존재 — universal_ac_pwl path 트리거. */
+  hasDiode?: boolean;
+  /** 인벤토리에서 추출한 다이오드(D) 개수. */
+  diodeCount?: number;
+  /** SW 존재 (counts.SW + features.hasSwitch + 키워드 기반 inferred). */
+  hasSwitch?: boolean;
+  /** AC 전원 존재 (hasACInventory 또는 text 키워드 기반). */
+  hasACSource?: boolean;
 };
 
 /**

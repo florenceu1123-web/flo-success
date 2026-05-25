@@ -581,10 +581,11 @@ function matchesKeyword(text: string, keywords: string[]): boolean {
 // ─── component count 집계 ──────────────────────
 type Counts = {
   R: number; V: number; I: number; C: number; L: number; SW: number; dep: number;
+  D: number;  // 다이오드 — universal_ac_pwl 트리거용
 };
 
 function aggregateComponentCounts(analysis: AnalysisResult): Counts {
-  const c: Counts = { R: 0, V: 0, I: 0, C: 0, L: 0, SW: 0, dep: 0 };
+  const c: Counts = { R: 0, V: 0, I: 0, C: 0, L: 0, SW: 0, dep: 0, D: 0 };
   const inv = analysis.componentInventory ?? [];
   if (inv.length > 0) {
     for (const item of inv) {
@@ -610,6 +611,7 @@ function bumpCount(c: Counts, type: string): void {
   else if (t === "C") c.C++;
   else if (t === "L") c.L++;
   else if (t === "SW") c.SW++;
+  else if (t === "D") c.D++;
   else if (t === "VCVS" || t === "VCCS" || t === "CCVS" || t === "CCCS") c.dep++;
 }
 
@@ -645,6 +647,32 @@ function decideType(args: DecideArgs): DecideResult {
     "단자 a에서", "a에서 단자 b", "a → b", "a->b", "t=0에", "t = 0에", "t=0이",
   ]);
   const hasSwitchInferred = counts.SW > 0 || Boolean(features.hasSwitch) || switchedExplicitKw;
+
+  // 0-PRE-AC-PWL. Universal AC + 다이오드 + SW (piecewise-linear) — 임용 6번 형식.
+  //   트리거: D ≥ 1 + SW(inferred) + AC source (hasACInventory OR 교류/정현파/v_i(t) 키워드)
+  //   목적: 새 다이오드+SW+AC 형식이 들어와도 archetype 추가 없이 rule path로 흡수.
+  //   classifier만 우선 구현 (Phase 1). solver/생성기는 Phase 2~ — 현재는 pipeline에서 명시 에러 반환.
+  const isAcSourceText = matchesKeyword(text, [
+    "교류", "ac source", "ac 회로", "정현파", "sinusoidal",
+    "v_i(t)", "vi(t)", "vs(t)", "v_s(t)", "v_in(t)",
+    "주기", "period", "한 주기", "주기 t",
+  ]);
+  const hasAcSourceSignal = Boolean(hasACInventory) || isAcSourceText;
+  if (counts.D >= 1 && hasSwitchInferred && hasAcSourceSignal) {
+    return {
+      type: "universal_ac_pwl",
+      confidence: "high",
+      reasoning: `다이오드 ${counts.D}개 + SW(inferred) + AC source (text·inventory) → piecewise-linear path`,
+      params: {
+        hasDiode: true,
+        diodeCount: counts.D,
+        hasSwitch: true,
+        hasACSource: true,
+        capacitorCount: counts.C,
+        resistorCount: counts.R,
+      },
+    };
+  }
 
   // 0-PRE-AC. Universal AC (archetype-free) — 모든 AC archetype보다 우선.
   //   조건: (L OR C 존재) + AC 키워드(공진·페이저·최대전력) + 기존 archetype 강한 시그니처 없음.
