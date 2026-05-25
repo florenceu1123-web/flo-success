@@ -7,6 +7,7 @@ import {
 import { hasOpAmp, renderOpAmpCircuit, validateOpAmpCircuit } from "./opampCircuitRenderer";
 import { hasWienBridgeOscillator, renderWienBridgeOscillatorCircuit } from "./wienBridgeOscillatorCircuit";
 import { hasBjt, renderBjtCircuit } from "./bjtCircuitRenderer";
+import { hasDiodePwl, renderDiodePwlCircuit } from "./diodePwlCircuitRenderer";
 import { hasMosfet, renderMosfetBiasCircuit } from "./mosfetBiasCircuitRenderer";
 import { hasMosfetCascode, renderMosfetCascodeMirrorCircuit } from "./mosfetCascodeMirrorCircuitRenderer";
 import { hasSwitchedRlcStep, renderSwitchedRlcStepCircuit } from "./switchedRlcStepCircuitRenderer";
@@ -98,6 +99,12 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   // 0.055 Switched RLC step response v1 (3-leg 단순화) — SPDT SW + RLC + dual source 전용 renderer.
   if (hasSwitchedRlcStep(netlist)) {
     const svg = renderSwitchedRlcStepCircuit(netlist);
+    if (svg) return svg;
+  }
+  // 0.057 다이오드 + SPDT SW + C 클램프/정류 (임용 6번 형식) — BJT보다 먼저 매치.
+  //   universal_ac_pwl path의 시각화. signature: D≥2 + SW≥1 + C≥1.
+  if (hasDiodePwl(netlist)) {
+    const svg = renderDiodePwlCircuit(netlist);
     if (svg) return svg;
   }
   // 0.06 BJT가 포함된 회로 (DC bias 회로 — 임용 7번 형식)는 전용 renderer로.
