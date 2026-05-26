@@ -654,6 +654,11 @@ function shouldUseTopologyDriven(
   if (circuitType === "switched_rlc_step") return false;
   if (circuitType === "switched_rlc_5leg") return false;
   if (circuitType === "ac_parallel_branches") return false;
+  // thevenin_switched_rc는 전용 fixed-slot generator (imyong 9 정보과). 점선박스+Thevenin 등가
+  // figure는 topology-driven으로 재현 불가 → 전용 pipeline 보존.
+  if (circuitType === "thevenin_switched_rc") return false;
+  // universal_ac_pwl도 전용 PWL 솔버 (imyong 6번). topology-driven으로 fallback 금지.
+  if (circuitType === "universal_ac_pwl") return false;
 
   const archetypeSupportsSwitch =
     circuitType === "switched_rc" || circuitType === "switched_rl" || circuitType === "switched_dc";
