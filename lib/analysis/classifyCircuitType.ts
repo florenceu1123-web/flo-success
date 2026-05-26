@@ -82,20 +82,24 @@ export function classifyCircuitType(
     const opampPS = invPS.filter((c) => String(c.type ?? "").toUpperCase() === "OPAMP").length;
     const rPS = invPS.filter((c) => String(c.type ?? "").toUpperCase() === "R").length;
     const textPS = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""} ${(analysis.relatedConcepts ?? []).join(" ")}`.toLowerCase();
-    const cascadePS = /cascade|캐스케이드|2단|두 단|두단|두 개의 연산|2개의 연산|v_o\/v_i|v_s\/v_o|전달함수|opamp 응용|연산증폭기 응용/.test(textPS);
-    if (opampPS >= 2 && rPS >= 4 && cascadePS) {
+    const cascadePS = /cascade|캐스케이드|2단|두 단|두단|두 개의 연산|두개의 연산|2개의 연산|두 번째 연산|첫 번째 연산|v_o\/v_i|v_s\/v_o|v_s\/v_i|전달함수|opamp 응용|연산증폭기 응용|연산\s*증폭기를 이용|증폭 회로|각 단계별로|각 증폭기의/.test(textPS);
+    // OPAMP가 1개로 잘못 카운트돼도 cascade 텍스트 + 충분한 R + multi-OPAMP 키워드면 매치
+    const multiOpampTextPS = /두 번째|첫 번째|두번째|첫번째|2단|두 단|cascade|캐스케이드|u[_ ]?1.*u[_ ]?2/i.test(textPS);
+    const opampQualifies = opampPS >= 2 || (opampPS >= 1 && multiOpampTextPS && rPS >= 5);
+    if (opampQualifies && rPS >= 4 && cascadePS) {
       classifierLog.info("classify_result", {
         type: "opamp_cascade_voltage_divider",
         route: "pre_subject_opamp_cascade",
         opampCount: opampPS,
         rCount: rPS,
+        multiOpampTextPS,
         subject,
       });
       return {
         type: "opamp_cascade_voltage_divider",
         params: {},
         confidence: "high",
-        reasoning: `[PRE-SUBJECT] OPAMP ${opampPS}개 + R ${rPS}개 + cascade 키워드 → opamp_cascade_voltage_divider (subject=${subject})`,
+        reasoning: `[PRE-SUBJECT] OPAMP ${opampPS}개(inv) + multi-text=${multiOpampTextPS} + R ${rPS}개 + cascade 키워드 → opamp_cascade (subject=${subject})`,
       };
     }
   }

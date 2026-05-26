@@ -645,6 +645,45 @@ K-map 문제를 분석할 때 ★ K-map 개수와 차원을 정확히 카운트 
 (이 케이스는 분류기가 thevenin_switched_rc path로 라우팅하여 (가) 원본 회로 + (나) Thevenin
 등가 회로 2 figure가 생성되고, 3단계 풀이(v_o(0⁻) / V_Th·R_Th / v_o(t))가 자동 도출된다.)
 
+【★ electronics 2-OPAMP cascade — 절대 추출 규칙 (opamp_cascade_voltage_divider 라우팅 핵심)】
+
+다음 시각 단서 중 ★ 두 개 이상 ★ 보이면 임용 10번 형식 (2-OPAMP cascade)이다:
+  (1) OPAMP 심볼(삼각형, U_1·U_2 라벨) 2개 이상 — 좌·우로 cascade 배치
+  (2) 좌측 OPAMP 출력 → 우측 OPAMP V⁻ 입력으로 R 통해 cascade 연결
+  (3) 각 OPAMP에 별도 feedback resistor (R_3, R_5 또는 유사)
+  (4) 본문에 "각 단계별로", "단계 1·2·3", "V_s/V_o", "V_o/V_i", "전달함수" 키워드
+  (5) "안정한 선형영역에서 동작, 입력 임피던스 무한대, 출력 임피던스 영(0)" 류 OPAMP 가정
+
+이 경우 ★ 반드시 ★ 다음을 만족:
+
+(A) componentInventory에 ★ OPAMP 2개 ★ 모두 추출 (id U_1, U_2 또는 OPAMP1, OPAMP2)
+    원본 figure에 OPAMP 심볼이 2개 보이면 inventory에 OPAMP type 2 entries.
+    ★ 절대 금지 ★: OPAMP 1개만 추출하거나, OPAMP 3개 잘못 추출.
+
+(B) topic 또는 interpretation에 ★ "2-OPAMP cascade" 또는 "두 개의 연산증폭기" 또는
+    "cascade" 또는 "캐스케이드" 또는 "다단 증폭기" 단어 ★ 명시 ★
+    예: "2-OPAMP cascade 응용 회로", "두 단계 연산증폭기 cascade로 V_s/V_i 전달함수 도출"
+    ★ 절대 금지 ★: "단일 연산증폭기 회로", "Wien Bridge", "발진기", "정귀환" 같은 단일 OPAMP 표현.
+
+(C) topicKey = "opamp" (electronics subject 기준)
+
+(D) relatedConcepts에 다음 단어 ★ 4개 이상 ★ 포함:
+    "OPAMP", "연산증폭기", "cascade", "다단", "전달함수", "V_o/V_i", "V_s/V_o",
+    "반전 증폭기", "이상 OPAMP", "virtual ground", "KCL" 중 4개 이상.
+
+(E) figureRequirements: 단일 figure (main_circuit / analog_netlist).
+    추가 figure (블록도, 등가회로 등) 불필요.
+
+★ 잘못된 추출 (절대 금지) ★:
+  - OPAMP 2개를 1개로 잘못 카운트 → opamp_cascade_voltage_divider rule 매치 실패 →
+    Wien Bridge oscillator(단일 OPAMP) 또는 dc_dependent_source로 잘못 라우팅
+  - subject를 circuit_theory로 추출 (전자회로 영역이어야)
+  - cascade 키워드 누락 → classifier가 단일 opamp archetype으로 fallback
+  - Wien Bridge / 정귀환 / 발진 같은 단일 OPAMP 표현으로 잘못 묘사
+
+(이 케이스는 분류기가 opamp_cascade_voltage_divider path로 라우팅하여 2-OPAMP cascade
+fixed-slot circuit + 3단계 풀이(V_s/V_o, V_o/V_i, V_s/V_i)가 자동 도출된다.)
+
 【digital_logic MUX 등가구현 — 절대 추출 규칙】
 원본 figure에 사다리꼴 box (좌측에 I_0·I_1·I_2·I_3, 하단에 S_0·S_1, 우측에 F) 또는 "MUX"/"멀티플렉서" 라벨이 있는 figure가 보이면, 이 문제는 MUX 등가구현 형식(임용 5번 형식)이다. 반드시:
 - topic 또는 interpretation에 "MUX" 또는 "멀티플렉서"라는 정확한 단어를 포함시킬 것. (예: "조합논리회로를 4×1 MUX로 등가구현")
