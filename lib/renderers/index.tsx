@@ -39,6 +39,10 @@ import {
   type TheveninOriginalDiagram,
   type TheveninEquivalentDiagram,
 } from "./theveninSwitchedRcRenderer";
+import {
+  renderOpampCascade,
+  type OpampCascadeDiagram,
+} from "./opampCascadeRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -92,6 +96,8 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderTheveninOriginal(figure.diagram as TheveninOriginalDiagram));
     case "thevenin_equivalent_circuit":
       return wrapSvg(figure, renderTheveninEquivalent(figure.diagram as TheveninEquivalentDiagram));
+    case "opamp_cascade":
+      return wrapSvg(figure, renderOpampCascade(figure.diagram as OpampCascadeDiagram));
     default:
       return (
         <pre className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">

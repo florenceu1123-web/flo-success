@@ -140,6 +140,8 @@ export function validateProblem(args: {
     // thevenin_switched_rc 2 figure — 둘 다 fixed-slot circuit. analog_netlist 분류는 아니지만 회로 figure.
     f.diagramType === "thevenin_original_circuit" ||
     f.diagramType === "thevenin_equivalent_circuit" ||
+    // opamp_cascade — 2-OPAMP cascade fixed-slot circuit (임용 10번)
+    f.diagramType === "opamp_cascade" ||
     // truth_table·waveform도 회로 figure 아님 (보조 figure로 단독 사용 가능)
     f.diagramType === "truth_table" ||
     f.diagramType === "waveform",

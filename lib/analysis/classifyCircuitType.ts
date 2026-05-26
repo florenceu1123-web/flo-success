@@ -235,7 +235,29 @@ export function classifyCircuitType(
         reasoning: "electronics + 적분기/미분기 키워드",
       };
     }
+    // ── 2-OPAMP cascade + 5R + V_o/V_i 전달함수 (임용 10번) — 단일 OPAMP보다 우선 ──
+    //   트리거: OPAMP ≥ 2 (inventory or 키워드) + R ≥ 4 + 전달함수/V_o/V_i 키워드
+    const opampInventoryCount = (analysis.componentInventory ?? []).filter((c) =>
+      String(c.type ?? "").toUpperCase() === "OPAMP",
+    ).length;
+    const cascadeKw = matchesKeyword(text, [
+      "cascade", "캐스케이드", "다단", "2단", "2단 OPAMP", "두 단", "두단",
+      "v_o/v_i", "v_s/v_o", "전달함수", "transfer function",
+      "응용 회로", "응용회로",
+    ]);
+    const rCount = (analysis.componentInventory ?? []).filter((c) =>
+      String(c.type ?? "").toUpperCase() === "R",
+    ).length;
+    if (opampInventoryCount >= 2 && rCount >= 4 && cascadeKw) {
+      return {
+        type: "opamp_cascade_voltage_divider",
+        params: {},
+        confidence: "high",
+        reasoning: `electronics + OPAMP ${opampInventoryCount}개 + R≥4 + cascade/전달함수 키워드 (임용 10번)`,
+      };
+    }
     if (analysis.topicKey === "opamp" || matchesKeyword(text, ["opamp", "op-amp", "op amp", "연산증폭기", "OPAMP", "U1"])) {
+      // 단일 OPAMP path (cascade rule miss 시 fallback)
       return {
         type: "opamp",
         params: {},
