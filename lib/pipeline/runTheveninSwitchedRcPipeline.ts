@@ -36,39 +36,42 @@ export async function runTheveninSwitchedRcPipeline(args: {
   const contextHint = buildContextHint(analysis);
 
   return generateInParallel(count, async (i, seed) => {
-    const gen = generateTheveninSwitchedRc({ params: analysis?.circuitType?.params, seed });
-    log.info("thev_rc_generated", { values: gen.values, answer: gen.answer });
+    const gen = generateTheveninSwitchedRc({ params: analysis?.circuitType?.params, seed, mode });
+    log.info("thev_rc_generated", { componentMode: gen.componentMode, values: gen.values, answer: gen.answer });
 
     const text = await writeTheveninSwitchedRcText({ generation: gen, mode, topicLabel, contextHint });
 
     const v = gen.values;
     const a = gen.answer;
+    const reactiveUnit = gen.componentMode === "RL" ? "H" : "F";
     const original: TheveninOriginalDiagram = {
       V_s_label: `${v.V_s}V`,
       R_top_label: `${v.R_top}Ω`,
-      C_1_label: `${v.C_1}F`,
-      C_2_label: `${v.C_2}F`,
+      C_1_label: `${v.C_1}${reactiveUnit}`,
+      C_2_label: `${v.C_2}${reactiveUnit}`,
       R_a_label: `${v.R_a}Ω`,
       R_b_label: `${v.R_b}Ω`,
       R_c_label: `${v.R_c}Ω`,
       I_s_label: `${v.I_s}A`,
-      swState: "closed_to_term1",  // 원본은 t<0 상태로 표기
+      swState: "closed_to_term1",
+      componentMode: gen.componentMode,
     };
     const equivalent: TheveninEquivalentDiagram = {
       V_s_label: `${v.V_s}V`,
       R_top_label: `${v.R_top}Ω`,
-      C_1_label: `${v.C_1}F`,
-      C_2_label: `${v.C_2}F`,
-      // (나) 등가회로는 학생이 V_Th, R_Th 도출용 — 값 표기하지 않고 변수만 (원본 image #20과 일관)
+      C_1_label: `${v.C_1}${reactiveUnit}`,
+      C_2_label: `${v.C_2}${reactiveUnit}`,
       V_Th_label: `V_Th`,
       R_Th_label: `R_Th`,
-      swState: "closed_to_term2",  // 등가회로는 t≥0 상태
+      swState: "closed_to_term2",
+      componentMode: gen.componentMode,
     };
 
+    const circuitLabel = gen.componentMode === "RL" ? "RL" : "RC";
     const figureVariants: FigureVariant[] = [
       {
         id: `fig_thev_orig_${i + 1}`,
-        label: "(가) 원본 회로 (RC + SW + 점선박스)",
+        label: `(가) 원본 회로 (${circuitLabel} + SW + 점선박스)`,
         role: "original_circuit",
         diagramType: "thevenin_original_circuit",
         diagram: original as unknown as Record<string, unknown>,

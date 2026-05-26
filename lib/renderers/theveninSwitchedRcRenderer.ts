@@ -30,14 +30,16 @@ const BOX_BOT_Y = 290;
 export type TheveninOriginalDiagram = {
   V_s_label: string;        // "10V"
   R_top_label: string;      // "1Ω"
-  C_1_label: string;        // "0.1F"
-  C_2_label: string;        // "0.4F"
+  C_1_label: string;        // "0.1F" 또는 "0.1H" (RL 변형)
+  C_2_label: string;        // "0.4F" 또는 "0.5H"
   R_a_label: string;        // "2Ω"
   R_b_label: string;        // "4Ω"
   R_c_label: string;        // "2Ω"
   I_s_label: string;        // "4A"
   /** SW 상태 시각 표현. 보통 "단자1↔단자2" 라벨로 양쪽 표시. */
   swState: "closed_to_term1" | "closed_to_term2" | "open";
+  /** "RC"이면 cap 심볼, "RL"이면 inductor (coil) 심볼. */
+  componentMode?: "RC" | "RL";
 };
 
 export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
@@ -60,10 +62,13 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   const B_DOT_X = BOX_LEFT_X + 30;  // b dot 위치 (= RB_X_NEW와 동일)
   svg += renderSwitchAtNode(NODE_A_X, MID_Y, RTOP_X + 18, B_DOT_X, d.swState);
 
-  // C_1: node a → GND
-  svg += renderCapVertical(NODE_A_X, MID_Y, BOT_Y, d.C_1_label, "C_1");
-  // v_o(t) 라벨
-  svg += `<text x="${NODE_A_X + 24}" y="${(MID_Y + BOT_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
+  // C_1 (RC) 또는 L_1 (RL): node a → GND
+  const mode: "RC" | "RL" = d.componentMode === "RL" ? "RL" : "RC";
+  const c1Label = mode === "RL" ? "L_1" : "C_1";
+  const measureLabel = mode === "RL" ? "i_o(t)" : "v_o(t)";
+  svg += renderReactiveVertical(mode, NODE_A_X, MID_Y, BOT_Y, d.C_1_label, c1Label);
+  // 측정 라벨 (v_o 또는 i_o)
+  svg += `<text x="${NODE_A_X + 24}" y="${(MID_Y + BOT_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">${measureLabel}</text>`;
 
   // ── 점선박스 — flat horizontal rail at MID_Y (사용자 피드백 #25·#26) ──
   //   b ━━━ R_a (horizontal) ━━━ n_mid ━━━ I_s top
@@ -110,7 +115,8 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   // V_s 하단 → C_2 좌측 (V_s 측 막대)
   svg += `<path d="M ${VS_X} ${BOT_Y} L ${C2_HORIZ_X - 3} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   // C_2 horizontal symbol
-  svg += renderCapHorizontal(C2_HORIZ_X, BOT_Y, d.C_2_label, "C_2");
+  const c2Label = mode === "RL" ? "L_2" : "C_2";
+  svg += renderReactiveHorizontal(mode, C2_HORIZ_X, BOT_Y, d.C_2_label, c2Label);
   // C_2 우측 → ground 심볼 위치 → rail 우측 (= 0V 기준)
   svg += `<path d="M ${C2_HORIZ_X + 3} ${BOT_Y} L ${IS_X_NEW} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   // 노드 dot
@@ -133,6 +139,8 @@ export type TheveninEquivalentDiagram = {
   V_Th_label: string;       // "V_Th" 또는 "6.4V" 등 — 변수 표기 우선
   R_Th_label: string;       // "R_Th" 또는 "1.6Ω"
   swState: "closed_to_term1" | "closed_to_term2" | "open";
+  /** "RC" or "RL" — 인덕터 변형 시 cap을 coil로 대체. */
+  componentMode?: "RC" | "RL";
 };
 
 export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
@@ -151,9 +159,12 @@ export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
   const VTH_X = RTH_X + 110;
   svg += renderSwitchAtNode(NODE_A_X_EQ, MID_Y, RTOP_X + 18, RTH_X - 18, d.swState);
 
-  // C_1 node a leg (C_2는 bottom rail에 horizontal — (가)와 동일)
-  svg += renderCapVertical(NODE_A_X_EQ, MID_Y, BOT_Y, d.C_1_label, "C_1");
-  svg += `<text x="${NODE_A_X_EQ + 24}" y="${(MID_Y + BOT_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
+  // C_1 (RC) 또는 L_1 (RL) — node a leg ((가)와 동일 패턴, mode 분기)
+  const modeEq: "RC" | "RL" = d.componentMode === "RL" ? "RL" : "RC";
+  const c1LabelEq = modeEq === "RL" ? "L_1" : "C_1";
+  const measureLabelEq = modeEq === "RL" ? "i_o(t)" : "v_o(t)";
+  svg += renderReactiveVertical(modeEq, NODE_A_X_EQ, MID_Y, BOT_Y, d.C_1_label, c1LabelEq);
+  svg += `<text x="${NODE_A_X_EQ + 24}" y="${(MID_Y + BOT_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">${measureLabelEq}</text>`;
 
   // R_Th horizontal + V_Th vertical
   svg += renderResistorHorizontal(RTH_X, MID_Y, d.R_Th_label);
@@ -166,7 +177,8 @@ export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
   const GND_SYMBOL_X_EQ = NODE_A_X_EQ;       // ground 심볼: C_1 leg 아래 (회로 가운데)
   // V_s 하단 → C_2 좌측
   svg += `<path d="M ${VS_X} ${BOT_Y} L ${C2_HORIZ_X_EQ - 3} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += renderCapHorizontal(C2_HORIZ_X_EQ, BOT_Y, d.C_2_label, "C_2");
+  const c2LabelEq = modeEq === "RL" ? "L_2" : "C_2";
+  svg += renderReactiveHorizontal(modeEq, C2_HORIZ_X_EQ, BOT_Y, d.C_2_label, c2LabelEq);
   // C_2 우측 → rail 우측 끝
   svg += `<path d="M ${C2_HORIZ_X_EQ + 3} ${BOT_Y} L ${VTH_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   for (const dx of [VS_X, NODE_A_X_EQ, VTH_X]) {
@@ -254,6 +266,51 @@ function renderResistorVertical(cx: number, cy: number, label: string): string {
   let svg = `<path d="${path}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += `<text x="${cx + 14}" y="${cy + 4}" font-size="12" fill="#374151">${escapeSvg(label)}</text>`;
   return svg;
+}
+
+/** 수직 인덕터 — 3-loop coil 심볼. cap helper와 동일 signature. */
+function renderInductorVertical(cx: number, topY: number, botY: number, value: string, idLabel: string): string {
+  const cy = (topY + botY) / 2;
+  let svg = "";
+  // wire top
+  svg += `<path d="M ${cx} ${topY} L ${cx} ${cy - 18}" stroke="black" fill="none" stroke-width="2"/>`;
+  // 3 loops (반원 3개 우측으로 볼록)
+  for (let i = 0; i < 3; i++) {
+    const y0 = cy - 18 + i * 12;
+    svg += `<path d="M ${cx} ${y0} A 6 6 0 0 1 ${cx} ${y0 + 12}" stroke="black" fill="none" stroke-width="2"/>`;
+  }
+  // wire bottom
+  svg += `<path d="M ${cx} ${cy + 18} L ${cx} ${botY}" stroke="black" fill="none" stroke-width="2"/>`;
+  // 라벨 (좌측)
+  svg += `<text x="${cx - 8}" y="${cy - 6}" text-anchor="end" font-size="12" font-weight="700" fill="#1e3a8a">${escapeSvg(idLabel)}</text>`;
+  svg += `<text x="${cx - 8}" y="${cy + 10}" text-anchor="end" font-size="11" fill="#374151">${escapeSvg(value)}</text>`;
+  return svg;
+}
+
+/** 수평 인덕터 — 3-loop coil 심볼 (위로 볼록). cap horizontal helper와 동일 signature. */
+function renderInductorHorizontal(cx: number, cy: number, value: string, idLabel: string): string {
+  let svg = "";
+  // 3 반원 위로 볼록
+  for (let i = 0; i < 3; i++) {
+    const x0 = cx - 18 + i * 12;
+    svg += `<path d="M ${x0} ${cy} A 6 6 0 0 1 ${x0 + 12} ${cy}" stroke="black" fill="none" stroke-width="2"/>`;
+  }
+  // 라벨
+  svg += `<text x="${cx}" y="${cy - 14}" text-anchor="middle" font-size="12" font-weight="700" fill="#1e3a8a">${escapeSvg(idLabel)}</text>`;
+  svg += `<text x="${cx}" y="${cy + 22}" text-anchor="middle" font-size="11" fill="#374151">${escapeSvg(value)}</text>`;
+  return svg;
+}
+
+/** Cap 또는 Inductor를 mode에 따라 dispatch. */
+function renderReactiveVertical(mode: "RC" | "RL", cx: number, topY: number, botY: number, value: string, idLabel: string): string {
+  return mode === "RL"
+    ? renderInductorVertical(cx, topY, botY, value, idLabel)
+    : renderCapVertical(cx, topY, botY, value, idLabel);
+}
+function renderReactiveHorizontal(mode: "RC" | "RL", cx: number, cy: number, value: string, idLabel: string): string {
+  return mode === "RL"
+    ? renderInductorHorizontal(cx, cy, value, idLabel)
+    : renderCapHorizontal(cx, cy, value, idLabel);
 }
 
 /** 수평 캐패시터 — 두 평행 vertical 막대 (좌측 wire ─ ║║ ─ 우측 wire). */
