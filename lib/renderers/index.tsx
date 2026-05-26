@@ -25,6 +25,14 @@ import { renderMixedCircuitSVG } from "./mixedCircuitRenderer";
 import { renderMuxDiagramSVG } from "./muxDiagramRenderer";
 import { renderMuxGarCircuitSVG } from "./muxGarCircuitRenderer";
 import { renderRlcResonanceMaxPowerCircuitSVG } from "./rlcResonanceMaxPowerCircuitRenderer";
+import {
+  renderSequenceBlock,
+  renderSequenceStateDiagram,
+  renderSequenceStateTable,
+  type SequenceBlockDiagram,
+  type SequenceStateDiagram,
+  type SequenceStateTable,
+} from "./sequenceDetectorRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -68,6 +76,12 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderMuxGarCircuitSVG(figure.diagram as MuxGarCircuitDiagram));
     case "rlc_resonance_max_power_circuit":
       return wrapSvg(figure, renderRlcResonanceMaxPowerCircuitSVG(figure.diagram as RlcResonanceMaxPowerCircuitDiagram));
+    case "sequence_block":
+      return wrapSvg(figure, renderSequenceBlock(figure.diagram as SequenceBlockDiagram));
+    case "sequence_state_diagram":
+      return wrapSvg(figure, renderSequenceStateDiagram(figure.diagram as SequenceStateDiagram));
+    case "sequence_state_table":
+      return wrapSvg(figure, renderSequenceStateTable(figure.diagram as SequenceStateTable));
     default:
       return (
         <pre className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">

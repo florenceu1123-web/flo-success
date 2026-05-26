@@ -53,6 +53,7 @@ export type CircuitType =
   | "combinational_gate"    // 3-입력 2-출력 조합 회로 (F, G 동시 설계)
   | "mux_implementation"    // (가) 조합논리회로 + (나) 4×1 MUX 등가구현 — POS→SOP→MUX 입력 결정 (임용 5번 형식)
   | "fsm"                   // Mealy 4-state FSM (상태 전이도 + 구현 회로)
+  | "sequence_detector"     // 시퀀스 검출기 + D-FF + 상태도/표 빈칸 (임용 8번 정보과)
   | "waveform_analysis"     // 디지털 입력 파형 → 출력 파형 분석
   // ── Universal (rule-based) ───────────────────
   | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
@@ -117,6 +118,9 @@ export type CircuitTypeParams = {
   hasSwitch?: boolean;
   /** AC 전원 존재 (hasACInventory 또는 text 키워드 기반). */
   hasACSource?: boolean;
+  // ── sequence_detector (시퀀스 검출기 + D-FF + 상태도) ──────
+  /** 검출 시퀀스 패턴 — '110', '101', '011', '1010' 등. 미지정 시 generator가 변형. */
+  sequencePattern?: string;
 };
 
 /**

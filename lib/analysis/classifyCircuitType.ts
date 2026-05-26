@@ -396,6 +396,27 @@ export function classifyCircuitType(
         reasoning: "digital_logic + 파형 분석 키워드/topic",
       };
     }
+    // ── sequence_detector: 시퀀스 검출기 + D-FF + 상태도/표 빈칸 (임용 8번 정보과) ──
+    //   fsm보다 먼저 매치 (더 구체적인 형식).
+    //   트리거: 시퀀스 검출기 키워드 + D 플립플롭 + (상태도 빈칸 ㉠㉡㉢㉣ OR 상태표 빈칸)
+    const seqDetectorKw = matchesKeyword(text, [
+      "시퀀스 검출기", "시퀀스 검출", "sequence detector",
+      "검출기의 블록도", "검출기 블록도",
+      "'110'", "'101'", "'011'", "'1010'", "110의 순서", "101의 순서",
+    ]);
+    const dffKw = matchesKeyword(text, ["d 플립플롭", "d-플립플롭", "d 플립", "d-ff", "dff", "d flip-flop", "d flipflop"]);
+    const stateBlankKw = matchesKeyword(text, ["㉠", "㉡", "㉢", "㉣", "ⓐ", "ⓑ", "상태도", "상태표"]);
+    if (seqDetectorKw && (dffKw || analysis.topicKey === "sequence_detector") && stateBlankKw) {
+      // 시퀀스 패턴 추출 — text에 '110'/'101'/'011' 등이 quoted로 있으면 그것 사용, 없으면 기본 '110'
+      const seqMatch = text.match(/'(1[01]+|0[01]+)'|"(1[01]+|0[01]+)"/);
+      const pattern = seqMatch ? (seqMatch[1] ?? seqMatch[2]) : "110";
+      return {
+        type: "sequence_detector",
+        params: { sequencePattern: pattern },
+        confidence: "high",
+        reasoning: `digital_logic + 시퀀스 검출기 키워드 + D-FF + 상태도/표 빈칸 → 패턴 '${pattern}'`,
+      };
+    }
     if (analysis.topicKey === "fsm" || matchesKeyword(text, ["FSM", "유한 상태", "유한상태", "Mealy", "Moore", "상태 기계", "상태 머신", "상태 전이도", "상태천이도"])) {
       return {
         type: "fsm",

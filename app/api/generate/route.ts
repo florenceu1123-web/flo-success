@@ -38,6 +38,7 @@ import { runFfWithWaveformPipeline } from "@/lib/pipeline/runFfWithWaveformPipel
 import { runFlipflopMixedPipeline } from "@/lib/pipeline/runFlipflopMixedPipeline";
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
+import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
 import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
 import { runMuxImplementationPipeline } from "@/lib/pipeline/runMuxImplementationPipeline";
 import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipeline";
@@ -520,6 +521,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "combinational_gate" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "combinational_gate_pipeline", count: n, mode });
       problems = await runCombinationalGatePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "sequence_detector" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "sequence_detector_pipeline", count: n, mode });
+      problems = await runSequenceDetectorPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

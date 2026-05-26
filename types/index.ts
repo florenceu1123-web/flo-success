@@ -38,6 +38,7 @@ export type DigitalLogicTopic =
   | "combinational_gate"
   | "flipflop_counter"
   | "fsm"
+  | "sequence_detector"   // 시퀀스 검출기 + D-FF + 상태도/표 빈칸 (임용 8번 정보과)
   | "waveform_analysis";
 
 /** 전자회로 세부 주제 */
@@ -79,7 +80,7 @@ export const TOPICS_BY_SUBJECT: {
   circuit_theory: CircuitTheoryTopic[];
   mixed_signal: MixedSignalTopic[];
 } = {
-  digital_logic: ["kmap_sop", "kmap_pos", "combinational_gate", "flipflop_counter", "fsm", "waveform_analysis"],
+  digital_logic: ["kmap_sop", "kmap_pos", "combinational_gate", "flipflop_counter", "fsm", "sequence_detector", "waveform_analysis"],
   electronics: ["opamp", "bjt_bias", "bjt_amplifier", "mosfet_bias", "mosfet_amplifier", "diode", "mixed_signal"],
   circuit_theory: [
     "dc_resistive", "mesh_analysis", "nodal_analysis",
@@ -106,6 +107,7 @@ export const TOPIC_LABEL: Record<TopicKey, string> = {
   combinational_gate: "조합 논리 게이트",
   flipflop_counter: "플립플롭·카운터",
   fsm: "유한 상태 기계 (FSM)",
+  sequence_detector: "시퀀스 검출기 (D-FF + 상태도)",
   waveform_analysis: "파형 분석",
   // electronics
   opamp: "OPAMP",
@@ -328,7 +330,10 @@ export type DiagramType =
   | "mux_diagram"
   | "imyong_10_dc_nodal"     // archetype-specific fixed-slot renderer
   | "mux_gar_circuit"
-  | "rlc_resonance_max_power_circuit";
+  | "rlc_resonance_max_power_circuit"
+  | "sequence_block"         // 시퀀스 검출기 (가) 블록도
+  | "sequence_state_diagram" // 시퀀스 검출기 (나) 상태 전이도 + 빈칸 ㉠㉡㉢㉣
+  | "sequence_state_table";  // 시퀀스 검출기 (다) 상태표 + 빈칸 + don't care
 
 /**
  * 임용 7번 (RLC 공진 + 5R Wheatstone 등가 + R_L 최대전력) 전용 figure.
