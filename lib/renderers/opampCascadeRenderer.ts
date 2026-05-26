@@ -104,11 +104,16 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   svg += `<path d="M ${u1Pins.vPlus.x} ${u1Pins.vPlus.y} L ${u1Pins.vPlus.x} ${GF_Y_DOWN} L ${R2_LEFT_X} ${GF_Y_DOWN}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderResistorHorizontal(R2_X_NEW, GF_Y_DOWN, d.R_2_label, "R_2");
   svg += `<path d="M ${R2_X_NEW + 18} ${GF_Y_DOWN} L ${VS_X} ${GF_Y_DOWN} L ${VS_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  // 합류 node의 왼쪽 모서리 (V⁺ pin 수직선이 horizontal과 만나는 corner)에서 V_i 의 - (GND) 으로
-  //   사용자 피드백: "그 node의 왼쪽 모서리 부분으로 연결지점을 옮겨봐봐"
-  const NODE_LEFT_CORNER_X = u1Pins.vPlus.x;  // = 268 (V⁺ pin 위치)
+  // 합류 node의 왼쪽 모서리에서 V_i의 - (GND) 으로 — 중간에 R_6 vertical 저항
+  //   사용자 피드백: "R_2와 그라운드 사이에 있는 수직 node에 저항이 하나 와야돼"
+  const NODE_LEFT_CORNER_X = u1Pins.vPlus.x;
+  const R6_CY = (GF_Y_DOWN + BOT_Y) / 2;  // 수직 저항 body 중심
   svg += `<circle cx="${NODE_LEFT_CORNER_X}" cy="${GF_Y_DOWN}" r="3" fill="black"/>`;
-  svg += `<path d="M ${NODE_LEFT_CORNER_X} ${GF_Y_DOWN} L ${NODE_LEFT_CORNER_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // top wire: corner → R_6 body top
+  svg += `<path d="M ${NODE_LEFT_CORNER_X} ${GF_Y_DOWN} L ${NODE_LEFT_CORNER_X} ${R6_CY - 18}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += renderResistorVertical(NODE_LEFT_CORNER_X, R6_CY, d.R_6_label, "R_6");
+  // bottom wire: R_6 body bottom → GND rail
+  svg += `<path d="M ${NODE_LEFT_CORNER_X} ${R6_CY + 18} L ${NODE_LEFT_CORNER_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
 
   // V⁺(U_2)에 독립적 GND 심볼 (사용자 피드백 "U_2 의 V+에는 그라운드를 독립적으로 달아줘")
   //   main GND rail 연결하지 않고 V⁺ pin 바로 아래 별도 ground triangle.
