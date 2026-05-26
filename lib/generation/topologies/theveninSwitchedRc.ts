@@ -96,25 +96,41 @@ export function generateTheveninSwitchedRc(args: {
   const R_c = pick([2, 3], rand);
   const I_s = pick([2, 4, 5], rand);
 
-  // Thevenin 계산 (점선박스 내부)
-  const R_series_branch = R_a + R_b;
-  const R_Th_raw = parallel(R_c, R_series_branch);
-  const V_Th_raw = I_s * R_Th_raw;
-
-  // ─── 캐패시터 분석 (사용자 피드백 반영 final layout) ────────────────
-  //   원본 (이미지 #20) 토폴로지:
-  //     C_1: node a leg (V_a ↔ GND) — v_o(t) 측정 대상
-  //     C_2: V_s 옆 별도 leg (V_s top rail ↔ GND), V_s에 parallel
-  //   따라서 C_2는 V_s에 의해 항상 charged (V_C2 = V_s 일정), 동역학에 영향 없음.
-  //   v_o(t) = V_C1 (node a 전압).
+  // Thevenin 계산 (점선박스 내부 — 사용자 피드백 #21 토폴로지):
+  //   b = R_b 좌측 vertical top
+  //   n_mid = R_c 가운데 vertical top (= I_s top)
+  //   R_a = b ↔ n_mid 사이 horizontal (top bridge)
+  //   R_b vertical: b → GND
+  //   R_c vertical: n_mid → GND
+  //   I_s vertical: GND → n_mid (current up)
   //
-  //   t<0 SS (SW=단자1, V_s 활성): V_s → R_top → SW → a → C_1. SS: v_o(0⁻) = V_s.
-  //   t→∞ SS (SW=단자2, Thevenin 활성): a → Thevenin. v_o(∞) = V_Th.
-  //   τ = R_Th · C_1 (C_2는 SW로 분리되어 R_Th와 무관)
-  const C_eq_series = C_1;  // 동역학에 참여하는 cap = C_1만
+  //   R_Th (b에서 보는 등가저항, I_s OFF=open):
+  //     R_Th = R_b || (R_a + R_c)
+  //   V_Th (b open-circuit voltage):
+  //     V_nmid = I_s · ((R_a + R_b) || R_c)
+  //     V_b = V_nmid · R_b / (R_a + R_b)  (전압분배)
+  //     단순 정리: V_Th = I_s · R_b · R_c / (R_a + R_b + R_c)
+  const R_Th_raw = parallel(R_b, R_a + R_c);
+  const V_Th_raw = (I_s * R_b * R_c) / (R_a + R_b + R_c);
+
+  // ─── 캐패시터 분석 (V_s와 C_2 직렬, 사용자 피드백 #21) ────────────────
+  //   원본 (이미지 #21) 토폴로지:
+  //     좌측 leg: V_s + C_2 직렬 (V_s top → 중간노드 → C_2 → GND)
+  //     C_1: node a leg (V_a ↔ GND)
+  //
+  //   t<0 SS (SW=단자1): 닫힌 loop V_s → R_top → SW → C_1 → GND ← C_2 ← V_s.
+  //     No current at SS. KVL: V_s = V_C1 + V_C2.
+  //     Same charge Q (series): V_C1/V_C2 = C_2/C_1.
+  //     → V_C1 = V_s · C_2/(C_1+C_2) = v_o(0⁻)
+  //
+  //   t≥0 SS (SW=단자2): V_s+C_2 leg는 SW로 분리(no path) → V_C2 frozen.
+  //     C_1만 Thevenin과 closed loop: Thevenin → R_Th → SW → C_1 → GND.
+  //     → v_o(∞) = V_Th. τ = R_Th · C_1.
+  const alpha_ratio = C_2 / (C_1 + C_2);
   const tau_raw = R_Th_raw * C_1;
-  const v_o_0minus = V_s;
+  const v_o_0minus = V_s * alpha_ratio;
   const v_o_inf = V_Th_raw;
+  const C_eq_series = C_1;  // 동역학에 참여하는 cap = C_1만
 
   // v_o(t) = v_o(∞) + (v_o(0⁻) - v_o(∞)) · exp(-t/τ)
   const A = trunc3(v_o_0minus - v_o_inf);

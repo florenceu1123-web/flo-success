@@ -44,8 +44,13 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${KOREAN_FONT_STACK}">`;
   svg += defs();
 
-  // 좌측 V_s vertical leg
-  svg += renderDcSource(VS_X, MID_Y, BOT_Y, d.V_s_label);
+  // ── 좌측 leg: V_s + C_2 직렬 stacked (사용자 피드백 #21) ──
+  //   V_s: 상단 (top rail → 중간노드)
+  //   C_2: 하단 (중간노드 → GND)
+  const LEFT_MID_Y = (MID_Y + BOT_Y) / 2;
+  svg += renderDcSource(VS_X, MID_Y, LEFT_MID_Y, d.V_s_label);
+  svg += `<circle cx="${VS_X}" cy="${LEFT_MID_Y}" r="3" fill="black"/>`;
+  svg += renderCapVertical(VS_X, LEFT_MID_Y, BOT_Y, d.C_2_label, "C_2");
   // V_s top → R_top
   svg += `<path d="M ${VS_X} ${MID_Y} L ${RTOP_X - 18} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   // R_top horizontal
@@ -55,53 +60,47 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   const NODE_A_X = C1_X + 30;
   svg += renderSwitchAtNode(NODE_A_X, MID_Y, RTOP_X + 18, BOX_LEFT_X + 10, d.swState);
 
-  // ── C_1 = node a leg, C_2 = V_s 옆 separate leg (둘 다 GND로 — 사용자 피드백 반영) ──
-  //   "C_2는 bottom에 오고 C_1은 leg에 오고 그사이에 ground가 있어야지"
-  //   → 둘이 별도 vertical leg, 사이 horizontal에 ground 심볼 (rail 중앙).
-  //   원본 (이미지 #20): C_2는 V_s 우측 가까이 vertical, C_1은 node a 위치 vertical.
-  //   양 cap이 GND로 떨어지는 동일 구조 (parallel 전기적), V_s 쪽은 V_s에 의해 항상 charged.
-  const C2_X = VS_X + 50;  // V_s 우측 50px (V_s 옆 별도 leg)
-  svg += `<circle cx="${C2_X}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += renderCapVertical(C2_X, MID_Y, BOT_Y, d.C_2_label, "C_2");
   // C_1: node a → GND
   svg += renderCapVertical(NODE_A_X, MID_Y, BOT_Y, d.C_1_label, "C_1");
-  // v_o(t) 라벨 — C_1 양단 옆 (우측)
+  // v_o(t) 라벨
   svg += `<text x="${NODE_A_X + 24}" y="${(MID_Y + BOT_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
 
-  // 점선박스 (dashed rectangle)
+  // ── 점선박스 — 사용자 피드백 #21 토폴로지 ──
+  //   b (top-left) ─── R_a (horizontal) ─── n_mid (top of R_c·I_s)
+  //   │                                    │           │
+  //   R_b vertical                  R_c vertical   I_s vertical
+  //   │                                    │           │
+  //   GND ─────────────────────────────────GND─────────GND
   svg += `<rect x="${BOX_LEFT_X}" y="${BOX_TOP_Y}" width="${BOX_RIGHT_X - BOX_LEFT_X}" height="${BOX_BOT_Y - BOX_TOP_Y}" stroke="#6b7280" fill="none" stroke-width="1.5" stroke-dasharray="6 4"/>`;
-  // 박스 진입 — node b at left edge
-  svg += `<circle cx="${BOX_LEFT_X + 10}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += `<text x="${BOX_LEFT_X + 16}" y="${MID_Y - 12}" font-size="13" font-weight="700" fill="#1e3a8a">b</text>`;
-  // node b → R_a horizontal top
-  svg += `<path d="M ${BOX_LEFT_X + 10} ${MID_Y} L ${BOX_LEFT_X + 10} ${MID_Y - 50} L ${BOX_TOP_X - 18} ${MID_Y - 50}" stroke="black" fill="none" stroke-width="2"/>`;
-  // R_a horizontal
-  svg += renderResistorHorizontal(BOX_TOP_X, MID_Y - 50, d.R_a_label);
-  // R_a → 박스 내부 mid_node (vertical drop)
-  const BOX_MID_NODE_Y = MID_Y - 50;
-  svg += `<path d="M ${BOX_TOP_X + 18} ${BOX_MID_NODE_Y} L ${BOX_R_B_X + 30} ${BOX_MID_NODE_Y} L ${BOX_R_B_X + 30} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  // R_b vertical (mid_node → GND)
-  const RB_TOP_Y = MID_Y;
-  svg += renderResistorVertical(BOX_R_B_X + 30, RB_TOP_Y + 30, d.R_b_label);
-  svg += `<circle cx="${BOX_R_B_X + 30}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += `<path d="M ${BOX_R_B_X + 30} ${RB_TOP_Y + 60} L ${BOX_R_B_X + 30} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  // R_c vertical — node b 우측 평행 가지로 GND
-  //   node b에서 다시 우측으로 가지, R_c 통해 GND
-  svg += `<path d="M ${BOX_LEFT_X + 10} ${MID_Y} L ${BOX_R_C_X} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += `<circle cx="${BOX_R_C_X}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += renderResistorVertical(BOX_R_C_X, MID_Y + 30, d.R_c_label);
-  svg += `<path d="M ${BOX_R_C_X} ${MID_Y + 60} L ${BOX_R_C_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  // I_s vertical (GND → top, 화살표 위)
-  svg += `<path d="M ${BOX_R_C_X} ${MID_Y} L ${BOX_IS_X} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += renderCurrentSource(BOX_IS_X, MID_Y, BOT_Y, d.I_s_label);
+  const RB_X_NEW = BOX_LEFT_X + 30;
+  const RA_Y_NEW = MID_Y - 50;  // R_a horizontal level (above MID_Y, 위쪽 다리)
+  const RC_X_NEW = RB_X_NEW + 130;
+  const RA_X_NEW = (RB_X_NEW + RC_X_NEW) / 2;
+  const IS_X_NEW = BOX_RIGHT_X - 30;
+  // node b (R_b top)
+  svg += `<circle cx="${RB_X_NEW}" cy="${MID_Y}" r="3" fill="black"/>`;
+  svg += `<text x="${RB_X_NEW + 6}" y="${MID_Y - 10}" font-size="13" font-weight="700" fill="#1e3a8a">b</text>`;
+  // b → 위로 → R_a horizontal → 아래로 → n_mid
+  svg += `<path d="M ${RB_X_NEW} ${MID_Y} L ${RB_X_NEW} ${RA_Y_NEW} L ${RA_X_NEW - 18} ${RA_Y_NEW}" stroke="black" fill="none" stroke-width="2"/>`;
+  svg += renderResistorHorizontal(RA_X_NEW, RA_Y_NEW, d.R_a_label);
+  svg += `<path d="M ${RA_X_NEW + 18} ${RA_Y_NEW} L ${RC_X_NEW} ${RA_Y_NEW} L ${RC_X_NEW} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // n_mid (R_c top)
+  svg += `<circle cx="${RC_X_NEW}" cy="${MID_Y}" r="3" fill="black"/>`;
+  // R_b vertical (b → GND)
+  svg += renderResistorVertical(RB_X_NEW, (MID_Y + BOT_Y) / 2, d.R_b_label);
+  // R_c vertical (n_mid → GND)
+  svg += renderResistorVertical(RC_X_NEW, (MID_Y + BOT_Y) / 2, d.R_c_label);
+  // I_s wire: n_mid → I_s top horizontal, then vertical down
+  svg += `<path d="M ${RC_X_NEW} ${MID_Y} L ${IS_X_NEW} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  svg += renderCurrentSource(IS_X_NEW, MID_Y, BOT_Y, d.I_s_label);
 
   // 공통 ground rail
-  svg += `<path d="M ${VS_X} ${BOT_Y} L ${BOX_IS_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  for (const dx of [VS_X, C2_X, NODE_A_X, BOX_R_B_X + 30, BOX_R_C_X, BOX_IS_X]) {
+  svg += `<path d="M ${VS_X} ${BOT_Y} L ${IS_X_NEW} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  for (const dx of [VS_X, NODE_A_X, RB_X_NEW, RC_X_NEW, IS_X_NEW]) {
     svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
-  // ground 심볼 — C_2와 C_1 사이 (사용자 요청: "그사이에 ground가 있어야지")
-  svg += renderGround(Math.round((C2_X + NODE_A_X) / 2), BOT_Y);
+  // ground 심볼 — C_2(좌측 leg)와 C_1(node a leg) 사이
+  svg += renderGround(Math.round((VS_X + NODE_A_X) / 2), BOT_Y);
 
   svg += `</svg>`;
   return svg;
