@@ -23,7 +23,9 @@ import { classifyCircuitType } from "../lib/analysis/classifyCircuitType.ts";
 import { runUniversalAcPwlPipeline } from "../lib/pipeline/runUniversalAcPwlPipeline.ts";
 import { renderDiodePwlCircuit } from "../lib/renderers/diodePwlCircuitRenderer.ts";
 
-const IMG_PATH = "C:/Users/USER/.claude/image-cache/8a651477-897f-40f7-8920-433ead88c56f/7.png";
+// flo-success 루트 기준 상대 경로 — Claude Code 임시 캐시(cleanup 됨) 의존 제거.
+// 이 위치에 임용 6번 원본 png 배치 필요 (없으면 ENOENT). git tracked.
+const IMG_PATH = "test-images/imyong6.png";
 
 const imageBytes = readFileSync(IMG_PATH);
 const imageB64 = imageBytes.toString("base64");
