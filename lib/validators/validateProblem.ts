@@ -87,11 +87,23 @@ export function validateProblem(args: {
   // state figure가 required면 main_circuit은 자동 satisfied로 간주
   const stateRequired = expected.ruleSet.requiredFigureRoles.some((r) => isStateRole(r));
 
+  // Thevenin-style 문제 검출: original_circuit + equivalent_circuit 두 figure를 가지면
+  //   state_before/state_after/waveform 요구를 등가회로 형식으로 대체 만족한 것으로 간주.
+  //   (예: thevenin_switched_rc archetype은 (가) 원본 + (나) Thevenin 등가로 스위치 전후 분석)
+  const isTheveninStyle =
+    (roles.has("original_circuit") || roles.has("main_circuit")) &&
+    (roles.has("equivalent_circuit") || roles.has("thevenin_equivalent") || roles.has("norton_equivalent"));
+
   // 3. figureVariants 누락 — alias 그룹 단위로 dedup해서 한 번씩만 검사
   const checkedGroups = new Set<string>();
   for (const r of expected.ruleSet.requiredFigureRoles) {
     // state가 required면 main_circuit/original_circuit은 skip (대체 만족)
     if (stateRequired && isMainCircuitRole(r)) continue;
+    // Thevenin-style이면 state/waveform 요구는 등가회로로 대체 만족
+    if (isTheveninStyle && (isStateRole(r) || r === "waveform" || r === "input_waveform" ||
+        r === "output_waveform" || r === "measurement_waveform" || r === "frequency_response_curve")) {
+      continue;
+    }
 
     const aliases = getAliasGroup(r);
     const groupKey = aliasGroupKey(r);
@@ -152,7 +164,10 @@ export function validateProblem(args: {
   }
 
   // 6. waveform 문제인데 waveform figure 없음
-  if (expected.ruleSet.semantic.hasWaveformEvolution && !figs.some((f) => f.diagramType === "waveform")) {
+  //   ※ Thevenin-style은 등가회로 두 figure로 대체 만족 — waveform 요구 면제.
+  if (expected.ruleSet.semantic.hasWaveformEvolution &&
+      !figs.some((f) => f.diagramType === "waveform") &&
+      !isTheveninStyle) {
     issues.push({ rule: "missing_waveform", message: "hasWaveformEvolution=true이지만 waveform figure 없음" });
   }
 
