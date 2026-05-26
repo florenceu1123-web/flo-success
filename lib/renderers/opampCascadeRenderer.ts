@@ -99,11 +99,12 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   svg += renderResistorVertical(U2_INPUT_X, BIAS_Y, d.R_6_label, "R_6");
   svg += `<path d="M ${U2_INPUT_X} ${BIAS_Y + 18} L ${U2_INPUT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
 
-  // ── 글로벌 피드백: V⁺(U_1) → V_s (사용자 피드백 "opamp1의 v+와 vs가 연결되어 있어") ──
-  //   V⁺ pin dot에서 좌측으로 extension → 위로 → 우측 횡단 → V_s 까지 DOWN
-  //   y=30 level (위쪽 feedback resistor FB_Y=70보다 위)에서 횡단
+  // ── 글로벌 피드백: V⁺(U_1) → V_s ──
+  //   사용자 피드백: "U_1의 V-와 V+는 서로 분리되어야해. V+ 부분만 V_s와 연결"
+  //   V⁻ node x(=U1_INPUT_X=250)와 충돌하지 않도록 더 좌측으로 우회
+  //   V⁺ pin → LEFT (V⁻ node x 회피) → UP → RIGHT (y=30 level) → DOWN to V_s
   const GF_Y = 30;
-  const GF_X_LEFT_U1 = U1_CX - 60;  // V⁺ pin x보다 더 좌측으로 extension (R_3 vertical wire 회피)
+  const GF_X_LEFT_U1 = 220;  // V⁻ node x=250보다 30px 더 좌측 (R_1 영역과 OPAMP 좌측 사이)
   svg += `<path d="M ${u1Pins.vPlus.x} ${u1Pins.vPlus.y} L ${GF_X_LEFT_U1} ${u1Pins.vPlus.y} L ${GF_X_LEFT_U1} ${GF_Y} L ${VS_X} ${GF_Y} L ${VS_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
 
   // V⁺(U_2)만 GND로 (V⁺(U_1)은 V_s에 연결됨)
