@@ -56,6 +56,9 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   svg += `<path d="M ${R1_X + 18} ${U1_CY} L ${u1Pins.vMinus.x} ${u1Pins.vMinus.y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += `<text x="${R1_X + 30}" y="${U1_CY - 6}" font-size="12" font-weight="700" fill="#1e3a8a">V⁻</text>`;
 
+  // (V_i의 +측은 이미 R_1을 통해 V⁻에 연결됨. V_i의 -측은 GND rail 경유 — 별도 wire는
+  //   아래의 글로벌 feedback wire의 V⁺ 측 leg에서 GND rail로 연결됨)
+
   // U_1 OPAMP (triangle + pins) at U1_CY
   svg += renderOpamp(U1_CX, U1_CY, "U_1");
 
@@ -90,14 +93,20 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   // R_2, R_6 모두 원본에 없는 저항 (사용자 피드백) — 제거
   //   V⁻ node에 bias R 없음. 입력 = R_1, feedback = R_3 만.
 
-  // ── 글로벌 피드백: V⁺(U_1) → R_2 → V_s (아래쪽 우회) ──
-  //   사용자 피드백: "U_1의 V+와 Vs의 연결선 사이에 저항이 있어야해"
-  //   path: V⁺ pin → DOWN → RIGHT half → R_2 horizontal → RIGHT half → UP to V_s
+  // ── 글로벌 피드백: V⁺(U_1) → R_2 → V_s ──
+  //   path: V⁺ pin → DOWN to y=250 → RIGHT half → R_2 → RIGHT half → V_s
+  //   ★ R_2의 좌측 leg 끝(= V⁺와 만나는 지점)에서 V_i의 - (V_i bottom = GND) 으로 추가 wire
+  //     사용자 피드백 "R_2 leg의 끝부분과 U_1의 V+가 만나는 지점에서 V_i의 -로 이어주면돼"
   const GF_Y_DOWN = 250;
-  const R2_X_NEW = (u1Pins.vPlus.x + VS_X) / 2;  // R_2 horizontal 중심 — wire 중간
-  svg += `<path d="M ${u1Pins.vPlus.x} ${u1Pins.vPlus.y} L ${u1Pins.vPlus.x} ${GF_Y_DOWN} L ${R2_X_NEW - 18} ${GF_Y_DOWN}" stroke="black" stroke-width="2" fill="none"/>`;
+  const R2_X_NEW = (u1Pins.vPlus.x + VS_X) / 2;
+  const R2_LEFT_X = R2_X_NEW - 18;
+  // V+ pin DOWN → horizontal to R_2 left
+  svg += `<path d="M ${u1Pins.vPlus.x} ${u1Pins.vPlus.y} L ${u1Pins.vPlus.x} ${GF_Y_DOWN} L ${R2_LEFT_X} ${GF_Y_DOWN}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderResistorHorizontal(R2_X_NEW, GF_Y_DOWN, d.R_2_label, "R_2");
   svg += `<path d="M ${R2_X_NEW + 18} ${GF_Y_DOWN} L ${VS_X} ${GF_Y_DOWN} L ${VS_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // R_2 leg end ↔ V_i bottom (V_i의 -): DOWN to GND rail
+  svg += `<circle cx="${R2_LEFT_X}" cy="${GF_Y_DOWN}" r="3" fill="black"/>`;
+  svg += `<path d="M ${R2_LEFT_X} ${GF_Y_DOWN} L ${R2_LEFT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
 
   // V⁺(U_2)에 독립적 GND 심볼 (사용자 피드백 "U_2 의 V+에는 그라운드를 독립적으로 달아줘")
   //   main GND rail 연결하지 않고 V⁺ pin 바로 아래 별도 ground triangle.
@@ -105,9 +114,10 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   svg += `<path d="M ${u2Pins.vPlus.x} ${u2Pins.vPlus.y} L ${u2Pins.vPlus.x} ${U2_GND_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderGround(u2Pins.vPlus.x, U2_GND_Y);
 
-  // Ground rail — V_i bottom만 연결 (R_2/R_6 제거, U_2 V⁺는 별도 GND 심볼)
-  svg += `<path d="M ${VI_X} ${BOT_Y} L ${VI_X + 30} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // Ground rail — V_i bottom에서 R_2 leg 끝(아래)까지 확장 (V_i의 -와 R_2 leg 합류 노드 연결)
+  svg += `<path d="M ${VI_X} ${BOT_Y} L ${R2_LEFT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += `<circle cx="${VI_X}" cy="${BOT_Y}" r="3" fill="black"/>`;
+  svg += `<circle cx="${R2_LEFT_X}" cy="${BOT_Y}" r="3" fill="black"/>`;
   svg += renderGround(Math.round((VI_X + VS_X) / 2), BOT_Y);
 
   svg += `</svg>`;
