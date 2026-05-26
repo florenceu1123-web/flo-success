@@ -937,18 +937,22 @@ function decideType(args: DecideArgs): DecideResult {
   //            (b) AC/페이저 키워드 OR
   //            (c) j임피던스/∠ 표기 매치 OR
   //            (d) inventory의 V·I·L·C value에 phasor 패턴 (안전망 — 텍스트 키워드 부족 시) OR
-  //            (e) V·I 다중 + C 또는 L 존재 (임용 10번 시그니처)
+  //            (e) V·I 다중 + C 또는 L 존재 + SW 없음 (임용 10번 시그니처)
+  //
+  //    ⚠️ SW 있으면 (e) 차단 — SW + C는 switched_rc 과도응답(임용 9번 정보과)이지
+  //    ac_superposition이 아니다. DC 다중 전원 + C/L도 switched 회로일 수 있어 SW 가드 필요.
   const isSuperpositionText = matchesKeyword(text, SUPERPOSITION_KEYWORDS) || matchesKeyword(text, ["중첩"]);
   const isACText = matchesKeyword(text, AC_PHASOR_KEYWORDS);
   const hasJImpedancePattern = /[+\-]?\bj\s*\d+\s*[Ωohm]/i.test(text) || /∠/.test(text);
   const hasBothSources = counts.V > 0 && counts.I > 0;
   const hasReactive = counts.C > 0 || counts.L > 0;
+  // hasSwitchInferred는 위에서 이미 선언됨 (line ~740). SW 가드로 재사용.
   const acSuperpositionMatch =
     isSuperpositionText ||
     isACText ||
     hasJImpedancePattern ||
     Boolean(hasACInventory) ||
-    (hasBothSources && hasReactive);
+    (hasBothSources && hasReactive && !hasSwitchInferred);
   if (acSuperpositionMatch) {
     const reasons: string[] = [];
     if (isSuperpositionText) reasons.push("중첩 키워드");
