@@ -104,9 +104,11 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   svg += `<path d="M ${u1Pins.vPlus.x} ${u1Pins.vPlus.y} L ${u1Pins.vPlus.x} ${GF_Y_DOWN} L ${R2_LEFT_X} ${GF_Y_DOWN}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderResistorHorizontal(R2_X_NEW, GF_Y_DOWN, d.R_2_label, "R_2");
   svg += `<path d="M ${R2_X_NEW + 18} ${GF_Y_DOWN} L ${VS_X} ${GF_Y_DOWN} L ${VS_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  // R_2 leg end ↔ V_i bottom (V_i의 -): DOWN to GND rail
-  svg += `<circle cx="${R2_LEFT_X}" cy="${GF_Y_DOWN}" r="3" fill="black"/>`;
-  svg += `<path d="M ${R2_LEFT_X} ${GF_Y_DOWN} L ${R2_LEFT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // 합류 node의 왼쪽 모서리 (V⁺ pin 수직선이 horizontal과 만나는 corner)에서 V_i 의 - (GND) 으로
+  //   사용자 피드백: "그 node의 왼쪽 모서리 부분으로 연결지점을 옮겨봐봐"
+  const NODE_LEFT_CORNER_X = u1Pins.vPlus.x;  // = 268 (V⁺ pin 위치)
+  svg += `<circle cx="${NODE_LEFT_CORNER_X}" cy="${GF_Y_DOWN}" r="3" fill="black"/>`;
+  svg += `<path d="M ${NODE_LEFT_CORNER_X} ${GF_Y_DOWN} L ${NODE_LEFT_CORNER_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
 
   // V⁺(U_2)에 독립적 GND 심볼 (사용자 피드백 "U_2 의 V+에는 그라운드를 독립적으로 달아줘")
   //   main GND rail 연결하지 않고 V⁺ pin 바로 아래 별도 ground triangle.
@@ -114,10 +116,10 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   svg += `<path d="M ${u2Pins.vPlus.x} ${u2Pins.vPlus.y} L ${u2Pins.vPlus.x} ${U2_GND_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderGround(u2Pins.vPlus.x, U2_GND_Y);
 
-  // Ground rail — V_i bottom에서 R_2 leg 끝(아래)까지 확장 (V_i의 -와 R_2 leg 합류 노드 연결)
-  svg += `<path d="M ${VI_X} ${BOT_Y} L ${R2_LEFT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // Ground rail — V_i bottom에서 합류 node 왼쪽 모서리 down 지점까지 확장
+  svg += `<path d="M ${VI_X} ${BOT_Y} L ${NODE_LEFT_CORNER_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += `<circle cx="${VI_X}" cy="${BOT_Y}" r="3" fill="black"/>`;
-  svg += `<circle cx="${R2_LEFT_X}" cy="${BOT_Y}" r="3" fill="black"/>`;
+  svg += `<circle cx="${NODE_LEFT_CORNER_X}" cy="${BOT_Y}" r="3" fill="black"/>`;
   svg += renderGround(Math.round((VI_X + VS_X) / 2), BOT_Y);
 
   svg += `</svg>`;
