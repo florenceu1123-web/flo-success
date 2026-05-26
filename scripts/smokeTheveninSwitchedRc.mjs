@@ -22,17 +22,22 @@ for (let seed = 1; seed <= 5; seed++) {
   console.log("  values:", JSON.stringify(v));
   console.log("  answer: V_Th=", a.V_Th, "R_Th=", a.R_Th, "τ=", a.tau, "v_o(0⁻)=", a.v_o_0minus, "v_o(∞)=", a.v_o_inf);
 
-  // 분석값 검증
+  // 분석값 검증 (직렬 캐패시터 — C_eq = C_1·C_2/(C_1+C_2), α = C_2/(C_1+C_2))
   const expectedRTh = (v.R_a + v.R_b) * v.R_c / ((v.R_a + v.R_b) + v.R_c);
   const expectedVTh = v.I_s * expectedRTh;
-  const expectedTau = expectedRTh * (v.C_1 + v.C_2);
+  const expectedCeq = (v.C_1 * v.C_2) / (v.C_1 + v.C_2);
+  const expectedAlpha = v.C_2 / (v.C_1 + v.C_2);
+  const expectedTau = expectedRTh * expectedCeq;
+  const expectedVo0 = v.V_s * expectedAlpha;
+  const expectedVoInf = expectedVTh * expectedAlpha;
 
   const checks = [
     { name: `V_Th ≈ ${expectedVTh.toFixed(3)}`, ok: Math.abs(a.V_Th - expectedVTh) < 0.01 },
     { name: `R_Th ≈ ${expectedRTh.toFixed(3)}`, ok: Math.abs(a.R_Th - expectedRTh) < 0.01 },
-    { name: `v_o(0⁻) = V_s = ${v.V_s}`, ok: Math.abs(a.v_o_0minus - v.V_s) < 0.01 },
-    { name: `τ ≈ ${expectedTau.toFixed(3)}`, ok: Math.abs(a.tau - expectedTau) < 0.01 },
-    { name: `v_o(∞) = V_Th`, ok: Math.abs(a.v_o_inf - a.V_Th) < 0.01 },
+    { name: `v_o(0⁻) = V_s·α = ${expectedVo0.toFixed(3)}`, ok: Math.abs(a.v_o_0minus - expectedVo0) < 0.01 },
+    { name: `v_o(∞) = V_Th·α = ${expectedVoInf.toFixed(3)}`, ok: Math.abs(a.v_o_inf - expectedVoInf) < 0.01 },
+    { name: `τ = R_Th·C_eq = ${expectedTau.toFixed(3)}`, ok: Math.abs(a.tau - expectedTau) < 0.01 },
+    { name: `C_eq = ${expectedCeq.toFixed(3)} F`, ok: Math.abs(a.C_eq - expectedCeq) < 0.01 },
   ];
   for (const c of checks) {
     console.log(`  ${c.ok ? "✓" : "✗"} ${c.name}`);

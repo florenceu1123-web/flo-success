@@ -50,23 +50,24 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   svg += `<path d="M ${VS_X} ${MID_Y} L ${RTOP_X - 18} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   // R_top horizontal
   svg += renderResistorHorizontal(RTOP_X, MID_Y, d.R_top_label);
-  // R_top → C_1·C_2 node a
-  svg += `<path d="M ${RTOP_X + 18} ${MID_Y} L ${C1_X + 30} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  // node a label
-  svg += `<text x="${C1_X + 6}" y="${MID_Y - 12}" font-size="13" font-weight="700" fill="#1e3a8a">a</text>`;
-  svg += `<circle cx="${C1_X + 30}" cy="${MID_Y}" r="3" fill="black"/>`;
-  // C_1 vertical
-  svg += renderCapVertical(C1_X, MID_Y, BOT_Y, d.C_1_label, "C_1");
-  // v_o measurement label (오른쪽 c_1 옆)
-  svg += `<text x="${C1_X + 36}" y="${MID_Y + 30}" font-size="11" fill="#dc2626" font-weight="700">v_o(t)</text>`;
-  // C_2 vertical — C_1 좌측, V_s와 C_1 사이 horizontal에서 GND로
-  //   배치: V_s top과 C_1 top 사이 horizontal 중간점에서 vertical로 GND
-  const C2_X = VS_X + 60;  // V_s와 R_top 사이
-  svg += `<circle cx="${C2_X}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += renderCapVertical(C2_X, MID_Y, BOT_Y, d.C_2_label, "C_2");
 
-  // SW (SPDT, common = node a 위치). 단자1: 위쪽 (사용자 피드백 반영 — SW를 a에 직접 부착)
-  svg += renderSwitchAtNode(C1_X + 30, MID_Y, BOX_LEFT_X + 10, d.swState);
+  // SW (SPDT, common = node a). R_top output → 단자1(LEFT) → common → 단자2(RIGHT) → 점선박스
+  const NODE_A_X = C1_X + 30;
+  svg += renderSwitchAtNode(NODE_A_X, MID_Y, RTOP_X + 18, BOX_LEFT_X + 10, d.swState);
+
+  // ── C_1 + C_2 직렬 stacked (node a → mid_node → GND) ──
+  //   사용자 피드백: "두개의 커패시터 연결이 잘못되었어~ 직렬로 와야돼"
+  //   원본 (이미지 #18): C_1(0.1F) 위, C_2(0.4F) 아래, 둘 다 vertical stacked.
+  //   v_o(t) = C_1 양단 전압 (= V_a - V_mid).
+  const MID_NODE_Y = (MID_Y + BOT_Y) / 2;  // C_1 bottom = C_2 top (중간 노드)
+  // common (node a) → C_1 top: vertical wire from (NODE_A_X, MID_Y) down to C_1 top region
+  svg += renderCapVertical(NODE_A_X, MID_Y, MID_NODE_Y, d.C_1_label, "C_1");
+  // 중간 노드 dot
+  svg += `<circle cx="${NODE_A_X}" cy="${MID_NODE_Y}" r="3" fill="black"/>`;
+  // C_2: 중간 노드 → GND
+  svg += renderCapVertical(NODE_A_X, MID_NODE_Y, BOT_Y, d.C_2_label, "C_2");
+  // v_o(t) 라벨 — C_1 양단 옆 (우측)
+  svg += `<text x="${NODE_A_X + 24}" y="${(MID_Y + MID_NODE_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
 
   // 점선박스 (dashed rectangle)
   svg += `<rect x="${BOX_LEFT_X}" y="${BOX_TOP_Y}" width="${BOX_RIGHT_X - BOX_LEFT_X}" height="${BOX_BOT_Y - BOX_TOP_Y}" stroke="#6b7280" fill="none" stroke-width="1.5" stroke-dasharray="6 4"/>`;
@@ -77,9 +78,9 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   svg += `<path d="M ${BOX_LEFT_X + 10} ${MID_Y} L ${BOX_LEFT_X + 10} ${MID_Y - 50} L ${BOX_TOP_X - 18} ${MID_Y - 50}" stroke="black" fill="none" stroke-width="2"/>`;
   // R_a horizontal
   svg += renderResistorHorizontal(BOX_TOP_X, MID_Y - 50, d.R_a_label);
-  // R_a → mid_node (vertical drop)
-  const MID_NODE_Y = MID_Y - 50;
-  svg += `<path d="M ${BOX_TOP_X + 18} ${MID_NODE_Y} L ${BOX_R_B_X + 30} ${MID_NODE_Y} L ${BOX_R_B_X + 30} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // R_a → 박스 내부 mid_node (vertical drop)
+  const BOX_MID_NODE_Y = MID_Y - 50;
+  svg += `<path d="M ${BOX_TOP_X + 18} ${BOX_MID_NODE_Y} L ${BOX_R_B_X + 30} ${BOX_MID_NODE_Y} L ${BOX_R_B_X + 30} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   // R_b vertical (mid_node → GND)
   const RB_TOP_Y = MID_Y;
   svg += renderResistorVertical(BOX_R_B_X + 30, RB_TOP_Y + 30, d.R_b_label);
@@ -95,9 +96,9 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   svg += `<path d="M ${BOX_R_C_X} ${MID_Y} L ${BOX_IS_X} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += renderCurrentSource(BOX_IS_X, MID_Y, BOT_Y, d.I_s_label);
 
-  // 공통 ground rail
+  // 공통 ground rail (C_2 좌측 V_s에서 제외, 대신 NODE_A_X 위치로)
   svg += `<path d="M ${VS_X} ${BOT_Y} L ${BOX_IS_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  for (const dx of [VS_X, C2_X, C1_X, BOX_R_B_X + 30, BOX_R_C_X, BOX_IS_X]) {
+  for (const dx of [VS_X, NODE_A_X, BOX_R_B_X + 30, BOX_R_C_X, BOX_IS_X]) {
     svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
   svg += renderGround(Math.round((VS_X + BOX_IS_X) / 2), BOT_Y);
@@ -121,36 +122,35 @@ export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${KOREAN_FONT_STACK}">`;
   svg += defs();
 
-  // 좌측은 (가)와 동일
+  // 좌측은 (가)와 동일 — V_s, R_top
   svg += renderDcSource(VS_X, MID_Y, BOT_Y, d.V_s_label);
   svg += `<path d="M ${VS_X} ${MID_Y} L ${RTOP_X - 18} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += renderResistorHorizontal(RTOP_X, MID_Y, d.R_top_label);
-  svg += `<path d="M ${RTOP_X + 18} ${MID_Y} L ${C1_X + 30} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += `<text x="${C1_X + 6}" y="${MID_Y - 12}" font-size="13" font-weight="700" fill="#1e3a8a">a</text>`;
-  svg += `<circle cx="${C1_X + 30}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += renderCapVertical(C1_X, MID_Y, BOT_Y, d.C_1_label, "C_1");
-  svg += `<text x="${C1_X + 36}" y="${MID_Y + 30}" font-size="11" fill="#dc2626" font-weight="700">v_o(t)</text>`;
-  const C2_X_EQ = VS_X + 60;
-  svg += `<circle cx="${C2_X_EQ}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += renderCapVertical(C2_X_EQ, MID_Y, BOT_Y, d.C_2_label, "C_2");
 
-  // SW at node a (common = a). 단자2 → R_Th → V_Th (등가회로 자리)
-  const SW_T2_X_EQ = C1_X + 30 + 80;  // 단자2 위치
-  svg += renderSwitchAtNode(C1_X + 30, MID_Y, SW_T2_X_EQ, d.swState);
-  // SW → R_Th → V_Th → GND (단순 직렬, 점선박스 자리)
-  const RTH_X = SW_T2_X_EQ + 40;
+  // SW at node a. R_top → 단자1(LEFT) → common(=a) → 단자2(RIGHT) → R_Th → V_Th
+  const NODE_A_X_EQ = C1_X + 30;
+  const SW_T2_X_EQ = NODE_A_X_EQ + 30;
+  const RTH_X = SW_T2_X_EQ + 60;
   const VTH_X = RTH_X + 110;
-  svg += `<path d="M ${SW_T2_X_EQ} ${MID_Y} L ${RTH_X - 18} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  svg += renderSwitchAtNode(NODE_A_X_EQ, MID_Y, RTOP_X + 18, RTH_X - 18, d.swState);
+
+  // C_1 + C_2 직렬 stacked (= (가)와 동일)
+  const MID_NODE_Y_EQ = (MID_Y + BOT_Y) / 2;
+  svg += renderCapVertical(NODE_A_X_EQ, MID_Y, MID_NODE_Y_EQ, d.C_1_label, "C_1");
+  svg += `<circle cx="${NODE_A_X_EQ}" cy="${MID_NODE_Y_EQ}" r="3" fill="black"/>`;
+  svg += renderCapVertical(NODE_A_X_EQ, MID_NODE_Y_EQ, BOT_Y, d.C_2_label, "C_2");
+  svg += `<text x="${NODE_A_X_EQ + 24}" y="${(MID_Y + MID_NODE_Y_EQ) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
+
+  // R_Th horizontal + V_Th vertical
   svg += renderResistorHorizontal(RTH_X, MID_Y, d.R_Th_label);
   svg += `<path d="M ${RTH_X + 18} ${MID_Y} L ${VTH_X} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += `<circle cx="${VTH_X}" cy="${MID_Y}" r="3" fill="black"/>`;
-  // V_Th vertical
   svg += renderDcSource(VTH_X, MID_Y, BOT_Y, d.V_Th_label, /*isVar*/ true);
 
   // ground rail
   const RAIL_RIGHT = VTH_X;
   svg += `<path d="M ${VS_X} ${BOT_Y} L ${RAIL_RIGHT} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  for (const dx of [VS_X, C2_X_EQ, C1_X, VTH_X]) {
+  for (const dx of [VS_X, NODE_A_X_EQ, VTH_X]) {
     svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
   svg += renderGround(Math.round((VS_X + RAIL_RIGHT) / 2), BOT_Y);
@@ -255,40 +255,49 @@ function renderCapVertical(cx: number, topY: number, botY: number, value: string
 }
 
 /**
- * SW at node directly — common pivot이 node 위치와 일치 (사용자 요청).
- *   common at (commonX, commonY) = node a 좌표
- *   단자1: common 위쪽 30px (좌측 회로 측 — t<0 정상상태 위치, 사용 안 함/floating)
- *   단자2: 수평 우측 (점선박스/Thevenin 입력 측)
- *   handle: common → 단자1 (closed_to_term1) OR common → 단자2 (closed_to_term2)
- *   추가로 단자2 → t2TargetX horizontal wire는 caller 책임 (이 함수 내에서 그림)
+ * SW between R_top and node a — horizontal SPDT, common pivot at node a 좌표.
+ *   사용자 피드백 반영: "저항 2옴과 c1 node Top 사이를 끊고 스위치가 와야지"
+ *
+ *   T1 (단자1, LEFT) ●────  ●  ────● T2 (단자2, RIGHT)
+ *                            ↑
+ *                          common (= node a, C_1 top)
+ *                          handle ↗ to T2 (closed_to_term2)
+ *                              or ↖ to T1 (closed_to_term1)
+ *
+ *   T1 wire ← R_top right edge (t1SourceX)
+ *   T2 wire → 점선박스 entry / R_Th 시작점 (t2TargetX)
+ *   common (node a) — C_1 top과 동일 좌표, 라벨 "a"
  */
-function renderSwitchAtNode(commonX: number, commonY: number, t2TargetX: number, state: "closed_to_term1" | "closed_to_term2" | "open"): string {
-  const T1_X = commonX;
-  const T1_Y = commonY - 30;
-  const T2_X = commonX + 50;
+function renderSwitchAtNode(commonX: number, commonY: number, t1SourceX: number, t2TargetX: number, state: "closed_to_term1" | "closed_to_term2" | "open"): string {
+  const T1_X = commonX - 30;
+  const T1_Y = commonY;
+  const T2_X = commonX + 30;
   const T2_Y = commonY;
   let svg = "";
-  // common pivot dot
-  svg += `<circle cx="${commonX}" cy="${commonY}" r="3.5" fill="black"/>`;
-  // 단자1 dot + 라벨 (위쪽)
+  // R_top → T1 horizontal wire (LEFT side incoming)
+  svg += `<path d="M ${t1SourceX} ${commonY} L ${T1_X} ${T1_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // T2 → 점선박스 horizontal wire (RIGHT side outgoing)
+  svg += `<path d="M ${T2_X} ${T2_Y} L ${t2TargetX} ${commonY}" stroke="black" stroke-width="2" fill="none"/>`;
+  // 단자1 dot + 라벨 (LEFT)
   svg += `<circle cx="${T1_X}" cy="${T1_Y}" r="3" fill="black"/>`;
-  svg += `<text x="${T1_X + 6}" y="${T1_Y - 4}" text-anchor="start" font-size="10" fill="#666">단자1</text>`;
-  // 단자2 dot + 라벨 (우측)
+  svg += `<text x="${T1_X - 4}" y="${T1_Y + 18}" text-anchor="end" font-size="10" fill="#666">단자1</text>`;
+  // common pivot dot (node a) — slightly larger
+  svg += `<circle cx="${commonX}" cy="${commonY}" r="3.5" fill="black"/>`;
+  // 단자2 dot + 라벨 (RIGHT)
   svg += `<circle cx="${T2_X}" cy="${T2_Y}" r="3" fill="black"/>`;
-  svg += `<text x="${T2_X + 4}" y="${T2_Y - 8}" text-anchor="start" font-size="10" fill="#666">단자2</text>`;
-  // handle — switch state에 따라
+  svg += `<text x="${T2_X + 4}" y="${T2_Y + 18}" text-anchor="start" font-size="10" fill="#666">단자2</text>`;
+  // handle — common pivot에서 UP 방향으로 angled, T1 또는 T2 위쪽 끝점으로
   if (state === "closed_to_term1") {
-    svg += `<path d="M ${commonX} ${commonY} L ${T1_X} ${T1_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+    svg += `<path d="M ${commonX} ${commonY} L ${T1_X + 4} ${T1_Y - 22}" stroke="black" stroke-width="2" fill="none"/>`;
   } else if (state === "closed_to_term2") {
-    svg += `<path d="M ${commonX} ${commonY} L ${T2_X} ${T2_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+    svg += `<path d="M ${commonX} ${commonY} L ${T2_X - 4} ${T2_Y - 22}" stroke="black" stroke-width="2" fill="none"/>`;
   } else {
-    // open — handle이 둘 사이 중간 (살짝 들린)
-    svg += `<path d="M ${commonX} ${commonY} L ${(T1_X + T2_X) / 2} ${(T1_Y + T2_Y) / 2 - 6}" stroke="black" stroke-width="2" fill="none"/>`;
+    svg += `<path d="M ${commonX} ${commonY} L ${commonX} ${commonY - 22}" stroke="black" stroke-width="2" fill="none"/>`;
   }
-  // SW(t=0) 라벨 (단자1 옆 위쪽)
-  svg += `<text x="${T1_X - 6}" y="${T1_Y - 4}" text-anchor="end" font-size="11" fill="#1e3a8a" font-weight="700">SW (t=0)</text>`;
-  // 단자2 → 목적지 (점선박스 또는 R_Th)로 horizontal wire
-  svg += `<path d="M ${T2_X} ${T2_Y} L ${t2TargetX} ${T2_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // SW (t=0) 라벨 (handle 위쪽)
+  svg += `<text x="${commonX}" y="${commonY - 30}" text-anchor="middle" font-size="11" fill="#1e3a8a" font-weight="700">SW (t=0)</text>`;
+  // node a 라벨 (common 우측 살짝 위)
+  svg += `<text x="${commonX + 8}" y="${commonY - 10}" font-size="13" font-weight="700" fill="#1e3a8a">a</text>`;
   return svg;
 }
 

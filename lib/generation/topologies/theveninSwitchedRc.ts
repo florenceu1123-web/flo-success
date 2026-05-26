@@ -96,24 +96,26 @@ export function generateTheveninSwitchedRc(args: {
   const R_c = pick([2, 3], rand);
   const I_s = pick([2, 4, 5], rand);
 
-  // Thevenin 계산
-  //   가지 1: R_a + R_b 직렬 (b → mid → GND), I_s는 mid 노드를 통해 흐름?
-  //   단순화: I_s가 R_a+R_b 직렬 가지로 흐른다고 가정.
-  //   V_Th = open circuit voltage at b:
-  //     b 단자 open → I_s 전류가 R_a+R_b 직렬 가지에만 흐름 (R_c로 흐르려면 b가 연결돼야 함)
-  //     실제로 단순화: V_Th = I_s × R_eq, R_eq = R_c || (R_a + R_b)
-  //   R_Th = R_c || (R_a + R_b) — 모든 source 비활성 시 b↔GND 저항
+  // Thevenin 계산 (점선박스 내부)
   const R_series_branch = R_a + R_b;
   const R_Th_raw = parallel(R_c, R_series_branch);
-  // V_Th: I_s가 b로 들어와 두 병렬 가지로 나뉘어 GND로. b 전압 = I_s × R_Th
   const V_Th_raw = I_s * R_Th_raw;
 
-  // C_eq, τ, v_o(∞)
-  //   가정: SW=단자2 시 좌측 V_s 분리, 우측 Thevenin만 활성 → v_o(∞) = V_Th
-  const C_eq = C_1 + C_2;
-  const tau_raw = R_Th_raw * C_eq;
-  const v_o_inf = V_Th_raw;
-  const v_o_0minus = V_s;  // t<0 정상상태에서 좌측만 활성 → v_o(0⁻) = V_s
+  // ─── 직렬 캐패시터 (C_1 위, C_2 아래) 분석 ────────────────────────
+  //   C_1, C_2가 node a ↔ GND 사이에 직렬 (C_1 top=a, C_1 bottom=C_2 top=mid_node, C_2 bottom=GND).
+  //   v_o(t) = C_1 양단 전압 (= V_a - V_mid_node).
+  //   Series caps: 같은 charge Q → V_C1 = Q/C_1, V_C2 = Q/C_2.
+  //   V_total = V_C1 + V_C2 = Q/C_eq, C_eq = C_1·C_2/(C_1+C_2).
+  //   ratio α = V_C1/V_total = C_2/(C_1+C_2)  (직렬 cap 전압분배는 capacitance에 반비례)
+  //
+  //   t<0 SS (SW=단자1, V_s 활성): V_total = V_s → v_o(0⁻) = V_s·α
+  //   t→∞ SS (SW=단자2, Thevenin 활성): V_total = V_Th → v_o(∞) = V_Th·α
+  //   τ = R_Th · C_eq (Thevenin 회로가 직렬 cap 등가에 보임)
+  const C_eq_series = (C_1 * C_2) / (C_1 + C_2);
+  const alpha_ratio = C_2 / (C_1 + C_2);
+  const tau_raw = R_Th_raw * C_eq_series;
+  const v_o_0minus = V_s * alpha_ratio;
+  const v_o_inf = V_Th_raw * alpha_ratio;
 
   // v_o(t) = v_o(∞) + (v_o(0⁻) - v_o(∞)) · exp(-t/τ)
   const A = trunc3(v_o_0minus - v_o_inf);
@@ -127,7 +129,7 @@ export function generateTheveninSwitchedRc(args: {
       R_Th: trunc3(R_Th_raw),
       v_o_inf: trunc3(v_o_inf),
       tau: trunc3(tau_raw),
-      C_eq: trunc3(C_eq),
+      C_eq: trunc3(C_eq_series),
       v_o_t_expr,
     },
   };
