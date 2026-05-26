@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { AnalysisResult } from "@/types";
 
 type Props = {
@@ -9,6 +10,16 @@ type Props = {
 
 /** 업로드된 문제의 주제·관련 개념·빈칸 5개 학습자료 표시 (구현은 4단계) */
 export default function AnalysisPanel({ analysis, isLoading }: Props) {
+  // 빈칸 학습 — 개별 빈칸 정답 보기 토글 (초기엔 모두 숨김)
+  const [revealedBlanks, setRevealedBlanks] = useState<Set<number>>(new Set());
+  const toggleBlank = (i: number) => {
+    setRevealedBlanks((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  };
   if (isLoading) {
     return (
       <section className="rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
@@ -55,13 +66,22 @@ export default function AnalysisPanel({ analysis, isLoading }: Props) {
       <div>
         <p className="text-xs font-semibold text-blue-500 uppercase tracking-wide mb-2">빈칸 학습 (5)</p>
         <ol className="space-y-2">
-          {analysis.fillInTheBlanks.map((b, i) => (
-            <li key={i} className="text-sm text-slate-700">
-              <span className="text-blue-600 font-medium mr-1">{i + 1}.</span>
-              {b.sentence}
-              <span className="ml-2 text-xs text-slate-400">정답: {b.answer}</span>
-            </li>
-          ))}
+          {analysis.fillInTheBlanks.map((b, i) => {
+            const revealed = revealedBlanks.has(i);
+            return (
+              <li key={i} className="text-sm text-slate-700">
+                <span className="text-blue-600 font-medium mr-1">{i + 1}.</span>
+                {b.sentence}
+                <button
+                  type="button"
+                  onClick={() => toggleBlank(i)}
+                  className="ml-2 text-xs text-blue-500 hover:text-blue-700 underline-offset-2 hover:underline"
+                >
+                  {revealed ? `정답: ${b.answer} (숨기기)` : "정답 보기"}
+                </button>
+              </li>
+            );
+          })}
         </ol>
       </div>
     </section>
