@@ -44,13 +44,11 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${KOREAN_FONT_STACK}">`;
   svg += defs();
 
-  // ── 좌측 leg: V_s + C_2 직렬 stacked (사용자 피드백 #21) ──
-  //   V_s: 상단 (top rail → 중간노드)
-  //   C_2: 하단 (중간노드 → GND)
-  const LEFT_MID_Y = (MID_Y + BOT_Y) / 2;
-  svg += renderDcSource(VS_X, MID_Y, LEFT_MID_Y, d.V_s_label);
-  svg += `<circle cx="${VS_X}" cy="${LEFT_MID_Y}" r="3" fill="black"/>`;
-  svg += renderCapVertical(VS_X, LEFT_MID_Y, BOT_Y, d.C_2_label, "C_2");
+  // ── 좌측 leg: V_s full vertical, C_2는 bottom rail에 horizontal (사용자 피드백) ──
+  //   V_s: MID_Y → BOT_Y (full vertical leg)
+  //   C_2: bottom rail horizontal, ground 심볼 바로 앞(좌측)에 위치
+  //   전기적으로 V_s + C_2 직렬 loop (회로 외곽 닫힌 경로)
+  svg += renderDcSource(VS_X, MID_Y, BOT_Y, d.V_s_label);
   // V_s top → R_top
   svg += `<path d="M ${VS_X} ${MID_Y} L ${RTOP_X - 18} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   // R_top horizontal
@@ -65,42 +63,59 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   // v_o(t) 라벨
   svg += `<text x="${NODE_A_X + 24}" y="${(MID_Y + BOT_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
 
-  // ── 점선박스 — 사용자 피드백 #21 토폴로지 ──
-  //   b (top-left) ─── R_a (horizontal) ─── n_mid (top of R_c·I_s)
-  //   │                                    │           │
-  //   R_b vertical                  R_c vertical   I_s vertical
-  //   │                                    │           │
-  //   GND ─────────────────────────────────GND─────────GND
+  // ── 점선박스 — flat horizontal rail at MID_Y (사용자 피드백 #25·#26) ──
+  //   b ━━━ R_a (horizontal) ━━━ n_mid ━━━ I_s top
+  //   │                          │           │
+  //   R_b vertical          R_c vertical  I_s vertical
+  //   │                          │           │
+  //   GND ───────────────────────GND─────────GND
+  //   모든 top이 MID_Y level에 flat. bridge 없음.
   svg += `<rect x="${BOX_LEFT_X}" y="${BOX_TOP_Y}" width="${BOX_RIGHT_X - BOX_LEFT_X}" height="${BOX_BOT_Y - BOX_TOP_Y}" stroke="#6b7280" fill="none" stroke-width="1.5" stroke-dasharray="6 4"/>`;
   const RB_X_NEW = BOX_LEFT_X + 30;
-  const RA_Y_NEW = MID_Y - 50;  // R_a horizontal level (above MID_Y, 위쪽 다리)
   const RC_X_NEW = RB_X_NEW + 130;
   const RA_X_NEW = (RB_X_NEW + RC_X_NEW) / 2;
   const IS_X_NEW = BOX_RIGHT_X - 30;
-  // node b (R_b top)
+  const VERT_BODY_CY = (MID_Y + BOT_Y) / 2;  // 수직 저항 본체 중심 y
+  const VERT_HALF = 18;                       // 본체 반-높이 (renderResistorVertical 내부 const)
+  // node b dot + 라벨 (= R_b top)
   svg += `<circle cx="${RB_X_NEW}" cy="${MID_Y}" r="3" fill="black"/>`;
   svg += `<text x="${RB_X_NEW + 6}" y="${MID_Y - 10}" font-size="13" font-weight="700" fill="#1e3a8a">b</text>`;
-  // b → 위로 → R_a horizontal → 아래로 → n_mid
-  svg += `<path d="M ${RB_X_NEW} ${MID_Y} L ${RB_X_NEW} ${RA_Y_NEW} L ${RA_X_NEW - 18} ${RA_Y_NEW}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += renderResistorHorizontal(RA_X_NEW, RA_Y_NEW, d.R_a_label);
-  svg += `<path d="M ${RA_X_NEW + 18} ${RA_Y_NEW} L ${RC_X_NEW} ${RA_Y_NEW} L ${RC_X_NEW} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  // n_mid (R_c top)
+  // b → R_a left horizontal
+  svg += `<path d="M ${RB_X_NEW} ${MID_Y} L ${RA_X_NEW - 18} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // R_a horizontal resistor (at MID_Y, between R_b top and R_c top — flat)
+  svg += renderResistorHorizontal(RA_X_NEW, MID_Y, d.R_a_label);
+  // R_a right → n_mid horizontal (= R_c top)
+  svg += `<path d="M ${RA_X_NEW + 18} ${MID_Y} L ${RC_X_NEW} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // n_mid dot
   svg += `<circle cx="${RC_X_NEW}" cy="${MID_Y}" r="3" fill="black"/>`;
-  // R_b vertical (b → GND)
-  svg += renderResistorVertical(RB_X_NEW, (MID_Y + BOT_Y) / 2, d.R_b_label);
-  // R_c vertical (n_mid → GND)
-  svg += renderResistorVertical(RC_X_NEW, (MID_Y + BOT_Y) / 2, d.R_c_label);
-  // I_s wire: n_mid → I_s top horizontal, then vertical down
-  svg += `<path d="M ${RC_X_NEW} ${MID_Y} L ${IS_X_NEW} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // R_b vertical: top wire from MID_Y to body top, body, bottom wire to BOT_Y
+  svg += `<path d="M ${RB_X_NEW} ${MID_Y} L ${RB_X_NEW} ${VERT_BODY_CY - VERT_HALF}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += renderResistorVertical(RB_X_NEW, VERT_BODY_CY, d.R_b_label);
+  svg += `<path d="M ${RB_X_NEW} ${VERT_BODY_CY + VERT_HALF} L ${RB_X_NEW} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // R_c vertical
+  svg += `<path d="M ${RC_X_NEW} ${MID_Y} L ${RC_X_NEW} ${VERT_BODY_CY - VERT_HALF}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += renderResistorVertical(RC_X_NEW, VERT_BODY_CY, d.R_c_label);
+  svg += `<path d="M ${RC_X_NEW} ${VERT_BODY_CY + VERT_HALF} L ${RC_X_NEW} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // n_mid → I_s top horizontal wire
+  svg += `<path d="M ${RC_X_NEW} ${MID_Y} L ${IS_X_NEW} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderCurrentSource(IS_X_NEW, MID_Y, BOT_Y, d.I_s_label);
 
-  // 공통 ground rail
-  svg += `<path d="M ${VS_X} ${BOT_Y} L ${IS_X_NEW} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // ── 공통 ground rail + C_2 horizontal + ground 심볼 ──
+  //   V_s 하단 → wire → C_2 horizontal → wire → ground 심볼 → rail 우측 (나머지 회로)
+  const C2_HORIZ_X = VS_X + 50;             // C_2 horizontal 중심
+  const GND_SYMBOL_X = C2_HORIZ_X + 40;     // ground 심볼은 C_2 우측 (= "ground 앞에" C_2)
+  // V_s 하단 → C_2 좌측 (V_s 측 막대)
+  svg += `<path d="M ${VS_X} ${BOT_Y} L ${C2_HORIZ_X - 3} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // C_2 horizontal symbol
+  svg += renderCapHorizontal(C2_HORIZ_X, BOT_Y, d.C_2_label, "C_2");
+  // C_2 우측 → ground 심볼 위치 → rail 우측 (= 0V 기준)
+  svg += `<path d="M ${C2_HORIZ_X + 3} ${BOT_Y} L ${IS_X_NEW} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // 노드 dot
   for (const dx of [VS_X, NODE_A_X, RB_X_NEW, RC_X_NEW, IS_X_NEW]) {
     svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
-  // ground 심볼 — C_2(좌측 leg)와 C_1(node a leg) 사이
-  svg += renderGround(Math.round((VS_X + NODE_A_X) / 2), BOT_Y);
+  // ground 심볼 — C_2 바로 우측 (사용자 요청 "ground 앞에 bottom에 오게")
+  svg += renderGround(GND_SYMBOL_X, BOT_Y);
 
   svg += `</svg>`;
   return svg;
@@ -133,10 +148,7 @@ export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
   const VTH_X = RTH_X + 110;
   svg += renderSwitchAtNode(NODE_A_X_EQ, MID_Y, RTOP_X + 18, RTH_X - 18, d.swState);
 
-  // C_2 별도 leg (V_s 옆), C_1 node a leg — (가)와 동일 패턴
-  const C2_X_EQ = VS_X + 50;
-  svg += `<circle cx="${C2_X_EQ}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += renderCapVertical(C2_X_EQ, MID_Y, BOT_Y, d.C_2_label, "C_2");
+  // C_1 node a leg (C_2는 bottom rail에 horizontal — (가)와 동일)
   svg += renderCapVertical(NODE_A_X_EQ, MID_Y, BOT_Y, d.C_1_label, "C_1");
   svg += `<text x="${NODE_A_X_EQ + 24}" y="${(MID_Y + BOT_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
 
@@ -146,14 +158,19 @@ export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
   svg += `<circle cx="${VTH_X}" cy="${MID_Y}" r="3" fill="black"/>`;
   svg += renderDcSource(VTH_X, MID_Y, BOT_Y, d.V_Th_label, /*isVar*/ true);
 
-  // ground rail
-  const RAIL_RIGHT = VTH_X;
-  svg += `<path d="M ${VS_X} ${BOT_Y} L ${RAIL_RIGHT} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  for (const dx of [VS_X, C2_X_EQ, NODE_A_X_EQ, VTH_X]) {
+  // ── ground rail + C_2 horizontal + ground 심볼 ((가)와 동일 패턴) ──
+  const C2_HORIZ_X_EQ = VS_X + 50;
+  const GND_SYMBOL_X_EQ = C2_HORIZ_X_EQ + 40;
+  // V_s 하단 → C_2 좌측
+  svg += `<path d="M ${VS_X} ${BOT_Y} L ${C2_HORIZ_X_EQ - 3} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  svg += renderCapHorizontal(C2_HORIZ_X_EQ, BOT_Y, d.C_2_label, "C_2");
+  // C_2 우측 → rail 우측 끝
+  svg += `<path d="M ${C2_HORIZ_X_EQ + 3} ${BOT_Y} L ${VTH_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  for (const dx of [VS_X, NODE_A_X_EQ, VTH_X]) {
     svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
-  // ground 심볼 — C_2와 C_1 사이 (C_1과 V_Th 사이도 가능하지만 (가)와 일관)
-  svg += renderGround(Math.round((C2_X_EQ + NODE_A_X_EQ) / 2), BOT_Y);
+  // ground 심볼 — C_2 바로 우측
+  svg += renderGround(GND_SYMBOL_X_EQ, BOT_Y);
 
   svg += `</svg>`;
   return svg;
@@ -233,6 +250,19 @@ function renderResistorVertical(cx: number, cy: number, label: string): string {
   path += ` L ${cx} ${cy + half}`;
   let svg = `<path d="${path}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += `<text x="${cx + 14}" y="${cy + 4}" font-size="12" fill="#374151">${escapeSvg(label)}</text>`;
+  return svg;
+}
+
+/** 수평 캐패시터 — 두 평행 vertical 막대 (좌측 wire ─ ║║ ─ 우측 wire). */
+function renderCapHorizontal(cx: number, cy: number, value: string, idLabel: string): string {
+  let svg = "";
+  // 좌측 막대
+  svg += `<path d="M ${cx - 3} ${cy - 14} L ${cx - 3} ${cy + 14}" stroke="black" stroke-width="2.5"/>`;
+  // 우측 막대
+  svg += `<path d="M ${cx + 3} ${cy - 14} L ${cx + 3} ${cy + 14}" stroke="black" stroke-width="2.5"/>`;
+  // 라벨 (위쪽 idLabel + 아래쪽 value)
+  svg += `<text x="${cx}" y="${cy - 22}" text-anchor="middle" font-size="12" font-weight="700" fill="#1e3a8a">${escapeSvg(idLabel)}</text>`;
+  svg += `<text x="${cx}" y="${cy + 26}" text-anchor="middle" font-size="11" fill="#374151">${escapeSvg(value)}</text>`;
   return svg;
 }
 
