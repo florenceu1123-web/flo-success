@@ -441,6 +441,38 @@ function buildPrompt(subject: SubjectKey): string {
   - 6kΩ vertical R을 top_rail_resistor로: vertical leg면 load_leg.
   - 단자 a/b·R_L 누락: nodeAnnotations·loadPlaceholders 필드에 반드시 명시.
 
+【★ AC 입력 회로 (sinusoidal source) — 절대 추출 규칙 (universal_ac_pwl 라우팅 핵심)】
+
+회로 figure에 다음 시각 단서 중 ★ 하나라도 ★ 보이면 sinusoidal AC source가 회로에 있다:
+  - source 심볼이 원(○) 내부에 sine wave(∿) 곡선이 그려져 있음 (DC 배터리 ─┤├─와 명확히 다름).
+  - source 옆 라벨이 "v_i(t)" / "v_s(t)" / "v_in(t)" 형식 + sin/cos/ωt 식 표기.
+  - "교류 전원" / "AC source" / "정현파" / "v_i(t) = V·sin(ωt)" 텍스트 라벨.
+  - 회로에 다이오드 클램퍼·정류기·반파/전파 정류 패턴이 보이면 입력은 AC 가능성 높음.
+
+이 경우 ★ 반드시 ★ 다음을 모두 만족:
+
+(1) topic 또는 interpretation에 "교류" / "AC" / "정현파" 단어 ★ 명시 ★
+    예: "다이오드 + 스위치 + 교류 입력 클램프 회로", "교류 v_i(t)에 대한 다이오드 클램퍼"
+    ★ 절대 금지 ★: "스위칭 회로 분석", "다이오드 포함 회로", "다이오드 분석" 같이 AC 단어 누락한 일반 표현.
+
+(2) relatedConcepts 배열에 ★ AC 관련 단어 최소 3개 ★ 포함:
+    "교류 입력", "주기 T", "정현파", "sin(ωt)", "v_i(t)", "AC 클램프", "다이오드 클램퍼",
+    "반파 정류", "전파 정류" 중에서 3개 이상.
+
+(3) topologySignature.branches의 AC source leg는 components value를 ★ AC 형식 ★ 으로 표기:
+      올바름 ✓: { "type":"V", "value":"v_i(t)=V_p·sin(ωt)" } 또는 { "type":"V", "value":"AC" }
+      잘못   ✗: { "type":"V", "value":"15V" } (DC 수치만 적으면 AC source 식별 못함)
+    한 회로에 DC V_CC와 AC v_i(t)가 ★ 둘 다 있을 수 있음 — 별도 branch 두 개로 추출.
+
+★ 잘못된 추출 (절대 금지) ★:
+  - AC source가 figure에 명백히 있는데 topic/interpretation에 "스위칭 회로 분석" 같은 일반 표현만 사용
+  - 한 회로에 AC + DC가 둘 다 있는데 DC V_CC만 branches에 추출 (AC source 누락)
+  - relatedConcepts에 "전압원, 다이오드, 저항" 같은 일반 단어만 적고 AC 관련 단어 0개
+
+(이 케이스는 classifier가 universal_ac_pwl로 라우팅하여 두-phase PWL 시뮬레이션이 적용된다.
+위 (1)·(2)·(3) 중 하나라도 누락하면 classifier가 switched_rc·switching_circuit 등 잘못된
+path로 라우팅되어 universal_ac_pwl 파이프라인이 호출되지 못한다.)
+
 【electronics OPAMP 회로 추출 — 절대 규칙】
 - OPAMP component는 R/V/I와 동일하게 componentInventory에 모두 포함하고, topologySignature.branches에도 명시한다.
 - OPAMP가 회로에 K개 있으면 inventory에 "OPAMP" K번, branches에도 K개 별도 entry.

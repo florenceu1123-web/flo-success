@@ -39,6 +39,17 @@ function buildPrompt(): string {
 - ⓐ/ⓑ 같은 빈칸 게이트도 디지털 회로 소자가 아님 — 회로이론 inventory에선 무시.
 - id는 그림 라벨 그대로, 없으면 type+sequence (R1, R2…).
 - value는 단위 포함 (3kΩ, 5V, 2mA 등). 없으면 생략.
+
+【★ AC source value 표기 — 절대 규칙】
+원(○) 내부에 sine wave(∿)가 있거나 "v_i(t)" / "v_s(t)" / "v_in(t)" 라벨에 sin/cos/ωt 식이 보이면
+이 V source는 ★ AC source ★. value를 ★ AC 식별 가능한 형식 ★ 으로 적어라:
+  올바름 ✓: { "type":"V", "value":"v_i(t)=V_p·sin(ωt)" }
+  올바름 ✓: { "type":"V", "value":"AC sin(ωt)" }
+  올바름 ✓: { "type":"V", "value":"-V_p·sin(ωt) V" }
+  잘못   ✗: { "type":"V", "value":"15V" } (DC 수치만 — classifier가 AC source 식별 못함)
+  잘못   ✗: { "type":"V", "value":"V_p" } (식 표기 누락)
+한 회로에 DC V_CC와 AC v_i(t)가 둘 다 있으면 별도 entry 두 개로 추출.
+
 - JSON 객체 하나만 출력. 코드펜스 금지.`;
 }
 
