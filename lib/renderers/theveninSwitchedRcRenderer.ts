@@ -65,12 +65,8 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   svg += `<circle cx="${C2_X}" cy="${MID_Y}" r="3" fill="black"/>`;
   svg += renderCapVertical(C2_X, MID_Y, BOT_Y, d.C_2_label, "C_2");
 
-  // SW (single pole, 양 단자 표시)
-  svg += renderSwitch(SW_X, MID_Y, d.swState);
-  // node a → SW 단자1
-  svg += `<path d="M ${C1_X + 30} ${MID_Y} L ${SW_X - 25} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  // SW 단자2 → 박스 좌측 horizontal entry
-  svg += `<path d="M ${SW_X + 25} ${MID_Y} L ${BOX_LEFT_X + 10} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // SW (SPDT, common = node a 위치). 단자1: 위쪽 (사용자 피드백 반영 — SW를 a에 직접 부착)
+  svg += renderSwitchAtNode(C1_X + 30, MID_Y, BOX_LEFT_X + 10, d.swState);
 
   // 점선박스 (dashed rectangle)
   svg += `<rect x="${BOX_LEFT_X}" y="${BOX_TOP_Y}" width="${BOX_RIGHT_X - BOX_LEFT_X}" height="${BOX_BOT_Y - BOX_TOP_Y}" stroke="#6b7280" fill="none" stroke-width="1.5" stroke-dasharray="6 4"/>`;
@@ -138,13 +134,13 @@ export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
   svg += `<circle cx="${C2_X_EQ}" cy="${MID_Y}" r="3" fill="black"/>`;
   svg += renderCapVertical(C2_X_EQ, MID_Y, BOT_Y, d.C_2_label, "C_2");
 
-  // SW
-  svg += renderSwitch(SW_X, MID_Y, d.swState);
-  svg += `<path d="M ${C1_X + 30} ${MID_Y} L ${SW_X - 25} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // SW at node a (common = a). 단자2 → R_Th → V_Th (등가회로 자리)
+  const SW_T2_X_EQ = C1_X + 30 + 80;  // 단자2 위치
+  svg += renderSwitchAtNode(C1_X + 30, MID_Y, SW_T2_X_EQ, d.swState);
   // SW → R_Th → V_Th → GND (단순 직렬, 점선박스 자리)
-  const RTH_X = SW_X + 80;
+  const RTH_X = SW_T2_X_EQ + 40;
   const VTH_X = RTH_X + 110;
-  svg += `<path d="M ${SW_X + 25} ${MID_Y} L ${RTH_X - 18} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  svg += `<path d="M ${SW_T2_X_EQ} ${MID_Y} L ${RTH_X - 18} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += renderResistorHorizontal(RTH_X, MID_Y, d.R_Th_label);
   svg += `<path d="M ${RTH_X + 18} ${MID_Y} L ${VTH_X} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += `<circle cx="${VTH_X}" cy="${MID_Y}" r="3" fill="black"/>`;
@@ -258,7 +254,45 @@ function renderCapVertical(cx: number, topY: number, botY: number, value: string
   return svg;
 }
 
-/** SPDT-style switch — 단자1·단자2 양쪽 표기. 간단 horizontal. */
+/**
+ * SW at node directly — common pivot이 node 위치와 일치 (사용자 요청).
+ *   common at (commonX, commonY) = node a 좌표
+ *   단자1: common 위쪽 30px (좌측 회로 측 — t<0 정상상태 위치, 사용 안 함/floating)
+ *   단자2: 수평 우측 (점선박스/Thevenin 입력 측)
+ *   handle: common → 단자1 (closed_to_term1) OR common → 단자2 (closed_to_term2)
+ *   추가로 단자2 → t2TargetX horizontal wire는 caller 책임 (이 함수 내에서 그림)
+ */
+function renderSwitchAtNode(commonX: number, commonY: number, t2TargetX: number, state: "closed_to_term1" | "closed_to_term2" | "open"): string {
+  const T1_X = commonX;
+  const T1_Y = commonY - 30;
+  const T2_X = commonX + 50;
+  const T2_Y = commonY;
+  let svg = "";
+  // common pivot dot
+  svg += `<circle cx="${commonX}" cy="${commonY}" r="3.5" fill="black"/>`;
+  // 단자1 dot + 라벨 (위쪽)
+  svg += `<circle cx="${T1_X}" cy="${T1_Y}" r="3" fill="black"/>`;
+  svg += `<text x="${T1_X + 6}" y="${T1_Y - 4}" text-anchor="start" font-size="10" fill="#666">단자1</text>`;
+  // 단자2 dot + 라벨 (우측)
+  svg += `<circle cx="${T2_X}" cy="${T2_Y}" r="3" fill="black"/>`;
+  svg += `<text x="${T2_X + 4}" y="${T2_Y - 8}" text-anchor="start" font-size="10" fill="#666">단자2</text>`;
+  // handle — switch state에 따라
+  if (state === "closed_to_term1") {
+    svg += `<path d="M ${commonX} ${commonY} L ${T1_X} ${T1_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  } else if (state === "closed_to_term2") {
+    svg += `<path d="M ${commonX} ${commonY} L ${T2_X} ${T2_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  } else {
+    // open — handle이 둘 사이 중간 (살짝 들린)
+    svg += `<path d="M ${commonX} ${commonY} L ${(T1_X + T2_X) / 2} ${(T1_Y + T2_Y) / 2 - 6}" stroke="black" stroke-width="2" fill="none"/>`;
+  }
+  // SW(t=0) 라벨 (단자1 옆 위쪽)
+  svg += `<text x="${T1_X - 6}" y="${T1_Y - 4}" text-anchor="end" font-size="11" fill="#1e3a8a" font-weight="700">SW (t=0)</text>`;
+  // 단자2 → 목적지 (점선박스 또는 R_Th)로 horizontal wire
+  svg += `<path d="M ${T2_X} ${T2_Y} L ${t2TargetX} ${T2_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  return svg;
+}
+
+/** [구버전] SPDT-style switch — 단자1·단자2 양쪽 표기. 간단 horizontal. */
 function renderSwitch(cx: number, cy: number, state: "closed_to_term1" | "closed_to_term2" | "open"): string {
   const t1X = cx - 25, t1Y = cy;        // 단자1 (좌측)
   const t2X = cx + 25, t2Y = cy;        // 단자2 (우측)
