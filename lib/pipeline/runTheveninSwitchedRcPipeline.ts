@@ -59,8 +59,9 @@ export async function runTheveninSwitchedRcPipeline(args: {
       R_top_label: `${v.R_top}Ω`,
       C_1_label: `${v.C_1}F`,
       C_2_label: `${v.C_2}F`,
-      V_Th_label: `V_Th = ${a.V_Th}V`,
-      R_Th_label: `R_Th = ${a.R_Th}Ω`,
+      // (나) 등가회로는 학생이 V_Th, R_Th 도출용 — 값 표기하지 않고 변수만 (원본 image #20과 일관)
+      V_Th_label: `V_Th`,
+      R_Th_label: `R_Th`,
       swState: "closed_to_term2",  // 등가회로는 t≥0 상태
     };
 

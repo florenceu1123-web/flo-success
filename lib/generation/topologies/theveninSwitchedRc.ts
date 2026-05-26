@@ -101,21 +101,20 @@ export function generateTheveninSwitchedRc(args: {
   const R_Th_raw = parallel(R_c, R_series_branch);
   const V_Th_raw = I_s * R_Th_raw;
 
-  // ─── 직렬 캐패시터 (C_1 위, C_2 아래) 분석 ────────────────────────
-  //   C_1, C_2가 node a ↔ GND 사이에 직렬 (C_1 top=a, C_1 bottom=C_2 top=mid_node, C_2 bottom=GND).
-  //   v_o(t) = C_1 양단 전압 (= V_a - V_mid_node).
-  //   Series caps: 같은 charge Q → V_C1 = Q/C_1, V_C2 = Q/C_2.
-  //   V_total = V_C1 + V_C2 = Q/C_eq, C_eq = C_1·C_2/(C_1+C_2).
-  //   ratio α = V_C1/V_total = C_2/(C_1+C_2)  (직렬 cap 전압분배는 capacitance에 반비례)
+  // ─── 캐패시터 분석 (사용자 피드백 반영 final layout) ────────────────
+  //   원본 (이미지 #20) 토폴로지:
+  //     C_1: node a leg (V_a ↔ GND) — v_o(t) 측정 대상
+  //     C_2: V_s 옆 별도 leg (V_s top rail ↔ GND), V_s에 parallel
+  //   따라서 C_2는 V_s에 의해 항상 charged (V_C2 = V_s 일정), 동역학에 영향 없음.
+  //   v_o(t) = V_C1 (node a 전압).
   //
-  //   t<0 SS (SW=단자1, V_s 활성): V_total = V_s → v_o(0⁻) = V_s·α
-  //   t→∞ SS (SW=단자2, Thevenin 활성): V_total = V_Th → v_o(∞) = V_Th·α
-  //   τ = R_Th · C_eq (Thevenin 회로가 직렬 cap 등가에 보임)
-  const C_eq_series = (C_1 * C_2) / (C_1 + C_2);
-  const alpha_ratio = C_2 / (C_1 + C_2);
-  const tau_raw = R_Th_raw * C_eq_series;
-  const v_o_0minus = V_s * alpha_ratio;
-  const v_o_inf = V_Th_raw * alpha_ratio;
+  //   t<0 SS (SW=단자1, V_s 활성): V_s → R_top → SW → a → C_1. SS: v_o(0⁻) = V_s.
+  //   t→∞ SS (SW=단자2, Thevenin 활성): a → Thevenin. v_o(∞) = V_Th.
+  //   τ = R_Th · C_1 (C_2는 SW로 분리되어 R_Th와 무관)
+  const C_eq_series = C_1;  // 동역학에 참여하는 cap = C_1만
+  const tau_raw = R_Th_raw * C_1;
+  const v_o_0minus = V_s;
+  const v_o_inf = V_Th_raw;
 
   // v_o(t) = v_o(∞) + (v_o(0⁻) - v_o(∞)) · exp(-t/τ)
   const A = trunc3(v_o_0minus - v_o_inf);

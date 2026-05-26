@@ -55,19 +55,18 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   const NODE_A_X = C1_X + 30;
   svg += renderSwitchAtNode(NODE_A_X, MID_Y, RTOP_X + 18, BOX_LEFT_X + 10, d.swState);
 
-  // ── C_1 + C_2 직렬 stacked (node a → mid_node → GND) ──
-  //   사용자 피드백: "두개의 커패시터 연결이 잘못되었어~ 직렬로 와야돼"
-  //   원본 (이미지 #18): C_1(0.1F) 위, C_2(0.4F) 아래, 둘 다 vertical stacked.
-  //   v_o(t) = C_1 양단 전압 (= V_a - V_mid).
-  const MID_NODE_Y = (MID_Y + BOT_Y) / 2;  // C_1 bottom = C_2 top (중간 노드)
-  // common (node a) → C_1 top: vertical wire from (NODE_A_X, MID_Y) down to C_1 top region
-  svg += renderCapVertical(NODE_A_X, MID_Y, MID_NODE_Y, d.C_1_label, "C_1");
-  // 중간 노드 dot
-  svg += `<circle cx="${NODE_A_X}" cy="${MID_NODE_Y}" r="3" fill="black"/>`;
-  // C_2: 중간 노드 → GND
-  svg += renderCapVertical(NODE_A_X, MID_NODE_Y, BOT_Y, d.C_2_label, "C_2");
+  // ── C_1 = node a leg, C_2 = V_s 옆 separate leg (둘 다 GND로 — 사용자 피드백 반영) ──
+  //   "C_2는 bottom에 오고 C_1은 leg에 오고 그사이에 ground가 있어야지"
+  //   → 둘이 별도 vertical leg, 사이 horizontal에 ground 심볼 (rail 중앙).
+  //   원본 (이미지 #20): C_2는 V_s 우측 가까이 vertical, C_1은 node a 위치 vertical.
+  //   양 cap이 GND로 떨어지는 동일 구조 (parallel 전기적), V_s 쪽은 V_s에 의해 항상 charged.
+  const C2_X = VS_X + 50;  // V_s 우측 50px (V_s 옆 별도 leg)
+  svg += `<circle cx="${C2_X}" cy="${MID_Y}" r="3" fill="black"/>`;
+  svg += renderCapVertical(C2_X, MID_Y, BOT_Y, d.C_2_label, "C_2");
+  // C_1: node a → GND
+  svg += renderCapVertical(NODE_A_X, MID_Y, BOT_Y, d.C_1_label, "C_1");
   // v_o(t) 라벨 — C_1 양단 옆 (우측)
-  svg += `<text x="${NODE_A_X + 24}" y="${(MID_Y + MID_NODE_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
+  svg += `<text x="${NODE_A_X + 24}" y="${(MID_Y + BOT_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
 
   // 점선박스 (dashed rectangle)
   svg += `<rect x="${BOX_LEFT_X}" y="${BOX_TOP_Y}" width="${BOX_RIGHT_X - BOX_LEFT_X}" height="${BOX_BOT_Y - BOX_TOP_Y}" stroke="#6b7280" fill="none" stroke-width="1.5" stroke-dasharray="6 4"/>`;
@@ -96,12 +95,13 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   svg += `<path d="M ${BOX_R_C_X} ${MID_Y} L ${BOX_IS_X} ${MID_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += renderCurrentSource(BOX_IS_X, MID_Y, BOT_Y, d.I_s_label);
 
-  // 공통 ground rail (C_2 좌측 V_s에서 제외, 대신 NODE_A_X 위치로)
+  // 공통 ground rail
   svg += `<path d="M ${VS_X} ${BOT_Y} L ${BOX_IS_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  for (const dx of [VS_X, NODE_A_X, BOX_R_B_X + 30, BOX_R_C_X, BOX_IS_X]) {
+  for (const dx of [VS_X, C2_X, NODE_A_X, BOX_R_B_X + 30, BOX_R_C_X, BOX_IS_X]) {
     svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
-  svg += renderGround(Math.round((VS_X + BOX_IS_X) / 2), BOT_Y);
+  // ground 심볼 — C_2와 C_1 사이 (사용자 요청: "그사이에 ground가 있어야지")
+  svg += renderGround(Math.round((C2_X + NODE_A_X) / 2), BOT_Y);
 
   svg += `</svg>`;
   return svg;
@@ -134,12 +134,12 @@ export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
   const VTH_X = RTH_X + 110;
   svg += renderSwitchAtNode(NODE_A_X_EQ, MID_Y, RTOP_X + 18, RTH_X - 18, d.swState);
 
-  // C_1 + C_2 직렬 stacked (= (가)와 동일)
-  const MID_NODE_Y_EQ = (MID_Y + BOT_Y) / 2;
-  svg += renderCapVertical(NODE_A_X_EQ, MID_Y, MID_NODE_Y_EQ, d.C_1_label, "C_1");
-  svg += `<circle cx="${NODE_A_X_EQ}" cy="${MID_NODE_Y_EQ}" r="3" fill="black"/>`;
-  svg += renderCapVertical(NODE_A_X_EQ, MID_NODE_Y_EQ, BOT_Y, d.C_2_label, "C_2");
-  svg += `<text x="${NODE_A_X_EQ + 24}" y="${(MID_Y + MID_NODE_Y_EQ) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
+  // C_2 별도 leg (V_s 옆), C_1 node a leg — (가)와 동일 패턴
+  const C2_X_EQ = VS_X + 50;
+  svg += `<circle cx="${C2_X_EQ}" cy="${MID_Y}" r="3" fill="black"/>`;
+  svg += renderCapVertical(C2_X_EQ, MID_Y, BOT_Y, d.C_2_label, "C_2");
+  svg += renderCapVertical(NODE_A_X_EQ, MID_Y, BOT_Y, d.C_1_label, "C_1");
+  svg += `<text x="${NODE_A_X_EQ + 24}" y="${(MID_Y + BOT_Y) / 2 + 4}" font-size="12" fill="#dc2626" font-weight="700">v_o(t)</text>`;
 
   // R_Th horizontal + V_Th vertical
   svg += renderResistorHorizontal(RTH_X, MID_Y, d.R_Th_label);
@@ -150,10 +150,11 @@ export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
   // ground rail
   const RAIL_RIGHT = VTH_X;
   svg += `<path d="M ${VS_X} ${BOT_Y} L ${RAIL_RIGHT} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  for (const dx of [VS_X, NODE_A_X_EQ, VTH_X]) {
+  for (const dx of [VS_X, C2_X_EQ, NODE_A_X_EQ, VTH_X]) {
     svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
-  svg += renderGround(Math.round((VS_X + RAIL_RIGHT) / 2), BOT_Y);
+  // ground 심볼 — C_2와 C_1 사이 (C_1과 V_Th 사이도 가능하지만 (가)와 일관)
+  svg += renderGround(Math.round((C2_X_EQ + NODE_A_X_EQ) / 2), BOT_Y);
 
   svg += `</svg>`;
   return svg;
