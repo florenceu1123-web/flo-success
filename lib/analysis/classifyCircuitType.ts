@@ -73,6 +73,33 @@ export function classifyCircuitType(
     }
   }
 
+  // ── ★ PRE-SUBJECT — 2-OPAMP cascade (임용 10번 전자회로) ─────────
+  //   subject가 circuit_theory로 잘못 선택되어도 OPAMP cascade 시그니처 강하면
+  //   electronics path (opamp_cascade_voltage_divider)로 라우팅.
+  //   트리거: OPAMP inventory ≥ 2 + R inventory ≥ 4 + cascade·전달함수·OPAMP 응용회로 키워드
+  if (subject !== "digital_logic" && subject !== "mixed_signal") {
+    const invPS = analysis.componentInventory ?? [];
+    const opampPS = invPS.filter((c) => String(c.type ?? "").toUpperCase() === "OPAMP").length;
+    const rPS = invPS.filter((c) => String(c.type ?? "").toUpperCase() === "R").length;
+    const textPS = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""} ${(analysis.relatedConcepts ?? []).join(" ")}`.toLowerCase();
+    const cascadePS = /cascade|캐스케이드|2단|두 단|두단|두 개의 연산|2개의 연산|v_o\/v_i|v_s\/v_o|전달함수|opamp 응용|연산증폭기 응용/.test(textPS);
+    if (opampPS >= 2 && rPS >= 4 && cascadePS) {
+      classifierLog.info("classify_result", {
+        type: "opamp_cascade_voltage_divider",
+        route: "pre_subject_opamp_cascade",
+        opampCount: opampPS,
+        rCount: rPS,
+        subject,
+      });
+      return {
+        type: "opamp_cascade_voltage_divider",
+        params: {},
+        confidence: "high",
+        reasoning: `[PRE-SUBJECT] OPAMP ${opampPS}개 + R ${rPS}개 + cascade 키워드 → opamp_cascade_voltage_divider (subject=${subject})`,
+      };
+    }
+  }
+
   // mixed_signal: 전자회로 + 디지털논리회로 혼합 — 임용 8번 (2-bit JK 카운터 + DAC + 비교기) 등
   if (subject === "mixed_signal") {
     const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
