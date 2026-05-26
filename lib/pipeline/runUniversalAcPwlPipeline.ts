@@ -34,7 +34,7 @@ export async function runUniversalAcPwlPipeline(args: {
   const contextHint = buildContextHint(analysis);
 
   return generateInParallel(count, async (i, seed) => {
-    const gen = generateUniversalAcPwl({ params: analysis?.circuitType?.params, seed });
+    const gen = generateUniversalAcPwl({ params: analysis?.circuitType?.params, seed, mode });
     log.info("generated", {
       values: gen.values,
       answer: gen.answer,

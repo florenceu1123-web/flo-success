@@ -71,6 +71,15 @@ export function renderDiodePwlCircuit(netlist: CircuitNetlist): string | null {
 
   if (!V_i || !SW || !C || !D_1 || !D_2 || !R_L) return null;
 
+  // ── Polarity 자동 검출 ────────────────────────────────────────
+  //   positive clamper (원본): D_1 anode=clamp(bottom)·cathode=V_CC(top) → 화살표 up
+  //   negative clamper (변형): D_1 anode=V_CC(top)·cathode=clamp(bottom)  → 화살표 down
+  //   D_1의 anode pin side로 판별.
+  const d1AnodeSide = D_1.pins?.find((p) => p.id === "anode")?.side;
+  const isNegativeClamper = d1AnodeSide === "top";
+  const d1Dir: "up" | "down" = isNegativeClamper ? "down" : "up";
+  const d2Dir: "up" | "down" = isNegativeClamper ? "down" : "up";
+
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
   svg += defs();
 
@@ -96,21 +105,39 @@ export function renderDiodePwlCircuit(netlist: CircuitNetlist): string | null {
   // clamp node dot
   svg += `<circle cx="${CLAMP_X}" cy="${MID_Y}" r="3" fill="black"/>`;
 
-  // ── D_1 (clamp node → V_CC, anode=clamp, cathode=V_CC; 위로 향함) ──
-  //   body를 조금 위로 올림 — clamp(MID_Y)에서 anode(MID_Y-35)까지 짧은 wire 추가.
-  const D1_ANODE_Y = MID_Y - 35;
-  svg += `<path d="M ${CLAMP_X} ${MID_Y} L ${CLAMP_X} ${D1_ANODE_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += renderDiodeVertical(CLAMP_X, D1_ANODE_Y, MID_Y - 100, "up", "D_1");
-  // V_CC: 배터리 대신 단자 표기 — D_1 cathode wire 끝에 +단자 dot + "15V" 라벨
-  svg += `<path d="M ${CLAMP_X} ${MID_Y - 100} L ${VCC_X} ${MID_Y - 100}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += `<circle cx="${VCC_X}" cy="${MID_Y - 100}" r="4" fill="#1e3a8a" stroke="black" stroke-width="1"/>`;
-  svg += `<text x="${VCC_X + 10}" y="${MID_Y - 96}" font-size="13" font-weight="700" fill="#1e3a8a">${escapeSvg(String(V_CC?.value ?? "15V"))}</text>`;
+  // ── D_1 (clamp node ↔ V_CC, polarity별 방향 분기) ──
+  //   positive: anode=clamp(bottom), cathode=V_CC(top), 화살표 up
+  //   negative: anode=V_CC(top),     cathode=clamp(bottom), 화살표 down
+  //   body는 clamp(MID_Y)에서 35px 위 ~ 100px 위 사이에 배치.
+  const D1_BOTTOM_Y = MID_Y - 35;
+  const D1_TOP_Y = MID_Y - 100;
+  svg += `<path d="M ${CLAMP_X} ${MID_Y} L ${CLAMP_X} ${D1_BOTTOM_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  if (d1Dir === "up") {
+    // up: anode at bottom (D1_BOTTOM_Y), cathode at top (D1_TOP_Y)
+    svg += renderDiodeVertical(CLAMP_X, D1_BOTTOM_Y, D1_TOP_Y, "up", "D_1");
+  } else {
+    // down: anode at top (D1_TOP_Y), cathode at bottom (D1_BOTTOM_Y)
+    svg += renderDiodeVertical(CLAMP_X, D1_TOP_Y, D1_BOTTOM_Y, "down", "D_1");
+  }
+  // V_CC 단자: D_1 top 끝에 +/- dot + 라벨 (value 그대로, polarity는 generator가 부호 적용)
+  svg += `<path d="M ${CLAMP_X} ${D1_TOP_Y} L ${VCC_X} ${D1_TOP_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  svg += `<circle cx="${VCC_X}" cy="${D1_TOP_Y}" r="4" fill="#1e3a8a" stroke="black" stroke-width="1"/>`;
+  svg += `<text x="${VCC_X + 10}" y="${D1_TOP_Y + 4}" font-size="13" font-weight="700" fill="#1e3a8a">${escapeSvg(String(V_CC?.value ?? "15V"))}</text>`;
 
-  // ── D_2 (clamp node → GND, anode=GND, cathode=clamp; 아래로 향함) ──
-  //   화살표 위(↑) = anode(GND) → cathode(clamp) forward 방향. cathode를 MID_Y에 두어 clamp node 직접 접속.
-  svg += renderDiodeVertical(CLAMP_X, MID_Y + 100, MID_Y, "up", "D_2");
-  // wire: CLAMP_X, MID_Y+100 → GND
-  svg += `<path d="M ${CLAMP_X} ${MID_Y + 100} L ${CLAMP_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // ── D_2 (clamp node ↔ GND, polarity별 방향 분기) ──
+  //   positive: anode=GND(bottom),  cathode=clamp(top), 화살표 up
+  //   negative: anode=clamp(top),   cathode=GND(bottom), 화살표 down
+  const D2_TOP_Y = MID_Y;          // clamp 쪽 끝
+  const D2_BOTTOM_Y = MID_Y + 100;  // GND 쪽 끝
+  if (d2Dir === "up") {
+    // up: anode at bottom (D2_BOTTOM_Y), cathode at top (D2_TOP_Y)
+    svg += renderDiodeVertical(CLAMP_X, D2_BOTTOM_Y, D2_TOP_Y, "up", "D_2");
+  } else {
+    // down: anode at top (D2_TOP_Y), cathode at bottom (D2_BOTTOM_Y)
+    svg += renderDiodeVertical(CLAMP_X, D2_TOP_Y, D2_BOTTOM_Y, "down", "D_2");
+  }
+  // wire: D_2 GND쪽 끝 → 공통 ground rail
+  svg += `<path d="M ${CLAMP_X} ${D2_BOTTOM_Y} L ${CLAMP_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
 
   // ── R_L (clamp node 우측 → 공통 ground rail) ──
   const RL_X = (CLAMP_X + VO_X) / 2;

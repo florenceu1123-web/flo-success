@@ -12,12 +12,21 @@
  *    단자1 = V_i (signal line) 측 — POST-switch
  *    단자2 = GND (common ground rail) 측 — PRE-switch
  *    common = C 좌측
+ *
+ *  Polarity (exam_similar vs exam_variant):
+ *    "positive" (exam_similar / 원본 임용 6번): V_o ∈ [0, V_CC]
+ *      - v_i(t) = -V_p·sin(ωt) (음의 반주기 먼저)
+ *      - V_CC = +값, D_1 (a=clamp, c=V_CC), D_2 (a=GND, c=clamp)
+ *    "negative" (exam_variant / 변형): V_o ∈ [-V_CC, 0] (음의 클램퍼, 정확히 mirror)
+ *      - v_i(t) = +V_p·sin(ωt) (양의 반주기 먼저)
+ *      - V_CC = -값, D_1' (a=V_CC, c=clamp), D_2' (a=clamp, c=GND)
  */
 
 import type {
   CircuitComponent,
   CircuitNetlist,
   CircuitTypeParams,
+  GenerationMode,
   NodeAnnotation,
   MeasurementMark,
 } from "@/types";
@@ -33,8 +42,12 @@ import {
 
 export type WaveformSamples = Array<{ t: number; v: number }>;
 
+export type ClamperPolarity = "positive" | "negative";
+
 export type UniversalAcPwlGeneration = {
   netlist: CircuitNetlist;
+  /** 클램퍼 극성 — renderer·textWriter 분기에 사용. */
+  polarity: ClamperPolarity;
   /** 정답 (시뮬에서 추출한 단계별 결과) */
   answer: {
     step1_Vo_at_halfT: number;  // V_o(T/2)
@@ -44,7 +57,8 @@ export type UniversalAcPwlGeneration = {
   };
   /** 입력 값 (text writer용) */
   values: {
-    V_CC: number;        // DC clamp 전원 (V)
+    /** V_CC absolute 값 (V) — polarity가 negative면 회로에는 -V_CC로 적용됨. */
+    V_CC: number;
     V_i_peak: number;    // AC 진폭 (V)
     T_ms: number;        // 주기 (ms)
     C_uF: number;        // 캐패시턴스 (μF)
@@ -66,8 +80,12 @@ function trunc3(x: number): number {
 export function generateUniversalAcPwl(args: {
   params?: CircuitTypeParams;
   seed?: number;
+  /** GenerationMode — exam_variant이면 negative clamper. 미지정 시 positive. */
+  mode?: GenerationMode;
 }): UniversalAcPwlGeneration {
   const rand = makeRand(args.seed);
+  const polarity: ClamperPolarity = args.mode === "exam_variant" ? "negative" : "positive";
+  const sign = polarity === "negative" ? -1 : 1;  // polarity 반영용 부호
 
   // 변형 수치 — 원본 임용 6번: V_CC=15V, V_i_peak=10V, T·C·R_L은 명시 없음
   const V_CC = pick([12, 15, 18], rand);
@@ -86,22 +104,28 @@ export function generateUniversalAcPwl(args: {
   //   공통 nodes: n_clamp (V_o 측정점), n_vcc (V_CC + 단자). GND는 groundId.
   //   공통 컴포넌트: V_CC, R_L, D_1, D_2 (양 phase 공통)
   //
-  //   pre  : C 좌측 = GND   → C: a="GND", b="n_clamp", V_C(pre) = -V_clamp
-  //   post : C 좌측 = v_in  → C: a="v_in", b="n_clamp", V_C(post) = V(v_in) - V_clamp
+  //   polarity="positive": V_CC=+V_CC, D_1(a=clamp,c=V_CC), D_2(a=GND,c=clamp). V_o ∈ [0, V_CC].
+  //   polarity="negative": V_CC=-V_CC, D_1(a=V_CC,c=clamp), D_2(a=clamp,c=GND). V_o ∈ [-V_CC, 0].
   //
-  //   ⚠️ a/b 컨벤션 차이로 handoff 시 부호 처리 필요.
-  //   simulateSwitchEvent는 preFinal.capacitorVoltages.C 값을 그대로 postSwitch.C.V0에
-  //   넣는다. preSwitch에서 V(GND)=0, V_clamp(t<0)≈0이므로 V_C(pre)=0 → V0=0.
-  //   post의 V_C 초기값도 V(v_in,0) - V_clamp(0⁺) = 0 - 0 = 0 → 일관성 OK.
-  const diodes: DiodeBranch[] = [
-    { id: "D_1", anode: "n_clamp", cathode: "n_vcc" },
-    { id: "D_2", anode: "GND", cathode: "n_clamp" },
-  ];
+  //   pre  : C 좌측 = GND   → C: a="GND", b="n_clamp"
+  //   post : C 좌측 = v_in  → C: a="v_in", b="n_clamp"
+  const diodes: DiodeBranch[] = polarity === "negative"
+    ? [
+        // 음의 클램퍼: D_1' (V_CC -> clamp 방향 forward), D_2' (clamp -> GND 방향 forward)
+        { id: "D_1", anode: "n_vcc", cathode: "n_clamp" },
+        { id: "D_2", anode: "n_clamp", cathode: "GND" },
+      ]
+    : [
+        // 양의 클램퍼 (원본): D_1 (clamp -> V_CC forward), D_2 (GND -> clamp forward)
+        { id: "D_1", anode: "n_clamp", cathode: "n_vcc" },
+        { id: "D_2", anode: "GND", cathode: "n_clamp" },
+      ];
+  const V_CC_signed = sign * V_CC;  // negative clamper면 -V_CC
   const baseClampNet = (extraNodes: string[]): SolverNetwork => ({
     nodeIds: [...extraNodes, "n_clamp", "n_vcc"],
     groundId: "GND",
     resistors: [{ id: "R_L", a: "n_clamp", b: "GND", R: R_L_ohm }],
-    vsources: [{ id: "V_CC", a: "n_vcc", b: "GND", V: V_CC }],
+    vsources: [{ id: "V_CC", a: "n_vcc", b: "GND", V: V_CC_signed }],
     isources: [],
   });
 
@@ -113,9 +137,10 @@ export function generateUniversalAcPwl(args: {
     diodes,
   };
 
+  // polarity 따라 v_i 부호 반전: positive → -sin (음의 반주기 먼저), negative → +sin (양의 반주기 먼저)
+  const viSign = polarity === "negative" ? 1 : -1;
   const vSourcesTimeVarying: TimeVaryingVSource[] = [
-    // 원본 임용 6번: v_i(t) = -V_peak·sin(ωt) — 음의 반주기 먼저(0→-peak→0→+peak→0)
-    { id: "V_i", a: "v_in", b: "GND", vFunc: (t: number) => -V_i_peak * Math.sin(omega * t) },
+    { id: "V_i", a: "v_in", b: "GND", vFunc: (t: number) => viSign * V_i_peak * Math.sin(omega * t) },
   ];
   const postCapacitors: CapacitorBranch[] = [
     // V0는 simulateSwitchEvent가 preSwitch 최종값으로 덮어씀
@@ -144,11 +169,14 @@ export function generateUniversalAcPwl(args: {
   const raw = extractImyong6Answers(simResult.postSwitchSamples, "n_clamp", T_sec, postSwitchPeriods);
 
   // ─── netlist (renderer 입력용 — diodePwlCircuitRenderer 매칭 id) ────
+  //   value 표기는 renderer가 그대로 라벨로 사용. polarity 따라 형태 분기.
+  const viLabel = polarity === "negative" ? `+${V_i_peak}sin(ωt) V` : `-${V_i_peak}sin(ωt) V`;
+  const vccLabel = polarity === "negative" ? `-${V_CC}V` : `${V_CC}V`;
   const components: CircuitComponent[] = [
     {
       id: "V_i",
       type: "V",
-      value: `-${V_i_peak}sin(ωt) V`,
+      value: viLabel,
       pins: [
         { id: "p", node: "v_in", side: "top" },
         { id: "n", node: "GND", side: "bottom" },
@@ -157,7 +185,7 @@ export function generateUniversalAcPwl(args: {
     {
       id: "V_CC",
       type: "V",
-      value: `${V_CC}V`,
+      value: vccLabel,
       pins: [
         { id: "p", node: "n_vcc", side: "top" },
         { id: "n", node: "GND", side: "bottom" },
@@ -181,22 +209,43 @@ export function generateUniversalAcPwl(args: {
         { id: "n", node: "n_clamp", side: "right" },
       ],
     },
-    {
-      id: "D_1",
-      type: "D",
-      pins: [
-        { id: "anode", node: "n_clamp", side: "bottom" },
-        { id: "cathode", node: "n_vcc", side: "top" },
-      ],
-    },
-    {
-      id: "D_2",
-      type: "D",
-      pins: [
-        { id: "anode", node: "GND", side: "bottom" },
-        { id: "cathode", node: "n_clamp", side: "top" },
-      ],
-    },
+    // D_1·D_2 pin side는 polarity에 따라 anode/cathode 위치가 바뀜.
+    //   positive: D_1 anode=clamp(bottom)·cathode=V_CC(top), D_2 anode=GND(bottom)·cathode=clamp(top)
+    //   negative: D_1 anode=V_CC(top)·cathode=clamp(bottom), D_2 anode=clamp(top)·cathode=GND(bottom)
+    polarity === "negative"
+      ? {
+          id: "D_1",
+          type: "D",
+          pins: [
+            { id: "anode", node: "n_vcc", side: "top" },
+            { id: "cathode", node: "n_clamp", side: "bottom" },
+          ],
+        }
+      : {
+          id: "D_1",
+          type: "D",
+          pins: [
+            { id: "anode", node: "n_clamp", side: "bottom" },
+            { id: "cathode", node: "n_vcc", side: "top" },
+          ],
+        },
+    polarity === "negative"
+      ? {
+          id: "D_2",
+          type: "D",
+          pins: [
+            { id: "anode", node: "n_clamp", side: "top" },
+            { id: "cathode", node: "GND", side: "bottom" },
+          ],
+        }
+      : {
+          id: "D_2",
+          type: "D",
+          pins: [
+            { id: "anode", node: "GND", side: "bottom" },
+            { id: "cathode", node: "n_clamp", side: "top" },
+          ],
+        },
     {
       id: "R_L",
       type: "R",
@@ -223,11 +272,11 @@ export function generateUniversalAcPwl(args: {
   };
 
   // ─── 파형 데이터 추출 ─────────────────────────────────
-  // v_i(t) = -V_peak·sin(ωt), 한 주기를 60 sample (analytic, ms 단위 t)
+  // v_i(t) = ±V_peak·sin(ωt), 한 주기를 60 sample (analytic, ms 단위 t)
   const viWaveform: WaveformSamples = [];
   for (let k = 0; k <= 60; k++) {
     const t_sec = (k / 60) * T_sec;
-    viWaveform.push({ t: t_sec * 1000, v: -V_i_peak * Math.sin(omega * t_sec) });
+    viWaveform.push({ t: t_sec * 1000, v: viSign * V_i_peak * Math.sin(omega * t_sec) });
   }
   // v_o(t): postSwitch 마지막 주기 [(periods-1)*T, periods*T]에서 sample 추출, t를 한 주기 기준(0~T_ms)으로 shift
   const lastStart = (postSwitchPeriods - 1) * T_sec;
@@ -240,6 +289,7 @@ export function generateUniversalAcPwl(args: {
 
   return {
     netlist,
+    polarity,
     answer: {
       step1_Vo_at_halfT: trunc3(raw.step1_Vo_at_halfT),
       step2_Vo_at_T: trunc3(raw.step2_Vo_at_T),
