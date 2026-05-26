@@ -120,7 +120,14 @@ export function validateProblem(args: {
     f.diagramType === "concept_diagram" ||
     f.diagramType === "rlc_resonance_max_power_circuit" ||
     f.diagramType === "mux_gar_circuit" ||
-    f.diagramType === "mux_diagram",
+    f.diagramType === "mux_diagram" ||
+    // sequence_detector 3 figure: 블록도·상태도·상태표 모두 개념도 (analog/logic netlist 아님)
+    f.diagramType === "sequence_block" ||
+    f.diagramType === "sequence_state_diagram" ||
+    f.diagramType === "sequence_state_table" ||
+    // truth_table·waveform도 회로 figure 아님 (보조 figure로 단독 사용 가능)
+    f.diagramType === "truth_table" ||
+    f.diagramType === "waveform",
   );
   // analog 회로는 analog_netlist, 디지털논리는 logic_network — 둘 중 하나는 있어야
   // 단, 개념·도식 해석형(특성곡선·개념도)은 회로 figure 없이도 정상 — 면제.
