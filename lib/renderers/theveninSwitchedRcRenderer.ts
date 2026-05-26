@@ -103,9 +103,10 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   svg += renderCurrentSource(IS_X_NEW, MID_Y, BOT_Y, d.I_s_label);
 
   // ── 공통 ground rail + C_2 horizontal + ground 심볼 ──
-  //   V_s 하단 → wire → C_2 horizontal → wire → ground 심볼 → rail 우측 (나머지 회로)
+  //   V_s 하단 → wire → C_2 horizontal → wire → (가운데) ground 심볼 → rail 우측
+  //   사용자 피드백: ground 심볼을 회로 가운데로 (C_1 leg 부근)
   const C2_HORIZ_X = VS_X + 50;             // C_2 horizontal 중심
-  const GND_SYMBOL_X = C2_HORIZ_X + 40;     // ground 심볼은 C_2 우측 (= "ground 앞에" C_2)
+  const GND_SYMBOL_X = NODE_A_X;            // ground 심볼: C_1 leg 아래 (회로 가운데)
   // V_s 하단 → C_2 좌측 (V_s 측 막대)
   svg += `<path d="M ${VS_X} ${BOT_Y} L ${C2_HORIZ_X - 3} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   // C_2 horizontal symbol
@@ -162,7 +163,7 @@ export function renderTheveninEquivalent(d: TheveninEquivalentDiagram): string {
 
   // ── ground rail + C_2 horizontal + ground 심볼 ((가)와 동일 패턴) ──
   const C2_HORIZ_X_EQ = VS_X + 50;
-  const GND_SYMBOL_X_EQ = C2_HORIZ_X_EQ + 40;
+  const GND_SYMBOL_X_EQ = NODE_A_X_EQ;       // ground 심볼: C_1 leg 아래 (회로 가운데)
   // V_s 하단 → C_2 좌측
   svg += `<path d="M ${VS_X} ${BOT_Y} L ${C2_HORIZ_X_EQ - 3} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
   svg += renderCapHorizontal(C2_HORIZ_X_EQ, BOT_Y, d.C_2_label, "C_2");
