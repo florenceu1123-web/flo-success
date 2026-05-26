@@ -39,6 +39,7 @@ import { runFlipflopMixedPipeline } from "@/lib/pipeline/runFlipflopMixedPipelin
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
+import { runTheveninSwitchedRcPipeline } from "@/lib/pipeline/runTheveninSwitchedRcPipeline";
 import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
 import { runMuxImplementationPipeline } from "@/lib/pipeline/runMuxImplementationPipeline";
 import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipeline";
@@ -267,6 +268,14 @@ export async function POST(req: NextRequest) {
     } else if ((circuitType === "dc_mesh" || circuitType === "dc_nodal") && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "dc_mesh_pipeline", count: n, mode });
       problems = await runDcMeshPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "thevenin_switched_rc" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "thevenin_switched_rc_pipeline", count: n, mode });
+      problems = await runTheveninSwitchedRcPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

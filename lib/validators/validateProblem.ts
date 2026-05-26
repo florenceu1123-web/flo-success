@@ -125,6 +125,9 @@ export function validateProblem(args: {
     f.diagramType === "sequence_block" ||
     f.diagramType === "sequence_state_diagram" ||
     f.diagramType === "sequence_state_table" ||
+    // thevenin_switched_rc 2 figure — 둘 다 fixed-slot circuit. analog_netlist 분류는 아니지만 회로 figure.
+    f.diagramType === "thevenin_original_circuit" ||
+    f.diagramType === "thevenin_equivalent_circuit" ||
     // truth_table·waveform도 회로 figure 아님 (보조 figure로 단독 사용 가능)
     f.diagramType === "truth_table" ||
     f.diagramType === "waveform",

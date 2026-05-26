@@ -33,6 +33,12 @@ import {
   type SequenceStateDiagram,
   type SequenceStateTable,
 } from "./sequenceDetectorRenderer";
+import {
+  renderTheveninOriginal,
+  renderTheveninEquivalent,
+  type TheveninOriginalDiagram,
+  type TheveninEquivalentDiagram,
+} from "./theveninSwitchedRcRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -82,6 +88,10 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderSequenceStateDiagram(figure.diagram as SequenceStateDiagram));
     case "sequence_state_table":
       return wrapSvg(figure, renderSequenceStateTable(figure.diagram as SequenceStateTable));
+    case "thevenin_original_circuit":
+      return wrapSvg(figure, renderTheveninOriginal(figure.diagram as TheveninOriginalDiagram));
+    case "thevenin_equivalent_circuit":
+      return wrapSvg(figure, renderTheveninEquivalent(figure.diagram as TheveninEquivalentDiagram));
     default:
       return (
         <pre className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">

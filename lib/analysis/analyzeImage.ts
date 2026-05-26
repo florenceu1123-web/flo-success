@@ -597,6 +597,54 @@ K-map 문제를 분석할 때 ★ K-map 개수와 차원을 정확히 카운트 
 (이 케이스는 분류기가 sequence_detector path로 라우팅하여 (가) 블록도 + (나) 상태도(빈칸) +
 (다) 상태표(빈칸, don't care)의 3 figure만 생성된다.)
 
+【★ circuit_theory Thevenin + Switched RC + 다단계 — 절대 추출 규칙 (thevenin_switched_rc 라우팅 핵심)】
+
+다음 시각 단서 ★ 두 가지 이상 ★ 보이면 imyong 9 정보과 형식 (Thevenin + Switched RC)이다:
+  (1) DC 전압원 (V_s = 10V 등, +/- 표기) + DC 전류원 (I_s = 4A 등, 화살표)
+  (2) SW (SPDT, 단자1·단자2 라벨, t=0 표기)
+  (3) 캐패시터 ≥ 1 (C_1, C_2 — F 단위, 보통 0.1·0.4 같은 분수)
+  (4) ★ 점선박스 ★ — 회로의 일부분을 점선(dashed) 테두리로 묶음
+  (5) (나) 두 번째 figure에 "V_Th" / "R_Th" 또는 "테브난 등가회로" 라벨
+  (6) <해석 절차> 박스 + [단계 1]·[단계 2]·[단계 3] 형식
+
+이 경우 ★ 반드시 ★ 다음을 만족:
+
+(A) topic 또는 interpretation에 ★ "테브난 등가" 또는 "Thevenin equivalent" 단어 ★ 명시
+    예: "RC 응용 회로 + 스위치 + 테브난 등가회로 다단계 풀이"
+    ★ 절대 금지 ★: "AC 회로", "교류 다중 전원" 같은 잘못된 표현 (DC 회로다).
+    ★ 절대 금지 ★: "공진", "페이저", "주파수응답" 같은 AC 키워드 (DC + RC step response).
+
+(B) relatedConcepts에 다음 단어 ★ 4개 이상 ★:
+    "테브난 등가", "정상상태", "RC 시정수", "RC 과도응답", "스위칭 회로", "캐패시터 충전",
+    "직류 전원", "다단계 풀이" 중에서 4개 이상.
+
+(C) interpretation에 ★ "점선박스" 또는 "점선 부분" 또는 "등가회로 대상" ★ 명시
+    예: "그림 (나)는 (가)의 점선 부분을 테브난 등가회로로 나타낸 것이다."
+
+(D) interpretation에 ★ "t<0 정상상태" 및 "t≥0 RC step" ★ 명시
+    예: "t<0에서 스위치는 단자1에 연결되어 직류 정상상태. t=0에 단자2로 이동."
+
+(E) componentInventory에 ★ DC 형식으로 ★ source value 표기:
+    올바름 ✓: V (value="10V"), I (value="4A")
+    잘못   ✗: V (value="10∠0°V"), I (value="4∠0°A") — phasor 표기 금지 (DC다)
+
+(F) topicKey = "switching_circuit" 또는 누락. (sequence_detector·fsm 등 디지털 키 절대 금지.)
+
+(G) figureRequirements:
+    [
+      { "role": "original_circuit",   "diagramType": "analog_netlist", "scope": "single", "required": true },
+      { "role": "equivalent_circuit", "diagramType": "analog_netlist", "scope": "single", "required": true }
+    ]
+
+★ 잘못된 추출 (절대 금지) ★:
+  - DC 전원을 AC phasor(25∠30°V 등)로 잘못 변환 → ac_superposition으로 오라우팅
+  - "교류"·"페이저"·"공진" 키워드를 잘못 부여 → AC archetype 라우팅
+  - 점선박스 부분만 분석하고 좌측 RC 부분 누락
+  - 단자1/단자2 SW 구조를 단순 SW로 단순화
+
+(이 케이스는 분류기가 thevenin_switched_rc path로 라우팅하여 (가) 원본 회로 + (나) Thevenin
+등가 회로 2 figure가 생성되고, 3단계 풀이(v_o(0⁻) / V_Th·R_Th / v_o(t))가 자동 도출된다.)
+
 【digital_logic MUX 등가구현 — 절대 추출 규칙】
 원본 figure에 사다리꼴 box (좌측에 I_0·I_1·I_2·I_3, 하단에 S_0·S_1, 우측에 F) 또는 "MUX"/"멀티플렉서" 라벨이 있는 figure가 보이면, 이 문제는 MUX 등가구현 형식(임용 5번 형식)이다. 반드시:
 - topic 또는 interpretation에 "MUX" 또는 "멀티플렉서"라는 정확한 단어를 포함시킬 것. (예: "조합논리회로를 4×1 MUX로 등가구현")

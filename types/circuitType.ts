@@ -55,6 +55,7 @@ export type CircuitType =
   | "fsm"                   // Mealy 4-state FSM (상태 전이도 + 구현 회로)
   | "sequence_detector"     // 시퀀스 검출기 + D-FF + 상태도/표 빈칸 (임용 8번 정보과)
   | "waveform_analysis"     // 디지털 입력 파형 → 출력 파형 분석
+  | "thevenin_switched_rc"  // SW + RC + 점선박스(Thevenin 대상) 다단계 (임용 9번 정보과)
   // ── Universal (rule-based) ───────────────────
   | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
   | "universal_ac"          // 임의 AC 회로(R/L/C/V/I) + phasor/공진/최대전력 query — archetype-free

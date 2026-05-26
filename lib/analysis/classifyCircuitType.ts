@@ -865,6 +865,41 @@ function decideType(args: DecideArgs): DecideResult {
     };
   }
 
+  // 0-pre-pre-rc. Thevenin + Switched RC (임용 9번 정보과) — switched_rlc/switched_rc보다 우선.
+  //   원본: V_s + R + SW + C×2 + 점선박스(R×3 + I_s). t<0/t≥0 단계 + Thevenin V_Th/R_Th 도출.
+  //   트리거: SW(inferred) + RC (C≥1, L=0) + dual-source(V+I) + Thevenin/점선박스/등가 키워드
+  //          + AC 키워드 없음 (DC 회로)
+  const isThevenSwitchedRcKw = matchesKeyword(text, [
+    "테브난 등가", "테브난 등가회로", "테브닌 등가", "thevenin equivalent",
+    "v_th", "r_th", "vth", "rth",
+    "점선", "점선박스", "점선 박스", "등가회로", "등가 회로",
+    "검은 상자", "박스로 표시",
+  ]);
+  const hasStageKw = matchesKeyword(text, ["[단계", "단계 1", "단계 2", "단계 3", "단계1", "단계2", "단계3"]);
+  const isPureRc = counts.C >= 1 && counts.L === 0;
+  // AC signal 검사 — local 변수 선언 (isACText/hasJImpedancePattern는 나중에 선언되므로 inline)
+  const isACTextLocal = matchesKeyword(text, AC_PHASOR_KEYWORDS);
+  const hasJImpedanceLocal = /[+\-]?\bj\s*\d+\s*[Ωohm]/i.test(text) || /∠/.test(text);
+  const hasNoAcSignal = !isACTextLocal && !hasACInventory && !hasJImpedanceLocal;
+  if (
+    hasSwitchInferred && isPureRc && counts.V > 0 && counts.I > 0 && hasNoAcSignal &&
+    (isThevenSwitchedRcKw || hasStageKw)
+  ) {
+    const reasons: string[] = [
+      `RC(C=${counts.C}, L=0)`,
+      `SW(inferred)`,
+      `dual-source(V·I)`,
+      `DC(AC키워드/inventory 없음)`,
+    ];
+    if (isThevenSwitchedRcKw) reasons.push("테브난/등가/점선박스 키워드");
+    if (hasStageKw) reasons.push("[단계 N] 키워드");
+    return {
+      type: "thevenin_switched_rc",
+      confidence: "high",
+      reasoning: `Thevenin + Switched RC (imyong 9 정보과) — ${reasons.join(", ")}`,
+    };
+  }
+
   // 0-pre-pre. Switched RLC step response v1 (3-leg 단순화) — SW(inferred) + RLC + dual-source + 키워드.
   const hasRlcSet = counts.R > 0 && counts.L > 0 && counts.C > 0;
   const switchedRlcKeywords = [
