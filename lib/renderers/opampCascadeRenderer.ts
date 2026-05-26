@@ -45,64 +45,69 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   // V_i AC source (vertical, left)
   svg += renderAcSource(VI_X, MID_Y - 30, BOT_Y, d.V_i_label);
 
-  // V_i top → R_1 → V⁻(U_1)
+  // OPAMP 핀 좌표
+  const u1Pins = opampPins(U1_CX, MID_Y);
+  const u2Pins = opampPins(U2_CX, MID_Y);
+
+  // V_i top → R_1 → V⁻(U_1) pin (with L-bend up to pin Y level)
   svg += `<path d="M ${VI_X} ${MID_Y - 30} L ${VI_X} ${MID_Y} L ${R1_X - 18} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderResistorHorizontal(R1_X, MID_Y, d.R_1_label, "R_1");
-  svg += `<path d="M ${R1_X + 18} ${MID_Y} L ${U1_INPUT_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // R_1 right → U1_INPUT_X (node) → L-bend up → U_1 V⁻ pin dot
+  svg += `<path d="M ${R1_X + 18} ${MID_Y} L ${U1_INPUT_X} ${MID_Y} L ${U1_INPUT_X} ${u1Pins.vMinus.y} L ${u1Pins.vMinus.x} ${u1Pins.vMinus.y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += `<circle cx="${U1_INPUT_X}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += `<text x="${U1_INPUT_X - 6}" y="${MID_Y - 8}" text-anchor="end" font-size="12" font-weight="700" fill="#1e3a8a">V⁻</text>`;
+  svg += `<text x="${U1_INPUT_X - 6}" y="${u1Pins.vMinus.y - 4}" text-anchor="end" font-size="12" font-weight="700" fill="#1e3a8a">V⁻</text>`;
 
-  // U_1 OPAMP (triangle)
+  // U_1 OPAMP (triangle + pins)
   svg += renderOpamp(U1_CX, MID_Y, "U_1");
 
-  // U_1 output → V_o → R_4 → V⁻(U_2)
-  svg += `<path d="M ${U1_CX + 30} ${MID_Y} L ${VO_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // U_1 output pin → V_o → R_4 → V⁻(U_2) pin
+  svg += `<path d="M ${u1Pins.output.x} ${u1Pins.output.y} L ${VO_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += `<circle cx="${VO_X}" cy="${MID_Y}" r="3" fill="black"/>`;
   svg += `<text x="${VO_X + 8}" y="${MID_Y - 8}" font-size="13" font-weight="700" fill="#dc2626">V_o</text>`;
   svg += `<path d="M ${VO_X} ${MID_Y} L ${R4_X - 18} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderResistorHorizontal(R4_X, MID_Y, d.R_4_label, "R_4");
-  svg += `<path d="M ${R4_X + 18} ${MID_Y} L ${U2_INPUT_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += `<path d="M ${R4_X + 18} ${MID_Y} L ${U2_INPUT_X} ${MID_Y} L ${U2_INPUT_X} ${u2Pins.vMinus.y} L ${u2Pins.vMinus.x} ${u2Pins.vMinus.y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += `<circle cx="${U2_INPUT_X}" cy="${MID_Y}" r="3" fill="black"/>`;
-  svg += `<text x="${U2_INPUT_X - 6}" y="${MID_Y - 8}" text-anchor="end" font-size="12" font-weight="700" fill="#1e3a8a">V⁻</text>`;
+  svg += `<text x="${U2_INPUT_X - 6}" y="${u2Pins.vMinus.y - 4}" text-anchor="end" font-size="12" font-weight="700" fill="#1e3a8a">V⁻</text>`;
 
-  // U_2 OPAMP
+  // U_2 OPAMP (triangle + pins)
   svg += renderOpamp(U2_CX, MID_Y, "U_2");
 
-  // U_2 output → V_s
-  svg += `<path d="M ${U2_CX + 30} ${MID_Y} L ${VS_LABEL_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // U_2 output pin → V_s
+  svg += `<path d="M ${u2Pins.output.x} ${u2Pins.output.y} L ${VS_LABEL_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += `<circle cx="${VS_X}" cy="${MID_Y}" r="4" fill="#dc2626" stroke="black" stroke-width="1"/>`;
   svg += `<text x="${VS_LABEL_X + 8}" y="${MID_Y + 5}" font-size="14" font-weight="700" fill="#dc2626">V_s</text>`;
 
-  // R_3 feedback (V⁻(U_1) → V_o)
-  svg += `<path d="M ${U1_INPUT_X} ${MID_Y} L ${U1_INPUT_X} ${FB_Y} L ${(U1_INPUT_X + VO_X) / 2 - 18} ${FB_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += renderResistorHorizontal((U1_INPUT_X + VO_X) / 2, FB_Y, d.R_3_label, "R_3");
-  svg += `<path d="M ${(U1_INPUT_X + VO_X) / 2 + 18} ${FB_Y} L ${VO_X} ${FB_Y} L ${VO_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // R_3 feedback (V⁻ pin of U_1 → output pin of U_1)
+  //   V⁻ pin dot up → horizontal R_3 → output pin dot
+  svg += `<path d="M ${u1Pins.vMinus.x} ${u1Pins.vMinus.y} L ${u1Pins.vMinus.x} ${FB_Y} L ${(u1Pins.vMinus.x + u1Pins.output.x) / 2 - 18} ${FB_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += renderResistorHorizontal((u1Pins.vMinus.x + u1Pins.output.x) / 2, FB_Y, d.R_3_label, "R_3");
+  svg += `<path d="M ${(u1Pins.vMinus.x + u1Pins.output.x) / 2 + 18} ${FB_Y} L ${u1Pins.output.x} ${FB_Y} L ${u1Pins.output.x} ${u1Pins.output.y}" stroke="black" stroke-width="2" fill="none"/>`;
 
-  // R_5 feedback (V⁻(U_2) → V_s)
-  svg += `<path d="M ${U2_INPUT_X} ${MID_Y} L ${U2_INPUT_X} ${FB_Y} L ${(U2_INPUT_X + VS_X) / 2 - 18} ${FB_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += renderResistorHorizontal((U2_INPUT_X + VS_X) / 2, FB_Y, d.R_5_label, "R_5");
-  svg += `<path d="M ${(U2_INPUT_X + VS_X) / 2 + 18} ${FB_Y} L ${VS_X} ${FB_Y} L ${VS_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // R_5 feedback (V⁻ pin of U_2 → output pin of U_2)
+  svg += `<path d="M ${u2Pins.vMinus.x} ${u2Pins.vMinus.y} L ${u2Pins.vMinus.x} ${FB_Y} L ${(u2Pins.vMinus.x + u2Pins.output.x) / 2 - 18} ${FB_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += renderResistorHorizontal((u2Pins.vMinus.x + u2Pins.output.x) / 2, FB_Y, d.R_5_label, "R_5");
+  svg += `<path d="M ${(u2Pins.vMinus.x + u2Pins.output.x) / 2 + 18} ${FB_Y} L ${u2Pins.output.x} ${FB_Y} L ${u2Pins.output.x} ${u2Pins.output.y}" stroke="black" stroke-width="2" fill="none"/>`;
 
-  // R_2 bias (V⁻(U_1) → GND)
+  // R_2 bias (V⁻(U_1) node → GND)
   svg += `<path d="M ${U1_INPUT_X} ${MID_Y} L ${U1_INPUT_X} ${BIAS_Y - 18}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderResistorVertical(U1_INPUT_X, BIAS_Y, d.R_2_label, "R_2");
   svg += `<path d="M ${U1_INPUT_X} ${BIAS_Y + 18} L ${U1_INPUT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
 
-  // R_6 bias (V⁻(U_2) → GND)
+  // R_6 bias (V⁻(U_2) node → GND)
   svg += `<path d="M ${U2_INPUT_X} ${MID_Y} L ${U2_INPUT_X} ${BIAS_Y - 18}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderResistorVertical(U2_INPUT_X, BIAS_Y, d.R_6_label, "R_6");
   svg += `<path d="M ${U2_INPUT_X} ${BIAS_Y + 18} L ${U2_INPUT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
 
-  // V⁺ → GND for both OPAMPs (vertical short stub)
-  for (const cx of [U1_CX, U2_CX]) {
-    const vpY = MID_Y + 12;
-    svg += `<path d="M ${cx - 22} ${vpY} L ${cx - 22} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-    svg += `<circle cx="${cx - 22}" cy="${BOT_Y}" r="3" fill="black"/>`;
+  // V⁺ → GND for both OPAMPs (from V⁺ pin dot down to GND rail)
+  for (const pins of [u1Pins, u2Pins]) {
+    svg += `<path d="M ${pins.vPlus.x} ${pins.vPlus.y} L ${pins.vPlus.x} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+    svg += `<circle cx="${pins.vPlus.x}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
 
   // Ground rail
   svg += `<path d="M ${VI_X} ${BOT_Y} L ${VS_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  for (const dx of [VI_X, U1_INPUT_X, U1_CX - 22, U2_INPUT_X, U2_CX - 22]) {
+  for (const dx of [VI_X, U1_INPUT_X, u1Pins.vPlus.x, U2_INPUT_X, u2Pins.vPlus.x]) {
     svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
   svg += renderGround(Math.round((VI_X + VS_X) / 2), BOT_Y);
@@ -130,16 +135,41 @@ function renderAcSource(cx: number, topY: number, botY: number, label: string): 
   return svg;
 }
 
+/** OPAMP 핀 위치 — 외부 wire가 연결할 좌표를 계산. */
+function opampPins(cx: number, cy: number): {
+  vMinus: { x: number; y: number };
+  vPlus: { x: number; y: number };
+  output: { x: number; y: number };
+} {
+  return {
+    vMinus: { x: cx - 42, y: cy - 12 },  // V⁻ pin dot
+    vPlus: { x: cx - 42, y: cy + 12 },   // V⁺ pin dot
+    output: { x: cx + 42, y: cy },        // 출력 pin dot
+  };
+}
+
 function renderOpamp(cx: number, cy: number, label: string): string {
-  // OPAMP triangle. cx = center x, cy = center y. width 60, height 60.
+  // OPAMP triangle + pin stubs + pin dots (외부 node 연결점).
+  //   Triangle: (cx-30, cy-30) → (cx-30, cy+30) → (cx+30, cy)
+  //   V⁻ pin: triangle 좌측 (cx-30, cy-12)에서 leftward 12px stub → dot at (cx-42, cy-12)
+  //   V⁺ pin: 같은 logic → dot at (cx-42, cy+12)
+  //   Output pin: triangle tip (cx+30, cy)에서 rightward 12px stub → dot at (cx+42, cy)
   let svg = "";
-  // Triangle vertices: left-top (cx-30, cy-30), left-bottom (cx-30, cy+30), right-tip (cx+30, cy)
   svg += `<path d="M ${cx - 30} ${cy - 30} L ${cx - 30} ${cy + 30} L ${cx + 30} ${cy} Z" stroke="black" fill="white" stroke-width="2"/>`;
-  // V⁻ at top-left (cy - 12), V⁺ at bottom-left (cy + 12)
+  // V⁻ pin stub + dot
+  svg += `<path d="M ${cx - 30} ${cy - 12} L ${cx - 42} ${cy - 12}" stroke="black" stroke-width="2"/>`;
+  svg += `<circle cx="${cx - 42}" cy="${cy - 12}" r="3" fill="black"/>`;
+  // V⁺ pin stub + dot
+  svg += `<path d="M ${cx - 30} ${cy + 12} L ${cx - 42} ${cy + 12}" stroke="black" stroke-width="2"/>`;
+  svg += `<circle cx="${cx - 42}" cy="${cy + 12}" r="3" fill="black"/>`;
+  // Output pin stub + dot
+  svg += `<path d="M ${cx + 30} ${cy} L ${cx + 42} ${cy}" stroke="black" stroke-width="2"/>`;
+  svg += `<circle cx="${cx + 42}" cy="${cy}" r="3" fill="black"/>`;
+  // V⁻ V⁺ markers (inside triangle)
   svg += `<text x="${cx - 24}" y="${cy - 9}" text-anchor="start" font-size="12" font-weight="700" fill="black">−</text>`;
   svg += `<text x="${cx - 24}" y="${cy + 17}" text-anchor="start" font-size="12" font-weight="700" fill="black">+</text>`;
-  // label
-  svg += `<text x="${cx - 4}" y="${cy + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="#1e3a8a">${escapeSvg(label)}</text>`;
+  // label (위쪽)
+  svg += `<text x="${cx}" y="${cy - 36}" text-anchor="middle" font-size="11" font-weight="700" fill="#1e3a8a">${escapeSvg(label)}</text>`;
   return svg;
 }
 
