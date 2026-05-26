@@ -33,10 +33,11 @@ const U2_CX = 590;                // U_2 OPAMP center
 const VS_X = 700;                 // V_s (U_2 output) node
 const VS_LABEL_X = 760;           // V_s output label
 
-const MID_Y = 180;                // 신호선 y (U_2 기준)
-const U1_CY = MID_Y - 30;         // U_1 OPAMP 중심 y (U_2보다 위로) — 사용자 피드백
+const MID_Y = 180;                // 신호선 y (U_2 기준 — legacy)
+const U1_CY = MID_Y - 30;         // U_1 OPAMP 중심 y (U_2보다 위로)
+const U2_CY = U1_CY + 11;         // U_2 OPAMP 중심 y — V_o 연결 node들 평평하게 (사용자 피드백)
 const FB_Y = 70;                  // feedback 상단 y (R_3, R_5)
-const BIAS_Y = 290;               // bias R 하단 y
+const BIAS_Y = 290;
 const BOT_Y = 340;                // GND rail
 
 export function renderOpampCascade(d: OpampCascadeDiagram): string {
@@ -46,9 +47,10 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   // V_i AC source (vertical, left)
   svg += renderAcSource(VI_X, MID_Y - 30, BOT_Y, d.V_i_label);
 
-  // OPAMP 핀 좌표 — U_1은 U1_CY 기준, U_2는 MID_Y 기준
+  // OPAMP 핀 좌표 — U_1은 U1_CY 기준, U_2는 U2_CY 기준 (V_o 연결 평평하게)
   const u1Pins = opampPins(U1_CX, U1_CY);
-  const u2Pins = opampPins(U2_CX, MID_Y);
+  const u2Pins = opampPins(U2_CX, U2_CY);
+  const VS_Y = u2Pins.output.y;  // V_s = U_2 output pin y (= U2_CY + 11)
 
   // V_i top → R_1 → V⁻(U_1) pin (모두 U1_CY level — 평평하게)
   svg += `<path d="M ${VI_X} ${MID_Y - 30} L ${VI_X} ${U1_CY} L ${R1_X - 18} ${U1_CY}" stroke="black" stroke-width="2" fill="none"/>`;
@@ -62,22 +64,23 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   // U_1 OPAMP (triangle + pins) at U1_CY
   svg += renderOpamp(U1_CX, U1_CY, "U_1");
 
-  // U_1 output pin → V_o (U1_CY) → 수직 down to MID_Y → R_4 horizontal at MID_Y → V⁻(U_2) pin
-  svg += `<path d="M ${u1Pins.output.x} ${u1Pins.output.y} L ${VO_X} ${U1_CY} L ${VO_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += `<circle cx="${VO_X}" cy="${U1_CY}" r="3" fill="black"/>`;
-  svg += `<text x="${VO_X + 8}" y="${U1_CY - 8}" font-size="13" font-weight="700" fill="#dc2626">V_o</text>`;
-  svg += `<path d="M ${VO_X} ${MID_Y} L ${R4_X - 18} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += renderResistorHorizontal(R4_X, MID_Y, d.R_4_label, "R_4");
-  svg += `<path d="M ${R4_X + 18} ${MID_Y} L ${u2Pins.vMinus.x} ${u2Pins.vMinus.y}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += `<text x="${R4_X + 30}" y="${MID_Y - 6}" font-size="12" font-weight="700" fill="#1e3a8a">V⁻</text>`;
+  // U_1 output pin → V_o → R_4 → V⁻(U_2) (모두 U1_CY+11 = U2_CY level — 평평)
+  //   사용자 피드백: "V_o에 연결된 node도 살짝 아래로 평평하게"
+  const FLAT_Y_U1_OUT = u1Pins.output.y;  // = U1_CY + 11 = U2_CY (V⁻ pin Y)
+  svg += `<path d="M ${u1Pins.output.x} ${FLAT_Y_U1_OUT} L ${R4_X - 18} ${FLAT_Y_U1_OUT}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += `<circle cx="${VO_X}" cy="${FLAT_Y_U1_OUT}" r="3" fill="black"/>`;
+  svg += `<text x="${VO_X + 8}" y="${FLAT_Y_U1_OUT - 6}" font-size="13" font-weight="700" fill="#dc2626">V_o</text>`;
+  svg += renderResistorHorizontal(R4_X, FLAT_Y_U1_OUT, d.R_4_label, "R_4");
+  svg += `<path d="M ${R4_X + 18} ${FLAT_Y_U1_OUT} L ${u2Pins.vMinus.x} ${u2Pins.vMinus.y}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += `<text x="${R4_X + 30}" y="${FLAT_Y_U1_OUT - 6}" font-size="12" font-weight="700" fill="#1e3a8a">V⁻</text>`;
 
-  // U_2 OPAMP (triangle + pins) at MID_Y
-  svg += renderOpamp(U2_CX, MID_Y, "U_2");
+  // U_2 OPAMP (triangle + pins) at U2_CY
+  svg += renderOpamp(U2_CX, U2_CY, "U_2");
 
-  // U_2 output pin → V_s
-  svg += `<path d="M ${u2Pins.output.x} ${u2Pins.output.y} L ${VS_LABEL_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += `<circle cx="${VS_X}" cy="${MID_Y}" r="4" fill="#dc2626" stroke="black" stroke-width="1"/>`;
-  svg += `<text x="${VS_LABEL_X + 8}" y="${MID_Y + 5}" font-size="14" font-weight="700" fill="#dc2626">V_s</text>`;
+  // U_2 output pin → V_s (모두 VS_Y level — 평평)
+  svg += `<path d="M ${u2Pins.output.x} ${VS_Y} L ${VS_LABEL_X} ${VS_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += `<circle cx="${VS_X}" cy="${VS_Y}" r="4" fill="#dc2626" stroke="black" stroke-width="1"/>`;
+  svg += `<text x="${VS_LABEL_X + 8}" y="${VS_Y + 5}" font-size="14" font-weight="700" fill="#dc2626">V_s</text>`;
 
   // R_3 feedback for U_1 (V⁻ pin → output pin, both at U1_CY)
   const FB_Y_U1 = FB_Y;  // 상단 feedback y
@@ -103,7 +106,7 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   // V+ pin DOWN → horizontal to R_2 left
   svg += `<path d="M ${u1Pins.vPlus.x} ${u1Pins.vPlus.y} L ${u1Pins.vPlus.x} ${GF_Y_DOWN} L ${R2_LEFT_X} ${GF_Y_DOWN}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderResistorHorizontal(R2_X_NEW, GF_Y_DOWN, d.R_2_label, "R_2");
-  svg += `<path d="M ${R2_X_NEW + 18} ${GF_Y_DOWN} L ${VS_X} ${GF_Y_DOWN} L ${VS_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += `<path d="M ${R2_X_NEW + 18} ${GF_Y_DOWN} L ${VS_X} ${GF_Y_DOWN} L ${VS_X} ${VS_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   // 합류 node의 왼쪽 모서리에서 V_i의 - (GND) 으로 — 중간에 R_6 vertical 저항
   //   사용자 피드백: "R_2와 그라운드 사이에 있는 수직 node에 저항이 하나 와야돼"
   const NODE_LEFT_CORNER_X = u1Pins.vPlus.x;
@@ -150,41 +153,43 @@ function renderAcSource(cx: number, topY: number, botY: number, label: string): 
   return svg;
 }
 
-/** OPAMP 핀 위치 — V⁻ pin은 signal flow Y와 동일 (R_4 ↔ V⁻ 평평하게). */
+/** OPAMP 핀 위치 — 삼각형 중심을 cy+11로 내려 V⁻/V⁺ pin이 균형있게 배치. */
 function opampPins(cx: number, cy: number): {
   vMinus: { x: number; y: number };
   vPlus: { x: number; y: number };
   output: { x: number; y: number };
 } {
+  // 삼각형 중심 = cy + 11. V⁻ pin = cy (= triCenter - 11), V⁺ pin = cy + 22 (= triCenter + 11)
+  //   양 입력 pin이 triCenter 기준 대칭 (각 ±11)
   return {
-    vMinus: { x: cx - 42, y: cy },         // V⁻ pin = signal Y (사용자 피드백: R_4와 평평하게)
-    vPlus: { x: cx - 42, y: cy + 22 },     // V⁺ pin 살짝 아래
-    output: { x: cx + 42, y: cy },         // 출력 pin = signal Y
+    vMinus: { x: cx - 42, y: cy },         // V⁻ pin = signal Y (R_4와 평평)
+    vPlus: { x: cx - 42, y: cy + 22 },     // V⁺ pin (대칭 위치)
+    output: { x: cx + 42, y: cy + 11 },    // output = triangle 중심 = cy + 11
   };
 }
 
 function renderOpamp(cx: number, cy: number, label: string): string {
-  // OPAMP triangle + pin stubs + pin dots.
-  //   Triangle: (cx-30, cy-30) → (cx-30, cy+30) → (cx+30, cy)
-  //   V⁻ pin: 좌측 (cx-30, cy)에서 leftward stub → dot at (cx-42, cy)  ← signal Y
-  //   V⁺ pin: (cx-30, cy+22)에서 leftward stub → dot at (cx-42, cy+22)
-  //   Output pin: tip (cx+30, cy)에서 rightward stub → dot at (cx+42, cy)
+  // OPAMP triangle (cy 기준 +11 만큼 down shift) + pin stubs + pin dots.
+  //   Triangle center: cy + 11 → 사용자 피드백 "삼각형 내려서 입력핀이 균형있게"
+  //   Triangle: (cx-30, cy-19) → (cx-30, cy+41) → (cx+30, cy+11)
+  //   V⁻ pin: signal Y (cy), V⁺ pin: cy+22, output pin: cy+11 (triangle tip)
+  const tcy = cy + 11;  // triangle center y
   let svg = "";
-  svg += `<path d="M ${cx - 30} ${cy - 30} L ${cx - 30} ${cy + 30} L ${cx + 30} ${cy} Z" stroke="black" fill="white" stroke-width="2"/>`;
-  // V⁻ pin stub + dot (at signal Y)
+  svg += `<path d="M ${cx - 30} ${tcy - 30} L ${cx - 30} ${tcy + 30} L ${cx + 30} ${tcy} Z" stroke="black" fill="white" stroke-width="2"/>`;
+  // V⁻ pin stub + dot (at signal Y = cy, triCenter - 11)
   svg += `<path d="M ${cx - 30} ${cy} L ${cx - 42} ${cy}" stroke="black" stroke-width="2"/>`;
   svg += `<circle cx="${cx - 42}" cy="${cy}" r="3" fill="black"/>`;
-  // V⁺ pin stub + dot (slightly below)
+  // V⁺ pin stub + dot (cy+22 = triCenter + 11)
   svg += `<path d="M ${cx - 30} ${cy + 22} L ${cx - 42} ${cy + 22}" stroke="black" stroke-width="2"/>`;
   svg += `<circle cx="${cx - 42}" cy="${cy + 22}" r="3" fill="black"/>`;
-  // Output pin stub + dot
-  svg += `<path d="M ${cx + 30} ${cy} L ${cx + 42} ${cy}" stroke="black" stroke-width="2"/>`;
-  svg += `<circle cx="${cx + 42}" cy="${cy}" r="3" fill="black"/>`;
-  // V⁻ V⁺ markers (inside triangle, aligned with pins)
+  // Output pin stub + dot (tcy)
+  svg += `<path d="M ${cx + 30} ${tcy} L ${cx + 42} ${tcy}" stroke="black" stroke-width="2"/>`;
+  svg += `<circle cx="${cx + 42}" cy="${tcy}" r="3" fill="black"/>`;
+  // V⁻ V⁺ markers (대칭 위치)
   svg += `<text x="${cx - 24}" y="${cy + 3}" text-anchor="start" font-size="13" font-weight="700" fill="black">−</text>`;
   svg += `<text x="${cx - 24}" y="${cy + 27}" text-anchor="start" font-size="13" font-weight="700" fill="black">+</text>`;
-  // label (위쪽)
-  svg += `<text x="${cx}" y="${cy - 36}" text-anchor="middle" font-size="11" font-weight="700" fill="#1e3a8a">${escapeSvg(label)}</text>`;
+  // label (위쪽 — triangle 위)
+  svg += `<text x="${cx}" y="${tcy - 36}" text-anchor="middle" font-size="11" font-weight="700" fill="#1e3a8a">${escapeSvg(label)}</text>`;
   return svg;
 }
 
