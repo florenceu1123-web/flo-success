@@ -89,33 +89,27 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   svg += renderResistorHorizontal((u2Pins.vMinus.x + u2Pins.output.x) / 2, FB_Y, d.R_5_label, "R_5");
   svg += `<path d="M ${(u2Pins.vMinus.x + u2Pins.output.x) / 2 + 18} ${FB_Y} L ${u2Pins.output.x} ${FB_Y} L ${u2Pins.output.x} ${u2Pins.output.y}" stroke="black" stroke-width="2" fill="none"/>`;
 
-  // R_2 bias (V⁻(U_1) node → GND)
-  svg += `<path d="M ${U1_INPUT_X} ${MID_Y} L ${U1_INPUT_X} ${BIAS_Y - 18}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += renderResistorVertical(U1_INPUT_X, BIAS_Y, d.R_2_label, "R_2");
-  svg += `<path d="M ${U1_INPUT_X} ${BIAS_Y + 18} L ${U1_INPUT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // R_2, R_6 모두 원본에 없는 저항 (사용자 피드백) — 제거
+  //   V⁻ node에 bias R 없음. 입력 = R_1, feedback = R_3 만.
 
-  // R_6 bias (V⁻(U_2) node → GND)
-  svg += `<path d="M ${U2_INPUT_X} ${MID_Y} L ${U2_INPUT_X} ${BIAS_Y - 18}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += renderResistorVertical(U2_INPUT_X, BIAS_Y, d.R_6_label, "R_6");
-  svg += `<path d="M ${U2_INPUT_X} ${BIAS_Y + 18} L ${U2_INPUT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // ── 글로벌 피드백: V⁺(U_1) → R_2 → V_s (아래쪽 우회) ──
+  //   사용자 피드백: "U_1의 V+와 Vs의 연결선 사이에 저항이 있어야해"
+  //   path: V⁺ pin → DOWN → RIGHT half → R_2 horizontal → RIGHT half → UP to V_s
+  const GF_Y_DOWN = 250;
+  const R2_X_NEW = (u1Pins.vPlus.x + VS_X) / 2;  // R_2 horizontal 중심 — wire 중간
+  svg += `<path d="M ${u1Pins.vPlus.x} ${u1Pins.vPlus.y} L ${u1Pins.vPlus.x} ${GF_Y_DOWN} L ${R2_X_NEW - 18} ${GF_Y_DOWN}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += renderResistorHorizontal(R2_X_NEW, GF_Y_DOWN, d.R_2_label, "R_2");
+  svg += `<path d="M ${R2_X_NEW + 18} ${GF_Y_DOWN} L ${VS_X} ${GF_Y_DOWN} L ${VS_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
 
-  // ── 글로벌 피드백: V⁺(U_1) → V_s ──
-  //   사용자 피드백: "U_1의 V-와 V+는 서로 분리되어야해. V+ 부분만 V_s와 연결"
-  //   V⁻ node x(=U1_INPUT_X=250)와 충돌하지 않도록 더 좌측으로 우회
-  //   V⁺ pin → LEFT (V⁻ node x 회피) → UP → RIGHT (y=30 level) → DOWN to V_s
-  const GF_Y = 30;
-  const GF_X_LEFT_U1 = 220;  // V⁻ node x=250보다 30px 더 좌측 (R_1 영역과 OPAMP 좌측 사이)
-  svg += `<path d="M ${u1Pins.vPlus.x} ${u1Pins.vPlus.y} L ${GF_X_LEFT_U1} ${u1Pins.vPlus.y} L ${GF_X_LEFT_U1} ${GF_Y} L ${VS_X} ${GF_Y} L ${VS_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  // V⁺(U_2)에 독립적 GND 심볼 (사용자 피드백 "U_2 의 V+에는 그라운드를 독립적으로 달아줘")
+  //   main GND rail 연결하지 않고 V⁺ pin 바로 아래 별도 ground triangle.
+  const U2_GND_Y = u2Pins.vPlus.y + 30;
+  svg += `<path d="M ${u2Pins.vPlus.x} ${u2Pins.vPlus.y} L ${u2Pins.vPlus.x} ${U2_GND_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += renderGround(u2Pins.vPlus.x, U2_GND_Y);
 
-  // V⁺(U_2)만 GND로 (V⁺(U_1)은 V_s에 연결됨)
-  svg += `<path d="M ${u2Pins.vPlus.x} ${u2Pins.vPlus.y} L ${u2Pins.vPlus.x} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += `<circle cx="${u2Pins.vPlus.x}" cy="${BOT_Y}" r="3" fill="black"/>`;
-
-  // Ground rail
-  svg += `<path d="M ${VI_X} ${BOT_Y} L ${VS_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  for (const dx of [VI_X, U1_INPUT_X, U2_INPUT_X, u2Pins.vPlus.x]) {
-    svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
-  }
+  // Ground rail — V_i bottom만 연결 (R_2/R_6 제거, U_2 V⁺는 별도 GND 심볼)
+  svg += `<path d="M ${VI_X} ${BOT_Y} L ${VI_X + 30} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += `<circle cx="${VI_X}" cy="${BOT_Y}" r="3" fill="black"/>`;
   svg += renderGround(Math.round((VI_X + VS_X) / 2), BOT_Y);
 
   svg += `</svg>`;
