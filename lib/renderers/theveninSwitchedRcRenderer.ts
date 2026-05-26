@@ -54,9 +54,11 @@ export function renderTheveninOriginal(d: TheveninOriginalDiagram): string {
   // R_top horizontal
   svg += renderResistorHorizontal(RTOP_X, MID_Y, d.R_top_label);
 
-  // SW (SPDT, common = node a). R_top output → 단자1(LEFT) → common → 단자2(RIGHT) → 점선박스
+  // SW (SPDT, common = node a). R_top output → 단자1(LEFT) → common → 단자2(RIGHT) → b (점선박스)
+  //   단자2 wire가 b dot까지 직접 연장 (사용자 피드백: "단자2와 b만 연결")
   const NODE_A_X = C1_X + 30;
-  svg += renderSwitchAtNode(NODE_A_X, MID_Y, RTOP_X + 18, BOX_LEFT_X + 10, d.swState);
+  const B_DOT_X = BOX_LEFT_X + 30;  // b dot 위치 (= RB_X_NEW와 동일)
+  svg += renderSwitchAtNode(NODE_A_X, MID_Y, RTOP_X + 18, B_DOT_X, d.swState);
 
   // C_1: node a → GND
   svg += renderCapVertical(NODE_A_X, MID_Y, BOT_Y, d.C_1_label, "C_1");
