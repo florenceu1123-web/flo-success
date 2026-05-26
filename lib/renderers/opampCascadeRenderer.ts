@@ -99,15 +99,20 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   svg += renderResistorVertical(U2_INPUT_X, BIAS_Y, d.R_6_label, "R_6");
   svg += `<path d="M ${U2_INPUT_X} ${BIAS_Y + 18} L ${U2_INPUT_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
 
-  // V⁺ → GND for both OPAMPs (from V⁺ pin dot down to GND rail)
-  for (const pins of [u1Pins, u2Pins]) {
-    svg += `<path d="M ${pins.vPlus.x} ${pins.vPlus.y} L ${pins.vPlus.x} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-    svg += `<circle cx="${pins.vPlus.x}" cy="${BOT_Y}" r="3" fill="black"/>`;
-  }
+  // ── 글로벌 피드백: V⁺(U_1) → V_s (사용자 피드백 "opamp1의 v+와 vs가 연결되어 있어") ──
+  //   V⁺ pin dot에서 좌측으로 extension → 위로 → 우측 횡단 → V_s 까지 DOWN
+  //   y=30 level (위쪽 feedback resistor FB_Y=70보다 위)에서 횡단
+  const GF_Y = 30;
+  const GF_X_LEFT_U1 = U1_CX - 60;  // V⁺ pin x보다 더 좌측으로 extension (R_3 vertical wire 회피)
+  svg += `<path d="M ${u1Pins.vPlus.x} ${u1Pins.vPlus.y} L ${GF_X_LEFT_U1} ${u1Pins.vPlus.y} L ${GF_X_LEFT_U1} ${GF_Y} L ${VS_X} ${GF_Y} L ${VS_X} ${MID_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+
+  // V⁺(U_2)만 GND로 (V⁺(U_1)은 V_s에 연결됨)
+  svg += `<path d="M ${u2Pins.vPlus.x} ${u2Pins.vPlus.y} L ${u2Pins.vPlus.x} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
+  svg += `<circle cx="${u2Pins.vPlus.x}" cy="${BOT_Y}" r="3" fill="black"/>`;
 
   // Ground rail
   svg += `<path d="M ${VI_X} ${BOT_Y} L ${VS_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  for (const dx of [VI_X, U1_INPUT_X, u1Pins.vPlus.x, U2_INPUT_X, u2Pins.vPlus.x]) {
+  for (const dx of [VI_X, U1_INPUT_X, U2_INPUT_X, u2Pins.vPlus.x]) {
     svg += `<circle cx="${dx}" cy="${BOT_Y}" r="3" fill="black"/>`;
   }
   svg += renderGround(Math.round((VI_X + VS_X) / 2), BOT_Y);
