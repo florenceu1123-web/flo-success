@@ -398,23 +398,51 @@ export function classifyCircuitType(
     }
     // ── sequence_detector: 시퀀스 검출기 + D-FF + 상태도/표 빈칸 (임용 8번 정보과) ──
     //   fsm보다 먼저 매치 (더 구체적인 형식).
-    //   트리거: 시퀀스 검출기 키워드 + D 플립플롭 + (상태도 빈칸 ㉠㉡㉢㉣ OR 상태표 빈칸)
+    //   트리거: 시퀀스/검출/패턴 + D-FF + (상태도/상태표/빈칸 마커)
+    //   분석기가 "시퀀스 검출기"를 정확히 못 잡는 경우(typo·일반 FSM 표현)도 catch하도록 broaden.
     const seqDetectorKw = matchesKeyword(text, [
-      "시퀀스 검출기", "시퀀스 검출", "sequence detector",
+      "시퀀스 검출", "시퀀스 검사", "시퀀스 인식", "시퀀스 점프",  // 검출기 typo 보호
+      "sequence detector", "sequence detection",
       "검출기의 블록도", "검출기 블록도",
-      "'110'", "'101'", "'011'", "'1010'", "110의 순서", "101의 순서",
+      "'110'", "'101'", "'011'", "'1010'",
+      "110의 순서", "101의 순서", "011의 순서", "1010의 순서",
+      "110이 입력", "101이 입력", "011이 입력",
+      "순서대로 입력", "비트열 검출",
     ]);
     const dffKw = matchesKeyword(text, ["d 플립플롭", "d-플립플롭", "d 플립", "d-ff", "dff", "d flip-flop", "d flipflop"]);
-    const stateBlankKw = matchesKeyword(text, ["㉠", "㉡", "㉢", "㉣", "ⓐ", "ⓑ", "상태도", "상태표"]);
-    if (seqDetectorKw && (dffKw || analysis.topicKey === "sequence_detector") && stateBlankKw) {
+    const stateBlankKw = matchesKeyword(text, [
+      "㉠", "㉡", "㉢", "㉣", "ⓐ", "ⓑ", "ⓒ", "ⓓ",
+      "상태도", "상태 전이도", "상태천이도", "state diagram",
+      "상태표", "상태 표", "state table",
+      "다음 상태", "다음상태", "현재 상태", "현재상태",
+    ]);
+    // 빈칸 마커는 sequence_detector의 강한 지표 (상태도/상태표에 학생 채울 자리)
+    const hasBlankMarkers = /[㉠-㉣]|[ⓐ-ⓓ]/.test(text);
+    // D-FF 2개 inventory도 강한 지표 (sequence_detector 핵심 hardware)
+    const dffInventoryCount = (analysis.componentInventory ?? []).filter((c) => {
+      const t = String(c.type ?? "").toUpperCase();
+      return t === "DFF" || t === "D-FF" || t === "D_FF";
+    }).length;
+    // 라우팅 조건 — 다음 중 하나라도 만족하면 sequence_detector:
+    //   (A) 시퀀스 키워드 + D-FF 키워드 + 상태도/표/빈칸 키워드 (강한 신호)
+    //   (B) 빈칸 마커 ㉠~㉣/ⓐ~ⓓ + (D-FF 키워드 OR D-FF inventory ≥ 2) — 매우 specific
+    //   (C) topicKey === "sequence_detector" 명시
+    //   (D) text에 quoted pattern '110'/'101' + D-FF
+    const hasQuotedPattern = /['"](1[01]+|0[01]+)['"]/.test(text);
+    const trigA = seqDetectorKw && (dffKw || dffInventoryCount >= 2) && stateBlankKw;
+    const trigB = hasBlankMarkers && (dffKw || dffInventoryCount >= 2);
+    const trigC = analysis.topicKey === "sequence_detector";
+    const trigD = hasQuotedPattern && (dffKw || dffInventoryCount >= 2);
+    if (trigA || trigB || trigC || trigD) {
       // 시퀀스 패턴 추출 — text에 '110'/'101'/'011' 등이 quoted로 있으면 그것 사용, 없으면 기본 '110'
-      const seqMatch = text.match(/'(1[01]+|0[01]+)'|"(1[01]+|0[01]+)"/);
-      const pattern = seqMatch ? (seqMatch[1] ?? seqMatch[2]) : "110";
+      const seqMatch = text.match(/['"](1[01]+|0[01]+)['"]/);
+      const pattern = seqMatch ? seqMatch[1] : "110";
+      const triggers = [trigA && "seq+D-FF+state", trigB && "blanks+D-FF", trigC && "topicKey", trigD && "pattern+D-FF"].filter(Boolean).join(",");
       return {
         type: "sequence_detector",
         params: { sequencePattern: pattern },
         confidence: "high",
-        reasoning: `digital_logic + 시퀀스 검출기 키워드 + D-FF + 상태도/표 빈칸 → 패턴 '${pattern}'`,
+        reasoning: `digital_logic + sequence_detector → 패턴 '${pattern}' (트리거: ${triggers})`,
       };
     }
     if (analysis.topicKey === "fsm" || matchesKeyword(text, ["FSM", "유한 상태", "유한상태", "Mealy", "Moore", "상태 기계", "상태 머신", "상태 전이도", "상태천이도"])) {

@@ -543,6 +543,60 @@ K-map 문제를 분석할 때 ★ K-map 개수와 차원을 정확히 카운트 
 (이 케이스는 분류기가 universal_digital path로 라우팅하여 multi-K-map +
 결합 회로 layout이 자동 적용된다.)
 
+【★ digital_logic 시퀀스 검출기 + D-FF + 상태도/표 빈칸 — 절대 추출 규칙 (sequence_detector 라우팅 핵심)】
+
+다음 시각 단서 중 ★ 두 가지 이상 ★ 보이면 sequence_detector 형식이다 (임용 8번 정보과):
+  (1) 블록도 figure: 입력 y(또는 X) → "시퀀스 검출기" / "검출기" 박스 → 출력 z(또는 Z)
+  (2) 상태도 figure: 4개 상태 원(circle) 노드 + 전이 화살표 + 화살표 라벨 "input/output" (Mealy 형식)
+  (3) 상태도/상태표 안에 학생 채울 빈칸 마커: ㉠, ㉡, ㉢, ㉣ (또는 ⓐ, ⓑ 등)
+  (4) D 플립플롭(D-FF) 2개 (A, B 또는 Q_A, Q_B) — 2-bit 상태 인코딩
+  (5) 상태표 figure: 현재상태(Q_A, Q_B) | 입력(y) | 다음상태(Q_A+, Q_B+) | 출력(z) 컬럼 +
+      "x"(don't care) 행 일부 존재
+  (6) 본문에 "y가 '110' (또는 '101' 등)의 순서로 입력될 때 z=1" 류 시퀀스 매칭 문구
+
+이 경우 ★ 반드시 ★ 다음을 만족:
+
+(A) topicKey = "sequence_detector" 명시 ★ 강제 ★
+    ❌ "fsm" 또는 다른 topicKey 절대 금지 — sequence_detector는 디자인이 다른 별개 archetype.
+
+(B) topic 또는 interpretation에 ★ "시퀀스 검출기" 또는 "sequence detector" 단어 명시 ★
+    예: "시퀀스 검출기 + D-FF 상태도 빈칸 채우기", "'110' 검출 sequence detector + D-FF FSM"
+    ★ 절대 금지 ★: "FSM 회로", "유한 상태 기계" 같은 일반 표현만 사용 (sequence detector 단어 누락).
+    "시퀀스 점프기" 같은 typo도 절대 금지 — "검출기" 정확히.
+
+(C) relatedConcepts 배열에 ★ 최소 4개 ★ 포함:
+    "시퀀스 검출기", "D 플립플롭", "상태 전이도", "Mealy", "상태표", "don't care",
+    "K-map 최소화", "SOP", "검출 패턴 (e.g. '110')" 중에서 4개 이상.
+
+(D) interpretation에 ★ 검출 패턴 명시 ★
+    원본의 "'110'" 등 quoted 비트열을 그대로 (single-quote 포함) interpretation에 박아라.
+    예: "입력 y에 '110'이 순서대로 입력될 때 출력 z=1이 되는 시퀀스 검출기."
+
+(E) ★ 빈칸 마커 ㉠㉡㉢㉣ 또는 ⓐⓑ 정확히 transcribe ★
+    원본에 보이는 ㉠·㉡·㉢·㉣ Unicode 마커를 fillInTheBlanks의 sentence에 그대로 박아라.
+    예: { "sentence": "(나) 상태도에서 ㉠, ㉡, ㉢, ㉣에 들어갈 값을 구하시오.", "answer": "..." }
+
+(F) componentInventory에 D-FF 2개를 ★ 빠짐없이 ★ 추출
+    type="DFF" 2개. 라벨이 A·B 또는 Q_A·Q_B면 id에 그대로.
+
+(G) figureRequirements에 3개 figure 명시:
+    [
+      { "role": "main_circuit",          "diagramType": "concept_diagram", "scope": "single", "required": true },
+      { "role": "state_diagram",         "diagramType": "concept_diagram", "scope": "single", "required": true },
+      { "role": "truth_table",           "diagramType": "truth_table",     "scope": "single", "required": true }
+    ]
+    ⚠️ "implementation_circuit"·"logic_network"은 절대 추가하지 마라 — 원본에 회로 구현 figure 없음.
+
+★ 잘못된 추출 (절대 금지) ★:
+  - topicKey="fsm" 으로 잘못 지정 → 분류기가 일반 FSM(MUX 기반 구현 회로) path로 라우팅하여
+    원본에 없는 D-FF+MUX 회로도가 추가 생성됨. 사용자 신뢰 깨짐.
+  - 빈칸 마커 ㉠㉡㉢㉣를 누락 → 분류기가 sequence_detector 라우팅 조건 충족 못 함.
+  - "시퀀스 검출기" 단어를 "FSM 회로" 같이 일반화 → 분류기 키워드 매치 실패.
+  - figureRequirements에 "implementation_circuit" 추가 → 원본에 없는 회로도 figure 생성.
+
+(이 케이스는 분류기가 sequence_detector path로 라우팅하여 (가) 블록도 + (나) 상태도(빈칸) +
+(다) 상태표(빈칸, don't care)의 3 figure만 생성된다.)
+
 【digital_logic MUX 등가구현 — 절대 추출 규칙】
 원본 figure에 사다리꼴 box (좌측에 I_0·I_1·I_2·I_3, 하단에 S_0·S_1, 우측에 F) 또는 "MUX"/"멀티플렉서" 라벨이 있는 figure가 보이면, 이 문제는 MUX 등가구현 형식(임용 5번 형식)이다. 반드시:
 - topic 또는 interpretation에 "MUX" 또는 "멀티플렉서"라는 정확한 단어를 포함시킬 것. (예: "조합논리회로를 4×1 MUX로 등가구현")
