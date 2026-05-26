@@ -44,6 +44,13 @@ export type SequenceDetectorGeneration = {
   usedStates: Set<StateCode>;
   /** 8 row 전이 (현재 4 state × 입력 0/1, don't care row 포함). */
   transitions: Transition[];
+  /** 블록도용 예시 비트열 (입력 y + 대응 출력 z). 패턴 검출 시점에서 z=1. */
+  exampleBits: {
+    /** 입력 y 비트열 (문자열, 예: "01110101011"). */
+    y: string;
+    /** 출력 z 비트열 (문자열, 동일 길이). */
+    z: string;
+  };
 
   /** 상태 전이도 빈칸 ㉠㉡㉢㉣ — 검출 진입 직전 state(progress = pattern.length - 1)의 두 전이. */
   blanks: {
@@ -291,6 +298,33 @@ export function generateSequenceDetector(args: {
     z: minimizeSop3Var(mintermsForZ, dontCares),
   };
 
+  // ── 블록도용 예시 비트열 생성 ────────────────────────────
+  //   - y: 임의 비트열 (16 bit, 패턴이 1-2회 등장하도록 시드 기반 생성)
+  //   - z: Mealy 출력 시뮬 (현재 진행 인덱스 추적, 검출 시 z=1)
+  //   초기 시퀀스에 패턴을 일부러 1번 끼워넣고, 나머지는 랜덤 비트.
+  const targetLen = 16;
+  const yBitsArr: Bit[] = [];
+  // 처음 5 비트는 패턴이 등장하도록 prefix + pattern + suffix (간단)
+  //   e.g., '110' 패턴이면 "01" + "110" = "01110" (5 bit) → 검출 1회
+  const prefix = "0".repeat(Math.max(2, 5 - pattern.length));
+  for (const ch of prefix + pattern) yBitsArr.push(Number(ch) as Bit);
+  // 나머지 자리에 시드 기반 의사난수로 채움
+  while (yBitsArr.length < targetLen) {
+    yBitsArr.push(rand() < 0.5 ? 0 : 1);
+  }
+  // Mealy 시뮬로 z 비트열 계산
+  let progress = 0;
+  const zBitsArr: Bit[] = [];
+  for (const bit of yBitsArr) {
+    const { nextProgress, output } = step(pattern, progress, bit);
+    zBitsArr.push(output);
+    progress = nextProgress;
+  }
+  const exampleBits = {
+    y: yBitsArr.join(""),
+    z: zBitsArr.join(""),
+  };
+
   return {
     pattern,
     progressToState,
@@ -298,5 +332,6 @@ export function generateSequenceDetector(args: {
     transitions,
     blanks,
     sop,
+    exampleBits,
   };
 }

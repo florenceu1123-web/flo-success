@@ -19,12 +19,19 @@ export type SequenceBlockDiagram = {
   inputLabel: string;   // "y"
   outputLabel: string;  // "z"
   boxLabel: string;     // "시퀀스 검출기"
+  /** 예시 비트열 (입력 y + 대응 출력 z). 우측에 표시. 없으면 생략. */
+  exampleBits?: { y: string; z: string };
 };
 
+const KOREAN_FONT_STACK = `'Noto Sans CJK KR', 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif`;
+
 export function renderSequenceBlock(diagram: SequenceBlockDiagram): string {
-  const W = 420, H = 140;
+  // 예시 비트열이 있으면 가로로 길게, 없으면 짧은 layout
+  const hasExample = !!diagram.exampleBits && diagram.exampleBits.y.length > 0;
+  const W = hasExample ? 720 : 420;
+  const H = 140;
   const boxX = 130, boxY = 40, boxW = 160, boxH = 60;
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${KOREAN_FONT_STACK}">`;
   svg += `<defs><marker id="seq_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 Z" fill="black"/></marker></defs>`;
   // Input wire (y → box)
   svg += `<path d="M 20 ${boxY + boxH / 2} L ${boxX} ${boxY + boxH / 2}" stroke="black" stroke-width="2" marker-end="url(#seq_arrow)" fill="none"/>`;
@@ -33,8 +40,17 @@ export function renderSequenceBlock(diagram: SequenceBlockDiagram): string {
   svg += `<rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" stroke="black" fill="white" stroke-width="2"/>`;
   svg += `<text x="${boxX + boxW / 2}" y="${boxY + boxH / 2 + 5}" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">${escapeSvg(diagram.boxLabel)}</text>`;
   // Output wire (box → z)
-  svg += `<path d="M ${boxX + boxW} ${boxY + boxH / 2} L ${W - 30} ${boxY + boxH / 2}" stroke="black" stroke-width="2" marker-end="url(#seq_arrow)" fill="none"/>`;
-  svg += `<text x="${W - 18}" y="${boxY + boxH / 2 + 5}" text-anchor="start" font-size="16" font-weight="700" fill="#1e3a8a">${escapeSvg(diagram.outputLabel)}</text>`;
+  const outputEndX = hasExample ? boxX + boxW + 60 : W - 30;
+  svg += `<path d="M ${boxX + boxW} ${boxY + boxH / 2} L ${outputEndX} ${boxY + boxH / 2}" stroke="black" stroke-width="2" marker-end="url(#seq_arrow)" fill="none"/>`;
+  svg += `<text x="${outputEndX + 12}" y="${boxY + boxH / 2 + 5}" text-anchor="start" font-size="16" font-weight="700" fill="#1e3a8a">${escapeSvg(diagram.outputLabel)}</text>`;
+  // 예시 비트열 — 우측에 두 줄 (y=..., z=...)
+  if (hasExample && diagram.exampleBits) {
+    const exX = outputEndX + 36;
+    const yLine = boxY + boxH / 2 - 8;
+    const zLine = boxY + boxH / 2 + 12;
+    svg += `<text x="${exX}" y="${yLine}" text-anchor="start" font-size="13" font-family="monospace" fill="#1e3a8a">${escapeSvg(`${diagram.inputLabel} = ${diagram.exampleBits.y}…`)}</text>`;
+    svg += `<text x="${exX}" y="${zLine}" text-anchor="start" font-size="13" font-family="monospace" fill="#dc2626">${escapeSvg(`${diagram.outputLabel} = ${diagram.exampleBits.z}…`)}</text>`;
+  }
   svg += `</svg>`;
   return svg;
 }
@@ -59,7 +75,8 @@ const STATE_RADIUS = 36;
 
 export function renderSequenceStateDiagram(diagram: SequenceStateDiagram): string {
   const W = 540, H = 400;
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  // ㉠㉡㉢㉣ (U+3260-3263, CIRCLED HANGUL)이 정상 렌더되려면 Korean font가 필요.
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${KOREAN_FONT_STACK}">`;
   svg += `<defs><marker id="seq_state_arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 Z" fill="black"/></marker></defs>`;
 
   // State circles
@@ -151,7 +168,7 @@ export function renderSequenceStateTable(diagram: SequenceStateTable): string {
   const colXs = [40, 100, 160, 240, 320, 400, 480];
   const rowH = 22;
   const headerY = 50;
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${KOREAN_FONT_STACK}">`;
 
   // Header (2-level)
   // 1: 현재상태 | 입력 | 다음상태 | 출력

@@ -53,6 +53,7 @@ export async function runSequenceDetectorPipeline(args: {
       inputLabel: "y",
       outputLabel: "z",
       boxLabel: "시퀀스 검출기",
+      exampleBits: gen.exampleBits,
     };
     const stateDiagram: SequenceStateDiagram = {
       states: (ALL_STATES as readonly string[]).map((code) => ({
