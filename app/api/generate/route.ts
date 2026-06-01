@@ -52,6 +52,7 @@ import { runUniversalAcPipeline } from "@/lib/pipeline/runUniversalAcPipeline";
 import { runUniversalAcPwlPipeline } from "@/lib/pipeline/runUniversalAcPwlPipeline";
 import { runUniversalDigitalPipeline } from "@/lib/pipeline/runUniversalDigitalPipeline";
 import { detectOpampArchetype } from "@/lib/analysis/detectOpampArchetype";
+import { routePipeline } from "@/lib/analysis/routePipeline";
 import { generateCircuit } from "@/lib/generation/analog/generateCircuit";
 import { validateWienNetwork } from "@/lib/validators/validateWienNetwork";
 import { randomUUID } from "node:crypto";
@@ -166,20 +167,21 @@ export async function POST(req: NextRequest) {
     // ★ Circuit-type 기반 dispatch — 결정론 파이프라인을 가진 type은 그쪽으로.
     // 현 phase: thevenin, norton. 나머지는 기존 free/strict 경로.
     let circuitType = analysis?.circuitType?.type;
-    // ★ Step 4-pre (2026-05-31, minimal router) — tags가 "opamp" + "oscillator"이면 OPAMP path 강제.
-    //   universal_ac path는 V/I source 필수이지만 OPAMP 발진기는 source 없음 → trivial 회로 fail.
-    //   tags 기반 dispatch가 본격 framework 도입 전 임시 override.
+    // ★ Step 5 — Objective/tags Pipeline Router (2026-06-01).
+    //   ① opamp 발진기·전달함수 override(기존 동작) + ② 분류기 미확정 시 objective·motif tags로
+    //   pipeline 추론(universal_ac/dc는 topologySignature 필수 가드). 확정된 circuitType은 신뢰·유지.
     const analysisTags = (analysis as { tags?: string[] } | null | undefined)?.tags ?? [];
-    if (
-      analysisTags.includes("opamp") &&
-      (analysisTags.includes("oscillator") || analysisTags.includes("transfer_function")) &&
-      circuitType !== "opamp" && circuitType !== "opamp_cascade_voltage_divider"
-    ) {
-      log.info("router_override", {
-        from: circuitType, to: "opamp",
-        reason: "tags.opamp + (oscillator|transfer_function) → OPAMP path 우선",
-      });
-      circuitType = "opamp";
+    const analysisObjective = (analysis as { learningObjective?: Record<string, boolean> } | null | undefined)?.learningObjective;
+    const routed = routePipeline({
+      circuitType,
+      tags: analysisTags,
+      objective: analysisObjective,
+      subjectKey,
+      hasTopologySignature: Boolean(analysis?.topologySignature),
+    });
+    if (routed.circuitType !== circuitType) {
+      log.info("router_override", { from: circuitType, to: routed.circuitType, reason: routed.reason });
+      circuitType = routed.circuitType as typeof circuitType;
     }
     let problems: GeneratedProblem[];
     // ★ Topology-driven fallback — 회로이론에서 archetype의 가정과 원본 topology가 어긋나는
