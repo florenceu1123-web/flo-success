@@ -64,6 +64,21 @@ export function inferAcQueries(analysis: AnalysisResult): AcQuery[] {
     });
   }
 
+  // 5) 컴포넌트 평균전력 — "평균전력" 키워드 (최대평균전력 제외 — line 48에서 이미 처리).
+  //   임용 8번 형식: 전원 공급 / 인덕터 / R 각각 평균전력.
+  //   placeholder __all_components_avg_power__ 1개 query 추가 — resolveAcQueryRefs가 netlist 모든
+  //   V·L·R·C로 expand해서 multi-query로 변환.
+  const hasAvgPowerKw = /(평균전력|평균 전력|소비되는\s*평균|공급하는\s*평균|average power|P_avg|P_R|P_L)/i.test(text);
+  const hasMaxPowerOnly = /최대\s*(평균)?전력|P_?max|maximum\s*power/i.test(text);
+  if (hasAvgPowerKw && !hasMaxPowerOnly) {
+    queries.push({
+      kind: "componentAvgPower",
+      componentType: "V", // 의미 없음 — resolve에서 expand
+      componentId: "__all_components_avg_power__",
+      label: "평균전력 (전체 컴포넌트)",
+    });
+  }
+
   return queries;
 }
 
@@ -151,29 +166,45 @@ export function resolveAcQueryRefs(
   const variableC = netlist.components.find((c) => c.type === "C");
   const variableCid = variableC?.id;
 
-  return queries.map((q) => {
+  return queries.flatMap<AcQuery>((q) => {
     if (q.kind === "phasorVoltage" || q.kind === "magnitude" || q.kind === "phaseDeg") {
-      return { ...q, node: resolveNode(q.node) };
+      return [{ ...q, node: resolveNode(q.node) }];
     }
     if (q.kind === "phasorCurrent" || q.kind === "resonanceFreq") {
-      return {
+      return [{
         ...q,
         vsourceId: q.vsourceId === "__primary_vs__" ? primaryVsId ?? q.vsourceId : q.vsourceId,
-      };
+      }];
     }
     if (q.kind === "maxAvgPower") {
-      return {
+      return [{
         ...q,
         vsourceId: q.vsourceId === "__primary_vs__" ? primaryVsId ?? q.vsourceId : q.vsourceId,
         resistorId: q.resistorId === "__variable_R__" ? variableRid ?? q.resistorId : q.resistorId,
-      };
+      }];
     }
     if (q.kind === "inverseC") {
-      return {
+      return [{
         ...q,
         capacitorId: q.capacitorId === "__variable_C__" ? variableCid ?? q.capacitorId : q.capacitorId,
-      };
+      }];
     }
-    return q;
+    if (q.kind === "componentAvgPower" && q.componentId === "__all_components_avg_power__") {
+      // netlist 모든 V·L·R·C 각각에 query 생성 — 임용 8번 [단계 1·2·3] 모두 한 번에.
+      const expanded: AcQuery[] = [];
+      for (const c of netlist.components) {
+        if (c.type === "V") {
+          expanded.push({ kind: "componentAvgPower", componentType: "V", componentId: c.id, label: `P_avg (전원 ${c.id} 공급)` });
+        } else if (c.type === "L") {
+          expanded.push({ kind: "componentAvgPower", componentType: "L", componentId: c.id, label: `P_${c.id} (인덕터)` });
+        } else if (c.type === "C") {
+          expanded.push({ kind: "componentAvgPower", componentType: "C", componentId: c.id, label: `P_${c.id} (캐패시터)` });
+        } else if (c.type === "R") {
+          expanded.push({ kind: "componentAvgPower", componentType: "R", componentId: c.id, label: `P_${c.id}` });
+        }
+      }
+      return expanded;
+    }
+    return [q];
   });
 }

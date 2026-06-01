@@ -71,11 +71,18 @@ export function buildFromTopology(args: {
   const { topology, mode, seed } = args;
   const rand = makeRand(seed);
 
+  const isGndLikeStr = (n: string) => n === GND || n.toLowerCase() === "ground" || n === "0";
+
+  // ── 0-α) RL 응용회로 시그니처 자동 보정 (임용 8번 정보과)
+  //   ★ DEPRECATED (2026-05-31, v1 Topology Recovery 도입 후): v1 ladder가 이미 valid branches를
+  //     만들기 때문에 이 자동 보정은 충돌·중복 reconstruct로 오히려 회로 깨뜨림. v2에서 Candidate
+  //     Graphs로 흡수 예정. 비활성화.
+  const baseBranches = topology.branches;
+
   // ── 0) Planar normalize — branch에 GND endpoint가 있으면 horizontal일 수 없음.
   //   role을 component 종류에 맞는 vertical leg로 강제 변환. GPT의 role 오기 흡수.
   //   동일 (role, betweenNodes 정규화, component fingerprint) branch는 dedupe.
-  const isGndLikeStr = (n: string) => n === GND || n.toLowerCase() === "ground" || n === "0";
-  const normalizedBranches = topology.branches.map((b) => {
+  const normalizedBranches = baseBranches.map((b) => {
     if (!b.betweenNodes) return b;
     const [a, c] = b.betweenNodes;
     const hasGnd = isGndLikeStr(a) || isGndLikeStr(c);

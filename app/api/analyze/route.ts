@@ -3,6 +3,9 @@ import { analyzeImage, AnalyzeError } from "@/lib/analysis/analyzeImage";
 import { extractComponentInventory, type ComponentInventoryItem } from "@/lib/analysis/extractComponentInventory";
 import { classifyCircuitType } from "@/lib/analysis/classifyCircuitType";
 import { compactAnalysis } from "@/lib/analysis/compactAnalysis";
+import { recoverTopology, recoverTopologyV2 } from "@/lib/analysis/topologyRecovery";
+import { extractLearningObjective, listObjectives } from "@/lib/analysis/learningObjective";
+import { buildCanonicalGraph } from "@/lib/graph/canonical";
 import { createLogger } from "@/lib/logger";
 import { SUBJECT_KEYS, type AnalysisResult, type SubjectKey, type TopologySignature } from "@/types";
 
@@ -60,9 +63,64 @@ export async function POST(req: NextRequest) {
 
     // circuit_type 분류 — 추가 GPT 호출 없이 derive
     const circuitType = classifyCircuitType(reconciled, subject as SubjectKey);
+
+    // ★ Step 1+2 (2026-05-31) — learning objective + tags 진단 출력.
+    //   사용자 박은 형식:  === Semantic === / === Tags === / === Selected Pipeline ===
+    //   pipeline routing은 generate 단계라 여기선 circuitType.type 사용.
+    const textHint = [
+      reconciled.topic ?? "",
+      reconciled.interpretation ?? "",
+      (reconciled.relatedConcepts ?? []).join(" "),
+      ...(reconciled.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`),
+    ].join(" ");
+    const objective = extractLearningObjective(textHint);
+    const semanticFlags = listObjectives(objective);
+
+    // Step 3 — tags 배열 (현재 minimal: component·circuitType.type만). Motif Detector 도입 후 확장.
+    const tagsList: string[] = [];
+    const inv2 = reconciled.componentInventory ?? [];
+    if (inv2.some((c) => c.type.toUpperCase() === "OPAMP")) tagsList.push("opamp");
+    if (inv2.some((c) => c.type.toUpperCase() === "R")) tagsList.push("resistive");
+    if (inv2.some((c) => c.type.toUpperCase() === "C")) tagsList.push("capacitive");
+    if (inv2.some((c) => c.type.toUpperCase() === "L")) tagsList.push("inductive");
+    if (inv2.some((c) => c.type.toUpperCase() === "BJT")) tagsList.push("bjt");
+    if (inv2.some((c) => c.type.toUpperCase() === "MOSFET")) tagsList.push("mosfet");
+    if (objective.asks_transfer_function) tagsList.push("transfer_function");
+    if (objective.asks_oscillation_frequency) tagsList.push("oscillator");
+    if (objective.asks_average_power) tagsList.push("average_power");
+    if (objective.asks_max_power_transfer) tagsList.push("max_power_transfer");
+    if (objective.asks_transient_response) tagsList.push("transient");
+    if (objective.asks_frequency_response) tagsList.push("frequency_response");
+    if (objective.asks_equivalent_circuit) tagsList.push("equivalent_circuit");
+    if (objective.asks_region_identification) tagsList.push("region_identification");
+    if (objective.asks_logic_minimization) tagsList.push("logic_minimization");
+    if (objective.asks_state_analysis) tagsList.push("state_analysis");
+
+    // ★ Step 2 — Canonical Graph (2026-05-31): components+pins → graph + features.
+    //   Motif Detector(3순위)와 Tags 자동 생성(4순위)의 입력.
+    const canonicalGraph = buildCanonicalGraph(inventory);
+
+    log.info("=== Semantic ===", { flags: semanticFlags });
+    log.info("=== Tags ===", { tags: tagsList });
+    log.info("=== Canonical Graph ===", {
+      nodeCount: canonicalGraph.features.nodeCount,
+      edgeCount: canonicalGraph.features.edgeCount,
+      cycleCount: canonicalGraph.features.cycleCount,
+      cc: canonicalGraph.features.connectedComponentCount,
+      nodes: canonicalGraph.nodes,
+      skipped: canonicalGraph.skippedComponents.length,
+    });
+    log.info("=== Selected Pipeline ===", { circuitType: circuitType.type, note: "router_pending — circuitType single-string fallback" });
+
     log.info("circuit_type_classified", { type: circuitType.type, confidence: circuitType.confidence });
 
-    return NextResponse.json({ ...reconciled, circuitType });
+    return NextResponse.json({
+      ...reconciled,
+      circuitType,
+      learningObjective: objective,
+      tags: tagsList,
+      canonicalGraph,
+    });
   } catch (e) {
     if (e instanceof AnalyzeError) {
       log.error("AnalyzeError", { message: e.message });
@@ -91,8 +149,31 @@ function reconcileBranches(
   analysis: AnalysisResult,
   inventory: ComponentInventoryItem[],
 ): AnalysisResult {
-  if (!analysis.topologySignature || inventory.length === 0) return analysis;
-  const branches = analysis.topologySignature.branches ?? [];
+  if (inventory.length === 0) return analysis;
+  // ★ 1주차 refactor (2026-05-31): topologySignature가 누락된 경우 inventory로 stub 생성.
+  //   GPT가 새 schema에서 features만 채우고 branches 없이 반환하거나, topologySignature 자체를 누락하는 케이스.
+  if (!analysis.topologySignature) {
+    const inferredSubject = (analysis.subjectKey as "digital_logic" | "circuit_theory" | "electronics" | undefined)
+      ?? "circuit_theory";
+    analysis = {
+      ...analysis,
+      topologySignature: {
+        subjectKey: inferredSubject,
+        family: "unknown",
+        features: {
+          hasSwitch: false,
+          hasDependentSource: false,
+          hasGround: true,
+          hasSupermesh: false,
+          hasMesh: inventory.length >= 2,
+          hasStateTransition: false,
+          meshCount: 1,
+        },
+        branches: [],
+      },
+    };
+  }
+  const branches = analysis.topologySignature!.branches ?? [];
 
   // 1) inventory와 branches 각각의 component type 카운트
   const invCount = new Map<string, number>();
@@ -122,7 +203,36 @@ function reconcileBranches(
     missing,
   });
 
-  // 3) 누락 component를 적절한 role의 branch로 추가
+  // 3) 누락 component를 적절한 role의 branch로 추가.
+  //   ★ 2주차 refactor (2026-05-31): branches가 비어 있으면 Topology Recovery v1 호출 — 단일 mesh ladder.
+  //     이전 stub(vertical leg N개)은 V·L 단락으로 P=0W trivial 결과 만들었음.
+  //     v1은 ladder로 해석 가능한 회로 보장.
+  if (branches.length === 0) {
+    // ★ 2주차 v2: typical pattern dictionary (RL·RC·RLC 응용)으로 정확한 토폴로지 recovery 시도.
+    //   textHint로 inventory 보정 시도 (인덕터 키워드 + L 누락 + I 있음 → I → L 교체).
+    //   매치 없으면 v1 ladder fallback.
+    const textHint = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+    ].join(" ");
+    const recovered = recoverTopologyV2(inventory, textHint);
+    if (recovered.branches.length > 0) {
+      const newTopology: TopologySignature = {
+        ...analysis.topologySignature!,
+        branches: recovered.branches,
+      };
+      log.info("topology_recovered", {
+        version: recovered.strategy.includes("_v2") ? "v2" : "v1",
+        strategy: recovered.strategy,
+        confidence: recovered.confidence,
+        branchCount: recovered.branches.length,
+      });
+      return { ...analysis, topologySignature: newTopology };
+    }
+  }
+
+  //   branches가 일부 있을 때만 기존 reconcile fallback (mesh_only_branch·top_rail_resistor 보강).
   const extraBranches: TopologySignature["branches"] = [];
   for (const { type, count } of missing) {
     const role = inferRoleForType(type);
@@ -148,7 +258,7 @@ function reconcileBranches(
   // ★ switching chain merge — switching_leg가 SW만 있고 별도 R·I가 떠 있으면 합쳐
   //   원본 supermesh 8번 패턴(SW + R + I 직렬 chain)을 정확히 재현. GPT가 chain을
   //   분리 추출한 케이스 자동 보정.
-  const hasSwitch = Boolean(analysis.topologySignature.features?.hasSwitch);
+  const hasSwitch = Boolean(analysis.topologySignature?.features?.hasSwitch);
   if (hasSwitch) {
     const swBranchIdx = mergedBranches.findIndex(
       (b) => b.role === "switching_leg" &&
@@ -188,7 +298,7 @@ function reconcileBranches(
   }
 
   const newTopology: TopologySignature = {
-    ...analysis.topologySignature,
+    ...analysis.topologySignature!,
     branches: mergedBranches,
   };
   log.info("branches_reconciled", {
@@ -249,5 +359,27 @@ function inferRoleForType(type: string): string {
     case "CCCS":  return "dependent_source_leg";
     case "OPAMP": return "opamp_block";
     default:      return "mesh_only_branch";
+  }
+}
+
+/**
+ * 1주차 refactor — branches 완전 stub용 (모든 component를 vertical leg로 배치).
+ * V→voltage_source_leg, I→current_source_leg, R/L/C→load_leg, SW→switching_leg.
+ * Topology Recovery(2주차) 도입 후 제거 예정.
+ */
+function inferRoleForVerticalLeg(type: string): string {
+  switch (type.toUpperCase()) {
+    case "V":     return "voltage_source_leg";
+    case "I":     return "current_source_leg";
+    case "R":
+    case "C":
+    case "L":     return "load_leg";
+    case "SW":    return "switching_leg";
+    case "VCVS":
+    case "VCCS":
+    case "CCVS":
+    case "CCCS":  return "dependent_source_leg";
+    case "OPAMP": return "opamp_block";
+    default:      return "load_leg";
   }
 }

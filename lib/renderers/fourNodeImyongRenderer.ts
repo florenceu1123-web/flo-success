@@ -109,7 +109,10 @@ export function detectFourNodeImyong(netlist: CircuitNetlist): null | {
     }
   }
 
-  if (columns.length < 2) return null;
+  // ★ FourNode 형식이므로 non-GND node 3개 이상(= 총 4-node 이상) 강제.
+  //   기존엔 columns.length >= 2 만 요구해 3-node RL 응용회로(V_leg + L + R 병렬)가 잘못 매치됨.
+  //   결과: R 두 개가 같은 column에 그려져 한 R로 보이는 시각 버그.
+  if (columns.length < 3) return null;
   return { columns, ground, vSource: vSrc };
 }
 

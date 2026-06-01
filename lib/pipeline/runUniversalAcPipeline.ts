@@ -11,6 +11,7 @@ import { netlistToComplexStandalone } from "@/lib/solver/netlistToComplex";
 import { validateAcResult } from "@/lib/solver/validateAcResult";
 import { findVariableResistor } from "@/lib/generation/topologyDriven/inferDcQueries";
 import { writeUniversalAcText } from "@/lib/generation/topologies/universalAcTextWriter";
+import { applyRlExamVariant } from "@/lib/analysis/topologyRecovery";
 import { buildContextHint, generateInParallel } from "./_common";
 import {
   TOPIC_LABEL,
@@ -43,9 +44,19 @@ export async function runUniversalAcPipeline(args: {
   const { analysis, mode, count, topicKey } = args;
   const topicLabel = topicKey ? TOPIC_LABEL[topicKey] : undefined;
   const contextHint = buildContextHint(analysis);
-  const baseTopology = analysis.topologySignature;
+  let baseTopology = analysis.topologySignature;
   if (!baseTopology) {
     throw new Error("runUniversalAcPipeline: analysis.topologySignature 누락");
+  }
+
+  // ★ 기출변형유형 변형 — pattern_rl_v2 → L→C swap + R 직렬 ladder (임용 8번 variant).
+  //   exam_similar는 원본 V·L 직렬 + R 병렬 유지, exam_variant만 변형.
+  if (mode === "exam_variant") {
+    const variant = applyRlExamVariant(baseTopology);
+    if (variant) {
+      baseTopology = variant;
+      log.info("variant_topology_applied", { transform: "rl_exam_variant" });
+    }
   }
 
   // omega — analysis에서 추출. relatedConcepts·interpretation에서 "10^4 rad/s" 같은 패턴 검색.
@@ -112,10 +123,15 @@ export async function runUniversalAcPipeline(args: {
     }
 
     // 가변 R 표기 단일화 — placeholder 박스 제거, 라벨만 "R"로.
-    const varRid = findVariableResistor(final.gen.netlistOpen, analysis);
-    if (varRid) {
-      const comp = final.gen.netlistOpen.components.find((c) => c.id === varRid);
-      if (comp) comp.value = "R";
+    //   ★ maxAvgPower query가 있을 때만 (즉 "최대 전력 전달" 문제) 가변 R 표시.
+    //     componentAvgPower만 있는 평균전력 문제(임용 8번)는 R 모두 고정값으로 둠.
+    const hasMaxAvgPower = final.queryResults.some((r) => r.query.kind === "maxAvgPower");
+    if (hasMaxAvgPower) {
+      const varRid = findVariableResistor(final.gen.netlistOpen, analysis);
+      if (varRid) {
+        const comp = final.gen.netlistOpen.components.find((c) => c.id === varRid);
+        if (comp) comp.value = "R";
+      }
     }
     // analysis loadPlaceholders 제거 (보라 dashed box 중복 방지)
     final.gen.netlistOpen.loadPlaceholders = [];

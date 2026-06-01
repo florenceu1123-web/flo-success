@@ -46,16 +46,61 @@ export async function writeUniversalAcText(args: {
   };
 
   const ansLines = queryResults.map((q) => `- ${q.query.label} = ${fmt(q.value, q.unit, q.meta)}`);
-  const enforcedAnswer = ansLines.length > 0
-    ? `[정답]\n${ansLines.join("\n")}`
-    : "(query 없음)";
+
+  // componentAvgPower query가 있으면 임용 8번 형식(평균전력 3단계)으로 answer/solution 정리.
+  const avgPowerResults = queryResults.filter((r) => r.query.kind === "componentAvgPower");
+  const hasAvgPowerMode = avgPowerResults.length >= 2;
+  const groupedAvgPower = hasAvgPowerMode
+    ? {
+        sourceV: avgPowerResults.filter((r) => r.query.kind === "componentAvgPower" && r.query.componentType === "V"),
+        inductors: avgPowerResults.filter((r) => r.query.kind === "componentAvgPower" && r.query.componentType === "L"),
+        capacitors: avgPowerResults.filter((r) => r.query.kind === "componentAvgPower" && r.query.componentType === "C"),
+        resistors: avgPowerResults.filter((r) => r.query.kind === "componentAvgPower" && r.query.componentType === "R"),
+      }
+    : null;
+
+  const enforcedAnswer = (() => {
+    if (groupedAvgPower) {
+      const lines: string[] = [];
+      lines.push("[단계 1] 전원이 공급하는 평균전력");
+      for (const r of groupedAvgPower.sourceV) lines.push(`  · ${r.query.label} = ${fmt(r.value, r.unit, r.meta)}`);
+      lines.push("[단계 2] 인덕터 / 캐패시터 평균전력 (순수 reactive → 0)");
+      for (const r of [...groupedAvgPower.inductors, ...groupedAvgPower.capacitors]) lines.push(`  · ${r.query.label} = ${fmt(r.value, r.unit, r.meta)}`);
+      lines.push("[단계 3] 저항 평균전력");
+      for (const r of groupedAvgPower.resistors) lines.push(`  · ${r.query.label} = ${fmt(r.value, r.unit, r.meta)}`);
+      return `[정답]\n${lines.join("\n")}`;
+    }
+    return ansLines.length > 0
+      ? `[정답]\n${ansLines.join("\n")}`
+      : "(query 없음)";
+  })();
 
   const components = generation.netlistOpen.components.map((c) => `${c.id}${c.value ? `=${c.value}` : ""}`).join(", ");
 
-  const enforcedSolution =
-    `AC 정상상태 phasor 해석 — 입력 ω = ${omega} rad/s.\n` +
-    `복소 임피던스 (R, jωL, 1/(jωC)) 기반 노드/메시 해석으로 phasor V·I를 도출.\n` +
-    queryResults.map((q) => `- ${q.query.label} = ${fmt(q.value, q.unit, q.meta)}`).join("\n");
+  const enforcedSolution = (() => {
+    if (groupedAvgPower) {
+      const lines: string[] = [];
+      lines.push(`AC 정상상태 phasor 해석 — 입력 ω = ${omega} rad/s.`);
+      lines.push("복소 임피던스 (R, jωL, 1/(jωC)) 기반 노드/메시 해석으로 phasor V·I 도출 후 P_avg = (1/2)·Re(V·I*).");
+      lines.push("");
+      lines.push("[단계 1] 전원 공급 평균전력 — P_V = (1/2)·Re(V_s · I_s*). 전원 phasor와 전류 phasor의 곱 (real part).");
+      for (const r of groupedAvgPower.sourceV) lines.push(`  · ${r.query.label} = ${fmt(r.value, r.unit, r.meta)}`);
+      lines.push("");
+      lines.push("[단계 2] 인덕터(또는 캐패시터) 평균전력 — 순수 reactive 소자라 사이클 평균 전력 = 0.");
+      for (const r of [...groupedAvgPower.inductors, ...groupedAvgPower.capacitors]) lines.push(`  · ${r.query.label} = ${fmt(r.value, r.unit, r.meta)}`);
+      lines.push("");
+      lines.push("[단계 3] 저항 평균전력 — P_R = |V_R|² / (2R). 각 R의 voltage drop phasor magnitude를 제곱·R로 나눠 1/2 적용.");
+      for (const r of groupedAvgPower.resistors) lines.push(`  · ${r.query.label} = ${fmt(r.value, r.unit, r.meta)}`);
+      lines.push("");
+      lines.push("(검증: 전원 공급 = 모든 R 소비 합. L·C는 평균 0.)");
+      return lines.join("\n");
+    }
+    return (
+      `AC 정상상태 phasor 해석 — 입력 ω = ${omega} rad/s.\n` +
+      `복소 임피던스 (R, jωL, 1/(jωC)) 기반 노드/메시 해석으로 phasor V·I를 도출.\n` +
+      queryResults.map((q) => `- ${q.query.label} = ${fmt(q.value, q.unit, q.meta)}`).join("\n")
+    );
+  })();
 
   const userPrompt = `다음 AC 회로(L/C 포함, ω = ${omega} rad/s) + 다단계 query 문제의 자연어 텍스트(content/conditions/question)만 작성하세요.
 회로(소자·값·연결)와 정답은 코드가 결정 — 변경 금지.

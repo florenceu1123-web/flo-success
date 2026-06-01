@@ -1,9 +1,12 @@
 import type { CircuitComponent, CircuitNetlist } from "@/types";
+import { createLogger } from "@/lib/logger";
 import {
   componentHalfWidth,
   renderComponentOnEdge,
   renderNetlistEdgeSVG,
 } from "./netlistEdgeRenderer";
+
+const diagLog = createLogger("lib/renderers/analogMeshRenderer");
 import { hasOpAmp, renderOpAmpCircuit, validateOpAmpCircuit } from "./opampCircuitRenderer";
 import { hasWienBridgeOscillator, renderWienBridgeOscillatorCircuit } from "./wienBridgeOscillatorCircuit";
 import { hasBjt, renderBjtCircuit } from "./bjtCircuitRenderer";
@@ -48,7 +51,7 @@ const TOP_Y = 80;
 const BOT_Y = 420;
 const LEFT_X = 100;
 const X_PITCH = 140;            // component(R 56·OPAMP 64) + label 양옆 여유. 정사각형 비율 위해 축소.
-const VERTICAL_PARALLEL_GAP = 110;  // 같은 top node에 V 두 개 등 parallel일 때 source 원(r=22) + label 안 겹침. X_PITCH 축소에 맞춰 조정.
+const VERTICAL_PARALLEL_GAP = 160;  // 같은 top node에 R/V 두 개 등 parallel일 때 명확 분리. (110→160, 2026-05-31)
 
 type HPlace = {
   component: CircuitComponent;
@@ -64,6 +67,19 @@ type VPlace = {
 };
 
 export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
+  // 진단 — client에서도 보이도록 console.log 사용 (diagLog는 server-only).
+  if (typeof console !== "undefined") {
+    console.log("[analogMeshRenderer] render_enter", {
+      componentCount: netlist.components.length,
+      componentTypes: netlist.components.map((c) => c.type),
+      componentIds: netlist.components.map((c) => c.id),
+      componentPins: netlist.components.map((c) => ({
+        id: c.id,
+        type: c.type,
+        pins: c.pins?.map((p) => p.node),
+      })),
+    });
+  }
   // 0. 사전 검증
   const errors = validateBasic(netlist);
   if (errors.length > 0) {
@@ -87,6 +103,7 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   }
   // 0.053 AC parallel branches (임용 5번) — V_s+R_top+L_1+I_S(horizontal)+L_2+R+C 전용 layout.
   if (hasAcParallelBranches(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=acParallelBranches");
     const svg = renderAcParallelBranchesCircuit(netlist);
     if (svg) return svg;
   }
@@ -130,6 +147,7 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   {
     const detected = detectFourNodeImyong(netlist);
     if (detected) {
+      if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=fourNodeImyong");
       return renderFourNodeImyong(netlist, detected);
     }
   }
@@ -137,11 +155,13 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   // 0.08 Cross pattern (외곽 perimeter + 내부 십자 cross) — 임용 10번 같은 4-mesh DC.
   //   trigger: 내부 노드 간 평행 가지 + inner top node에 vertical leg.
   if (detectCrossPattern(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=crossLayout");
     return renderCrossLayout(netlist);
   }
 
   // 0.1 3-pin 이상이면 mesh layout 적용 불가 — fallback
   if (netlist.components.some((c) => (c.pins?.length ?? 0) > 2)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=edge_fallback_3pin");
     return renderNetlistEdgeSVG(netlist);
   }
 
@@ -208,6 +228,20 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
         groundNode: groundPin.node,
         xSlot: i,
       });
+    });
+  }
+
+  // 진단 — parallel R 시각 분리 issue 추적용 (client console)
+  if (typeof console !== "undefined") {
+    console.log("[analogMeshRenderer] vertical_classify", {
+      totalComponents: netlist.components.length,
+      topNodes,
+      groundIds: [...groundIds],
+      horizontalCount: horizontals.length,
+      verticalsByTopNode: Object.fromEntries(
+        [...verticalsByTopNode].map(([k, v]) => [k, v.map((c) => c.id)])
+      ),
+      verticalsExpanded: verticals.map((v) => `${v.component.id}@${v.topNode}#${v.xSlot}`),
     });
   }
 

@@ -7,6 +7,7 @@
 //        호출부에서 throw 처리 (free OPAMP generation 금지).
 
 import type { AnalogArchetype } from "@/lib/analog/archetypeRegistry";
+import { selectOpampCandidate } from "@/lib/analysis/candidateGraphs";
 
 /**
  * 분석 결과를 받아 OPAMP archetype 판정. 결정 임계 미달 시 null.
@@ -32,6 +33,16 @@ export function detectOpampArchetype(
   const jsonText = JSON.stringify(analysis ?? {});
   const text = [jsonText, ...extraText].join(" ").toLowerCase();
 
+  // ★ Wien Bridge inventory 시그니처 검사 — R=4·C=2·OPAMP=1 (정확한 Wien Bridge layout)
+  //   임용 9번(R=2·C=2·OPAMP=1 같은 변형 발진기)이 Wien Bridge로 잘못 잡히는 케이스 방지.
+  const inv = (analysis as { componentInventory?: Array<{ type?: string }> })?.componentInventory ?? [];
+  const countType = (t: string) => inv.filter((c) => (c.type ?? "").toUpperCase() === t).length;
+  const nR = countType("R");
+  const nC = countType("C");
+  const nOpamp = countType("OPAMP");
+  // 정확한 Wien Bridge 형식만 매치 허용. R=4(or ≥4)·C=2·OPAMP=1 시그니처가 아니면 wien score 무효화.
+  const isWienBridgeInventorySig = nR >= 4 && nC === 2 && nOpamp === 1;
+
   const score = {
     wien: 0,
     inverting: 0,
@@ -54,8 +65,30 @@ export function detectOpampArchetype(
     score.follower += 3;
   }
 
-  // Wien Bridge 우선 — 구조 시그니처 합산이 임계 이상이면 다른 archetype보다 우선.
-  if (score.wien >= 4) return "WIEN_BRIDGE_OSCILLATOR";
+  // ★ v3 Candidate Graphs (2026-05-31) — 더 정교한 점수 매기기로 Wien Bridge 잘못 매치 방지.
+  //   IMYONG9 같이 다른 OPAMP 발진기가 textHint와 inventory로 우선 매치되면 Wien Bridge 차단.
+  // selectOpampCandidate는 id를 사용하지 않으니 누락 시 자동 채움.
+  const invForV3 = inv.map((c, i) => {
+    const raw = c as { id?: string; type?: string; value?: string | number };
+    const out: { id: string; type: string; value?: string } = {
+      id: raw.id ?? `comp_${i}`,
+      type: raw.type ?? "UNKNOWN",
+    };
+    if (typeof raw.value === "string") out.value = raw.value;
+    else if (typeof raw.value === "number") out.value = String(raw.value);
+    return out;
+  });
+  const v3 = selectOpampCandidate(invForV3, text);
+  if (v3.archetype === "IMYONG9_OPAMP_OSCILLATOR") {
+    // 새 archetype 빌더 미구현 — 잘못된 Wien Bridge layout 만드는 대신 null 반환.
+    //   호출자는 ARCHETYPE_DETECTION_FAILED throw → 사용자에게 명확한 메시지.
+    return null;
+  }
+  if (v3.archetype === "WIEN_BRIDGE_OSCILLATOR" && v3.score >= 6 && isWienBridgeInventorySig) {
+    return "WIEN_BRIDGE_OSCILLATOR";
+  }
+  // ★ legacy wien matching 비활성화 (2026-05-31) — v3 candidateGraphs가 명확히 매치하지 않으면
+  //   다른 OPAMP 발진기일 가능성이 더 높음. 잘못된 Wien Bridge 만드는 대신 null 반환해 throw 유도.
 
   const entries = Object.entries(score).sort((a, b) => b[1] - a[1]) as Array<[keyof typeof score, number]>;
   const [topKey, topScore] = entries[0];

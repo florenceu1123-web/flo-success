@@ -13,6 +13,29 @@ import { parseValue } from "@/lib/generation/topologyDriven/parseValue";
 import { parsePhasor } from "./parsePhasor";
 
 /**
+ * L의 임피던스 표기 ("j(2/3)Ω", "j2Ω", "j10Ω", "j5") → 숫자 X (jωL = jX → X 반환).
+ * 매치 안 되면 null. omega로 L = X/ω로 환산 가능.
+ */
+function parseInductorImpedance(raw: string | number | undefined): number | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().replace(/\s+/g, "");
+  // j(분수)Ω or j(분수) — j(2/3)Ω, j(1/2)
+  const fracMatch = trimmed.match(/^j\((-?\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\)Ω?$/i);
+  if (fracMatch) {
+    const num = parseFloat(fracMatch[1]);
+    const den = parseFloat(fracMatch[2]);
+    if (den !== 0 && Number.isFinite(num / den)) return num / den;
+  }
+  // j숫자Ω — j2Ω, j10Ω, j0.5
+  const numMatch = trimmed.match(/^j(-?\d+(?:\.\d+)?)Ω?$/i);
+  if (numMatch) {
+    const v = parseFloat(numMatch[1]);
+    if (Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+/**
  * netlist 단독으로 ComplexSolverNetwork 구성. AC pipeline에서 권장.
  */
 export function netlistToComplexStandalone(
@@ -44,8 +67,20 @@ export function netlistToComplexStandalone(
     const numericRaw = parsed?.numeric;
     if (c.type === "R" && numericRaw !== undefined && numericRaw > 0) {
       resistors.push({ id: c.id, a, b, R: scaleByUnit(numericRaw, parsed?.suffix, "Ω") });
-    } else if (c.type === "L" && numericRaw !== undefined && numericRaw > 0) {
-      inductors.push({ id: c.id, a, b, L: scaleByUnit(numericRaw, parsed?.suffix, "H") });
+    } else if (c.type === "L") {
+      // L value parsing — H 단위 우선, "j(분수)Ω" / "j숫자Ω" 임피던스 표기는 ω로 H 환산.
+      let L = numericRaw !== undefined && numericRaw > 0
+        ? scaleByUnit(numericRaw, parsed?.suffix, "H")
+        : NaN;
+      if (!Number.isFinite(L) || L <= 0) {
+        // 임피던스 표기 시도: "j(2/3)Ω", "j2Ω", "j10Ω", "jωL" 등.
+        const impedance = parseInductorImpedance(c.value as string | number | undefined);
+        if (impedance !== null && omega > 0) {
+          L = impedance / omega;  // jX = jωL → L = X/ω
+        }
+      }
+      if (!Number.isFinite(L) || L <= 0) L = 10e-3;  // fallback default 10mH (v1: trivial 결과 회피)
+      inductors.push({ id: c.id, a, b, L });
     } else if (c.type === "C" && numericRaw !== undefined && numericRaw > 0) {
       capacitors.push({ id: c.id, a, b, C: scaleByUnit(numericRaw, parsed?.suffix, "F") });
     } else if (c.type === "V") {

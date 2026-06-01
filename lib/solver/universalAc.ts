@@ -38,6 +38,19 @@ export type AcQuery =
       targetOmega: number;
       label: string;
       cRange?: [number, number];
+    }
+  | {
+      /**
+       * 컴포넌트 평균전력 P_avg [W] — phasor peak 가정 (P = (1/2)·Re(V·I*)).
+       *  - "R": P = |V_R|²/(2R)
+       *  - "L"·"C": P = 0 (순수 reactive — 평균 소비전력 없음)
+       *  - "V": P = (1/2)·Re(V·I*) (전원이 회로에 공급하는 평균전력, sign = delivering)
+       * 임용 8번 형식 — 각 단계별 component 평균전력 도출.
+       */
+      kind: "componentAvgPower";
+      componentType: "R" | "L" | "C" | "V";
+      componentId: string;
+      label: string;
     };
 
 export type AcQueryResult = {
@@ -296,6 +309,39 @@ function evaluate(
         unit: "F",
         meta: { converged: false, residualImI: best.imI },
       };
+    }
+    case "componentAvgPower": {
+      // phasor peak 가정 — P = (1/2) · Re(V · I*).
+      //  - R: |V_R|²/(2R)
+      //  - L·C: 0 (순수 reactive)
+      //  - V: (1/2) · Re(V_source · I_vs*)  — 전원이 공급하는 평균전력
+      if (q.componentType === "L" || q.componentType === "C") {
+        return { query: q, value: 0, unit: "W", meta: { note: "순수 reactive — 평균전력 0" } };
+      }
+      if (q.componentType === "R") {
+        const target = net.resistors.find((r) => r.id === q.componentId);
+        if (!target) return { query: q, value: NaN, unit: "W", meta: { reason: `R '${q.componentId}' not found` } };
+        const va = sol.nodeVoltages[target.a];
+        const vb = sol.nodeVoltages[target.b];
+        if (!va || !vb) return { query: q, value: NaN, unit: "W", meta: { reason: "node voltages missing" } };
+        const vDrop = { re: va.re - vb.re, im: va.im - vb.im };
+        const mag2 = vDrop.re * vDrop.re + vDrop.im * vDrop.im;
+        const P = mag2 / (2 * target.R);
+        return { query: q, value: round(P, 4), unit: "W" };
+      }
+      // componentType === "V"
+      const vSource = net.vsources.find((v) => v.id === q.componentId);
+      if (!vSource) return { query: q, value: NaN, unit: "W", meta: { reason: `V '${q.componentId}' not found` } };
+      const i = sol.vsourceCurrents[q.componentId];
+      if (!i) return { query: q, value: NaN, unit: "W", meta: { reason: "vsource current missing" } };
+      // V_phasor = vSource.V (Complex). delivered power = (1/2) · Re(V · I*) (sign: + means source delivering).
+      // MNA convention: I_vs는 vsource 내부 + 노드(a)로 들어가는 방향. delivered = (1/2) · Re(V · (-I_vs)*)
+      //   복호: delivered = -(1/2) · Re(V · I_vs*).
+      const V = vSource.V;
+      // Re(V · I*) where I* = (I.re, -I.im)
+      const reVIstar = V.re * i.re + V.im * i.im;
+      const P = -0.5 * reVIstar;
+      return { query: q, value: round(P, 4), unit: "W" };
     }
   }
 }
