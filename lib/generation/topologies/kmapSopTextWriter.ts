@@ -25,14 +25,29 @@ export async function writeKmapSopText(args: {
 
   const mintermText = func.minterms.map((m) => `m${m}`).join(", ");
   const varNamesText = func.varNames.join(",");
+  const dontCareText = func.dontCares.length > 0
+    ? `d(${func.dontCares.join(",")})` : "(없음)";
+  // truthTableBlank 모드 — varNames가 W,X,Y,Z 인지로 판단 (kmapSop.ts에서 강제).
+  const truthTableBlank = func.varNames.join("") === "WXYZ";
+  // [단계 3] 점선 박스가 있는 케이스만 3단계. ㉠가 입력 직결(단일 게이트)이면 점선 부분 없음 → 2단계.
+  const hasDashed = Boolean(generation.logicNetworkDiagram.dashedRegions?.length);
+  const step3Question = hasDashed
+    ? "\\n  [단계 3] 그림 (나)의 점선 부분에 해당하는 1개의 논리게이트를 구한다."
+    : "";
+  const step3Answer = hasDashed ? " / 점선 부분 = (단계 3에서 도출)" : "";
+  const step3Solution = hasDashed
+    ? "\\n\\n[단계 3] 점선 부분\\n  점선 박스 안의 부분 함수가 최종 SOP에서 어떤 sub-term을 담당하는지 식별. 점선 영역 입력/출력 관계 + 단계 2의 분해 결과로 1개 논리게이트(예: AND, OR, NAND, NOR, XOR)를 결정."
+    : "";
+  const stepCountText = hasDashed ? "[단계 1]·[단계 2]·[단계 3] 3단계" : "[단계 1]·[단계 2] 2단계";
 
-  const userPrompt = `다음 정보로 임용 시험 스타일의 K-map / SOP 최소화 문제 텍스트를 작성하세요.
+  const sharedHeader = `다음 정보로 임용 시험 스타일의 K-map / SOP 최소화 문제 텍스트를 작성하세요.
 문제 데이터(변수·minterm·SOP·도식)는 코드가 이미 결정했으므로 변경 금지 — 너는 문제 문장과 풀이만 작성.
 
-[archetype] ${archetype} (${func.vars}변수)
+[archetype] ${archetype} (${func.vars}변수)${truthTableBlank ? " · 임용 5번 정보과 형식 (진리표 + ㉠ 빈칸 회로)" : ""}
 [변수] ${varNamesText}
 [F=1인 minterm 인덱스] ${mintermText}
-[원본 함수 표현] F(${varNamesText}) = Σm(${func.minterms.join(",")})
+[don't care 인덱스] ${dontCareText}
+[원본 함수 표현] F(${varNamesText}) = Σm(${func.minterms.join(",")})${func.dontCares.length > 0 ? ` + d(${func.dontCares.join(",")})` : ""}
 
 [솔버 결과 — 절대 변경 금지]
 최소 SOP: F = ${sopExpression}
@@ -40,7 +55,28 @@ SOP term 수: ${values.sopTerms}
 
 [모드] ${mode === "exam_similar" ? "기출유사유형" : "기출변형유형"}
 ${topicLabel ? `[주제] ${topicLabel}` : ""}
-${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
+${contextHint ? `[원본 맥락]\n${contextHint}` : ""}`;
+
+  const userPrompt = truthTableBlank
+    ? `${sharedHeader}
+
+[출력 JSON — 임용 5번 정보과 형식]
+{
+  "content":    "다음 표 (가)는 어떤 조합논리회로의 진리표이고, 그림 (나)는 (가)를 간략화하여 표현한 조합논리회로이다. 제시된 <해석 절차>에 따라 각 단계별로 풀이 과정과 함께 결과를 서술하시오. (단, 진리표에서 ×는 무관(don't care)항을 나타내며, 그림 (나)에서 모든 소자는 이상적으로 동작한다.)",
+  "conditions": ["(가) 진리표: F(W,X,Y,Z) = Σm(${func.minterms.join(",")})${func.dontCares.length > 0 ? ` + d(${func.dontCares.join(",")})` : ""}", "(나) 간략화된 조합논리회로 — 인버터·AND·㉠ 빈칸 게이트 포함"],
+  "question":   "<해석 절차>\\n  [단계 1] (가)를 이용하여 출력 F(W,X,Y,Z)의 카르노도를 구한다.\\n  [단계 2] [단계 1]의 결과를 이용하여 최소화된 불 함수 F(W,X,Y,Z)를 구하고, 그림 (나)와 입력이 2개인 논리회로로 표현하였을 때 ㉠에 해당하는 1개의 논리게이트를 구한다.${step3Question}",
+  "answer":     "F = ${sopExpression} / ㉠ = (단계 2에서 도출)${step3Answer}",
+  "solution":   "[단계 1] 카르노도\\n  W,X(행)·Y,Z(열) 4×4 K-map을 작성하고 minterm ${func.minterms.join(",")}에 1, don't care ${func.dontCares.join(",")}에 ×를 표시.\\n\\n[단계 2] 최소 SOP\\n  인접 1과 ×를 가장 큰 2의 거듭제곱(1·2·4·8) 그룹으로 묶어 essential prime implicant 도출.\\n  결과: F = ${sopExpression}\\n  ㉠ 게이트: 그림 (나)의 인버터 출력과 한 입력 wire가 만나 ㉠으로 들어가고 ㉠의 출력이 최종 결합 단으로 전달된다. 솔버 SOP를 (나)의 회로 형태에 맞춰 분해해 ㉠ 게이트(2-입력) 종류를 식별하라.${step3Solution}"
+}
+
+[규칙]
+- answer는 솔버 SOP를 정확히 포함하고 ㉠·점선 부분 게이트는 풀이에서 자연스럽게 도출되도록 작성.
+- conditions 첫 항은 정확히 "F(W,X,Y,Z) = Σm(...)" 표기 보존.
+- question은 ${stepCountText} 정확히 명시.${hasDashed ? "" : " (이 문제는 점선 부분이 없으므로 [단계 3]을 만들지 마라.)"}
+- ㉠${hasDashed ? "·점선 부분" : ""} 게이트 종류는 솔버 SOP에서 학생이 도출하도록 풀이 절차를 서술 (구체 게이트 명을 하드코딩하지 말 것 — 변형 수치에 따라 달라짐).
+- (가) 진리표·(나) 회로는 코드가 자동 figure로 생성. 텍스트로 다시 그리지 마라.
+- JSON 객체 하나만. 코드펜스 금지.`
+    : `${sharedHeader}
 
 [출력 JSON]
 {

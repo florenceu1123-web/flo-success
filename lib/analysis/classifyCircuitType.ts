@@ -147,15 +147,31 @@ export function classifyCircuitType(
   }
   // electronics: opamp만 우선 처리, 나머지(BJT/MOSFET 등)는 후속
   if (subject === "electronics") {
-    const text = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`;
+    // ★ 텍스트 풀에 relatedConcepts·fillInTheBlanks 포함 — GPT의 topic/interpretation 표현이
+    //   stochastic해서 ㉠ 같은 마커나 "동작 특성" 같은 핵심 키워드가 topic에 안 들어가는 케이스 대비.
+    const blanksText = (analysis.fillInTheBlanks ?? [])
+      .map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`)
+      .join(" ");
+    const text = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      blanksText,
+    ].join(" ");
     const family = analysis.topologySignature?.family;
     // ★ BJT/MOSFET 출력특성곡선 (영역 식별 + ON/OFF) — 개념·도식 해석형.
     //   bjt_bias·bjt_small_signal·mosfet_*보다 먼저 매치.
     //   트리거: 특성곡선/출력특성/동작영역 키워드 + 영역 marker(㉠/㉡/㉢) 또는 영역명 키워드.
     const characteristicCurveKeywords = [
       "출력특성곡선", "출력 특성 곡선", "특성곡선", "특성 곡선",
+      // MOSFET/BJT 동작 특성 표현 — "동작 특성"은 임용 6번 형식에서 "MOSFET의 동작 특성 분석"으로 자주 등장
+      "동작 특성", "동작특성", "동작 특성 분석", "동작 특성 곡선",
+      "드레인 특성", "드레인 특성 곡선", "drain characteristic",
       "동작 영역", "동작영역", "영역의 명칭",
       "스위칭 동작", "스위칭동작",
+      // 채널/문턱전압 — MOSFET 특성곡선 풀이에서 핵심 단어
+      "채널 형성", "채널형성", "채널 타입", "채널타입", "채널 길이 변조", "channel length modulation",
+      "문턱전압", "v_t는 문턱", "v_th", "v_t = ",
       "i_c 변화", "ic 변화", "i_d 변화", "id 변화",
       "i_c-v_ce", "i_c vs v_ce", "ic-vce", "ic vs vce",
       "i_d-v_ds", "i_d vs v_ds", "id-vds", "id vs vds",
@@ -163,17 +179,30 @@ export function classifyCircuitType(
       "트라이오드", "triode",
       "여러 개의 i_b", "여러개의 i_b", "여러 i_b", "다중 i_b",
       "여러 개의 v_gs", "여러개의 v_gs",
+      // V_GS 파라미터 family — V_GS = +2/+4/+6/+8 [V] 같은 패턴
+      "v_gs = +", "v_gs= +", "v_gs=+", "v_gs=2", "v_gs=4", "v_gs=6", "v_gs=8",
       "㉠", "㉡", "㉢",
       "characteristic curve", "output characteristics",
     ];
     if (matchesKeyword(text, characteristicCurveKeywords)) {
-      // device 추론 — MOSFET 키워드 있으면 MOSFET 변형, 아니면 BJT default.
-      // classifier는 기본 device 분기만, 실제 device 선택은 generator(mode)가 결정.
+      // device 추론 — MOSFET 시각 단서(키워드/인벤토리)가 있으면 mosfet, 아니면 bjt.
+      //   text 키워드(MOSFET, V_GS, V_DS, I_D, 드레인, 채널) 또는 inventory 의 MOSFET 존재로 판별.
+      const mosfetKw = matchesKeyword(text, [
+        "mosfet", "metal-oxide", "metal oxide",
+        "v_gs", "vgs", "v_ds", "vds", "i_d", "id",
+        "드레인", "게이트", "소스",  // BJT의 컬렉터/베이스/이미터와 구분
+        "채널", "문턱전압", "v_t", "v_th",
+        "n채널", "p채널", "nmos", "pmos",
+      ]);
+      const mosfetInInventory = (analysis.componentInventory ?? []).some((c) =>
+        ["MOSFET", "NMOS", "PMOS"].includes(String(c.type ?? "").toUpperCase())
+      );
+      const device: "bjt" | "mosfet" = (mosfetKw || mosfetInInventory) ? "mosfet" : "bjt";
       return {
         type: "bjt_characteristic_curve",
-        params: {},
+        params: { device },
         confidence: "high",
-        reasoning: "electronics + 출력특성곡선/동작영역/㉠㉡ 키워드 → 개념·도식 해석형",
+        reasoning: `electronics + 출력특성곡선/동작영역/㉠㉡ 키워드 → 개념·도식 해석형 (device=${device})`,
       };
     }
     // Multi-device cascode/current mirror/차동증폭기 — 단일-소자 bias archetype보다 우선.
@@ -511,6 +540,40 @@ export function classifyCircuitType(
     const hasJkFf = matchesKeyword(text, ["JK 플립플롭", "JK-FF", "JK 플립", "JK-플립", "JK flip-flop", "JK flipflop"]);
     const hasStateTableKw = matchesKeyword(text, ["상태표", "상태 표", "다음 상태", "현재 상태", "state table"]);
     const hasWaveformKw = matchesKeyword(text, ["파형", "타이밍도", "timing diagram", "waveform", "출력 파형"]);
+
+    // ★ 임용 7번 정보과 형식 (tff_state_table_blank) — flipflop_mixed_app 보다 위 매치.
+    //   원본: (가) T-FF 2개(T_A·T_B) + 조합부 + 입력 C — (나) 상태표 + 빈칸 ㉠~㉧ —
+    //         풀이: [단계 1] T_A·T_B 입력식 → [단계 2] 상태표 빈칸 → [단계 3] Q_A(t+1)·Q_B(t+1) K-map.
+    //   트리거: T-FF + 상태표 + JK 없음 + (T-FF 2개 시그니처 OR 빈칸 마커 OR K-map 도출 키워드).
+    const tffInventoryCount = (analysis.componentInventory ?? []).filter((c) =>
+      ["TFF", "T-FF", "T_FF"].includes(String(c.type ?? "").toUpperCase())
+    ).length;
+    const hasTffPairSig = tffInventoryCount >= 2 || matchesKeyword(text, [
+      "T 플립플롭 2", "T-FF 2", "T 플립플롭 A, B", "T 플립플롭 A B",
+      "T 플립플롭 A·B", "T_A", "T_B", "두 개의 T 플립플롭", "T 플립플롭 두 개",
+      "Q_A(t+1)", "Q_B(t+1)", "Q_A·Q_B",
+    ]);
+    const hasBlankMarkers7 = /[㉠-㉧]/.test(text);
+    const hasKmapDerivationKw = matchesKeyword(text, [
+      "카르노도", "카르노맵", "최소화된 불 함수", "최소 SOP", "최소 곱의 합",
+      "k-map", "kmap", "카르노",
+    ]);
+    if (
+      hasTFf && hasStateTableKw && !hasJkFf &&
+      (hasTffPairSig || hasBlankMarkers7 || hasKmapDerivationKw)
+    ) {
+      const triggers: string[] = ["T-FF", "상태표"];
+      if (hasTffPairSig) triggers.push("T-FF 2개 시그니처");
+      if (hasBlankMarkers7) triggers.push("㉠~㉧ 빈칸");
+      if (hasKmapDerivationKw) triggers.push("K-map 도출");
+      return {
+        type: "tff_state_table_blank",
+        params: {},
+        confidence: "high",
+        reasoning: `T-FF 2개 + 상태표 + (${triggers.slice(2).join("·")}) → 임용 7번 정보과 형식`,
+      };
+    }
+
     if ((hasTFf && hasJkFf) || ((hasTFf || hasJkFf) && (hasStateTableKw || hasWaveformKw))) {
       const ffTypes: Array<"D" | "T" | "JK"> = [];
       if (hasTFf) ffTypes.push("T");
@@ -559,6 +622,22 @@ export function classifyCircuitType(
         params: {},
         confidence: "high",
         reasoning: "digital_logic + MUX/멀티플렉서/선택선 키워드",
+      };
+    }
+    // ★ 임용 5번 정보과 형식 (truth_table → blank gate identification) — combinational_gate 우선보다 위.
+    //   원본: (가) 진리표(4변수 W,X,Y,Z + don't care ×) + (나) 간략화된 조합논리회로(인버터·AND·㉠ 빈칸).
+    //   풀이: [단계 1] K-map 도출 → [단계 2] 최소 SOP + ㉠ 게이트 식별 → [단계 3] 점선 부분 게이트 식별.
+    //   트리거: 진리표 키워드 + ㉠~㉣ 빈칸 마커 + 단일 출력 (multi-output 키워드 없음).
+    if (
+      matchesKeyword(text, TRUTH_TABLE_KEYWORDS) &&
+      matchesKeyword(text, BLANK_CIRCLE_MARKERS) &&
+      !matchesKeyword(text, MULTI_OUTPUT_KEYWORDS)
+    ) {
+      return {
+        type: "kmap_sop",
+        params: { truthTableBlank: true },
+        confidence: "high",
+        reasoning: "진리표(가) + ㉠ 빈칸 회로(나) → 임용 5번 형식 (kmap_sop with truthTableBlank)",
       };
     }
     // K-map + 회로 빈칸 게이트 (ⓐ/ⓑ 등)이 함께 나오면 multi-output 조합회로로 분류 — kmap_sop보다 우선.
@@ -716,6 +795,16 @@ const COMBINATIONAL_KEYWORDS = [
 const BLANK_GATE_KEYWORDS = [
   "ⓐ", "ⓑ", "ⓒ", "ⓓ", "들어갈 논리게이트", "들어갈 논리 게이트", "들어갈 게이트", "들어갈 논리",
 ];
+// 임용 5번 정보과 — 진리표 + ㉠ 빈칸 회로 형식 트리거 키워드
+const TRUTH_TABLE_KEYWORDS = ["진리표", "truth table", "truth_table"];
+// ㉠ ㉡ ㉢ ㉣ — 빈칸 게이트/단계 마커 (sequence_detector에서도 사용하나 별도 매칭)
+const BLANK_CIRCLE_MARKERS = ["㉠", "㉡", "㉢", "㉣"];
+// multi-output(F·G·X·Y 두 함수) 키워드 — 단일 출력 분기에서 배제
+const MULTI_OUTPUT_KEYWORDS = [
+  "두 출력", "두개 출력", "두 개 출력", "다중 출력", "다중출력",
+  "multi-output", "multiple output",
+  "두 함수", "두개 함수", "두 개 함수",
+];
 
 function matchesKeyword(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();
@@ -731,17 +820,32 @@ type Counts = {
 function aggregateComponentCounts(analysis: AnalysisResult): Counts {
   const c: Counts = { R: 0, V: 0, I: 0, C: 0, L: 0, SW: 0, dep: 0, D: 0 };
   const inv = analysis.componentInventory ?? [];
-  if (inv.length > 0) {
-    for (const item of inv) {
-      bumpCount(c, item.type);
-    }
-    return c;
-  }
-  // fallback: topologySignature.branches에서 집계
   const branches = analysis.topologySignature?.branches ?? [];
+
+  // inventory에서 1차 카운트.
+  for (const item of inv) {
+    bumpCount(c, item.type);
+  }
+
+  // branches에서 fallback 카운트 — inventory가 누락한 타입을 보충.
+  //   임용 8번에서 inventory extraction이 인덕터(L)를 못 잡아 ac_superposition으로 잘못 라우팅된 케이스.
+  //   inventory와 branches 둘 다 신뢰원으로 사용해 max를 취한다.
+  const invByType: Record<string, number> = {};
+  for (const item of inv) {
+    const t = (item.type ?? "").toUpperCase();
+    invByType[t] = (invByType[t] ?? 0) + 1;
+  }
+  const brByType: Record<string, number> = {};
   for (const b of branches) {
     for (const comp of b.components ?? []) {
-      bumpCount(c, comp.type);
+      const t = (comp.type ?? "").toUpperCase();
+      brByType[t] = (brByType[t] ?? 0) + 1;
+    }
+  }
+  for (const t in brByType) {
+    const missing = brByType[t] - (invByType[t] ?? 0);
+    if (missing > 0) {
+      for (let i = 0; i < missing; i++) bumpCount(c, t);
     }
   }
   return c;

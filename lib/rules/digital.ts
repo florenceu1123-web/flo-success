@@ -1,4 +1,4 @@
-import type { CircuitType, SemanticStructure, TopicKey, FigureRole } from "@/types";
+import type { CircuitType, CircuitTypeParams, SemanticStructure, TopicKey, FigureRole } from "@/types";
 import type { RuleSet } from "./types";
 
 /**
@@ -9,6 +9,7 @@ export function resolveDigitalRules(args: {
   topicKey?: TopicKey;
   semantic: SemanticStructure;
   circuitType?: CircuitType;
+  circuitTypeParams?: CircuitTypeParams;
 }): RuleSet {
   const required: FigureRole[] = [];
   // ff_with_waveform: 단일 FF + 조합부 + 파형 (임용 8번 형식) — implementation_circuit + waveform
@@ -16,9 +17,15 @@ export function resolveDigitalRules(args: {
     required.push("implementation_circuit", "waveform");
   } else if (args.circuitType === "flipflop_mixed_app") {
     required.push("implementation_circuit", "truth_table", "waveform");
+  } else if (args.circuitType === "tff_state_table_blank") {
+    // 임용 7번 정보과 — (가) T-FF 2개 회로 + (나) 상태표(빈칸). K-map은 풀이 [단계 3] 산출물.
+    required.push("implementation_circuit", "truth_table");
   } else if (args.circuitType === "mux_implementation") {
     // (가) 조합논리회로 + (나) MUX 두 figure. kmap·waveform 없음.
     required.push("main_circuit", "implementation_circuit");
+  } else if (args.circuitType === "kmap_sop" && args.circuitTypeParams?.truthTableBlank) {
+    // 임용 5번 정보과 — (가) 진리표 + (나) 간략화된 조합논리회로. kmap은 풀이 [단계 1] 산출물.
+    required.push("truth_table", "implementation_circuit");
   } else {
     if (args.topicKey === "kmap_sop" || args.topicKey === "kmap_pos") {
       required.push("kmap", "implementation_circuit");

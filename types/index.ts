@@ -1010,6 +1010,13 @@ export type LogicNetworkDiagram = {
    * (외부 단자가 필요한 신호는 outputs 배열 사용.)
    */
   signalLabels?: Record<string, string>;
+  /**
+   * 점선 박스 영역 — 회로의 일부 sub-circuit(게이트 묶음)을 점선 사각형으로 감싸 표시.
+   * 임용 5번 [단계 3]: 학생이 점선 영역에 들어갈 게이트 종류를 K-map 도출로 도출.
+   *  · gateIds: 박스로 감쌀 게이트들 (이 게이트들의 bbox + 여백으로 사각형 산정)
+   *  · label: 박스 좌상단 라벨 (예: "㉡")
+   */
+  dashedRegions?: { gateIds: string[]; label?: string }[];
 };
 
 /** truth_table diagram 권장 shape.

@@ -49,6 +49,7 @@ export type CircuitType =
   | "kmap_pos"              // K-map → 최소 POS → 구현 회로 (OR-AND, SOP dual)
   | "flipflop_counter"      // 2비트 D-FF 카운터 (상태 순서 → D 입력 K-map)
   | "flipflop_mixed_app"    // T-FF + JK-FF 등 혼합 응용회로 — 상태표 + 파형도
+  | "tff_state_table_blank" // T-FF 2개 (T_A·T_B) + 입력 C + 상태표 빈칸 ㉠~㉧ + K-map 도출 (임용 7번 정보과)
   | "ff_with_waveform"      // 단일 FF (D/T/JK) + 비동기 RESET + 조합부 + 파형도 (임용 8번 형식)
   | "combinational_gate"    // 3-입력 2-출력 조합 회로 (F, G 동시 설계)
   | "mux_implementation"    // (가) 조합논리회로 + (나) 4×1 MUX 등가구현 — POS→SOP→MUX 입력 결정 (임용 5번 형식)
@@ -123,6 +124,23 @@ export type CircuitTypeParams = {
   // ── sequence_detector (시퀀스 검출기 + D-FF + 상태도) ──────
   /** 검출 시퀀스 패턴 — '110', '101', '011', '1010' 등. 미지정 시 generator가 변형. */
   sequencePattern?: string;
+  // ── bjt_characteristic_curve device hint (임용 6번 등) ───────
+  /**
+   * 원본이 MOSFET 특성곡선이면 "mosfet" — generator가 BJT-only SIMILAR pool 대신
+   * MOSFET variant pool에서 pick하도록 강제. 미지정 시 mode 기반 default.
+   */
+  device?: "bjt" | "mosfet";
+  // ── kmap_sop truth-table-input variant (임용 5번 정보과) ──────
+  /**
+   * 임용 5번 형식 — (가) 진리표 + (나) 간략화된 회로(㉠ 빈칸).
+   * true면 kmap_sop pipeline이:
+   *   - figure 순서·라벨을 (가) truth_table → (나) implementation_circuit으로 정렬
+   *   - 변수명을 W·X·Y·Z 로 강제 (4-변수)
+   *   - don't care 행 일부 포함
+   *   - 회로에 ㉠ 빈칸 게이트 마커 + 점선 그룹 표시
+   *   - 풀이 단계: [단계 1] K-map 도출 → [단계 2] ㉠ 게이트 식별 → [단계 3] 점선 부분 게이트 식별
+   */
+  truthTableBlank?: boolean;
 };
 
 /**

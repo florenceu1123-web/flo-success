@@ -157,7 +157,7 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
   const FB_BUS_X_BASE = 24;
   const FB_BUS_X_STAGGER = 14;
   const FB_TOP_BASE_Y = 14;
-  const FB_TOP_STAGGER = 10;
+  const FB_TOP_STAGGER = 16;
   const fbBusX = new Map<string, number>();
   const fbTopY = new Map<string, number>();
   feedbackSignals.forEach((sig, i) => {
@@ -197,13 +197,17 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
 
   // 게이트 bbox 목록 — wire와 게이트는 겹치지 않게(디지털 논리회로 node 규칙).
   // 모든 wire routing(feedback + 일반)이 이 obstacles 사용.
+  //   · FF (DFF/TFF/JKFF): T·CLK 핀 stub이 좌측에 길게 뻗기 때문에 padding ↑로 wire 우회 거리 확보.
+  //     padding 안 늘리면 multi-FF + feedback wire 환경에서 wire가 FF body 내부 y로 떨어지는 케이스 발생.
+  const FF_OBSTACLE_PAD = 32;
   const obstacles: GateBox[] = nodes.map((n) => {
     const bubble = ["NOT", "NAND", "NOR", "XNOR"].includes(n.type) ? 10 : 0;
+    const ffPad = isFlipFlop(n.type) ? FF_OBSTACLE_PAD : 0;
     return {
-      x: n.x,
-      right: n.x + n.width + bubble,
-      top: n.y,
-      bottom: n.y + n.height,
+      x: n.x - ffPad,
+      right: n.x + n.width + bubble + ffPad,
+      top: n.y - ffPad,
+      bottom: n.y + n.height + ffPad,
     };
   });
 
@@ -223,18 +227,17 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
   //  · 게이트 박스 obstacle 회피 (규칙 #1: wire와 게이트 겹치지 않음)
   //  · ylane manager로 다른 wire와 horizontal channel 겹침 회피 (규칙 #3)
   //  · 같은 신호의 여러 소비자는 source에서 각자 wire, source에 분기점 dot (규칙 #4)
-  for (const sig of feedbackSignals) {
-    const ff = ffNodeByOutput.get(sig);
-    if (!ff) continue;
-    const consumers = fbConsumers.get(sig) ?? [];
-    if (consumers.length === 0) continue;
-    const src = getGateOutputPoint(ff);
-    // source 분기점 dot — 같은 source에서 두 wire 이상 시작 (외부 라벨 + feedback)
-    svg += `<circle cx="${src.x}" cy="${src.y}" r="${consumers.length > 1 ? 3.5 : 3}" fill="black"/>`;
-    consumers.forEach((c, idx) => {
-      svg += orthogonalWire(src, c, obstacles, idx * 8, yLanes);
-    });
-  }
+  // 피드백 wire는 회로 상단 전용 채널로 "위로 올려" 우회(over-the-top) + 수직 채널 distinct 분리.
+  //  FF/게이트 body 비통과(규칙 #1) + riser·하강선이 신호마다 다른 x로 분리(규칙 #3 — xlane 간격).
+  const fbRoutes = feedbackSignals
+    .map((sig) => {
+      const ff = ffNodeByOutput.get(sig);
+      const consumers = fbConsumers.get(sig) ?? [];
+      if (!ff || consumers.length === 0) return null;
+      return { src: getGateOutputPoint(ff), consumers, topY: fbTopY.get(sig) ?? FB_TOP_BASE_Y };
+    })
+    .filter((r): r is { src: Point; consumers: Point[]; topY: number } => r !== null);
+  svg += renderFeedbackWires(fbRoutes);
 
   const feedbackSet = new Set(feedbackSignals);
   const routes = buildSignalRoutes(diagram, nodes, signalPos, feedbackSet, true);
@@ -260,18 +263,28 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
   if (extClkFFs.length > 0 || clkGateConsumers.length > 0) {
     const clkBusY = maxY - 30;
     const clkStartX = 60;
-    const ffEndX = extClkFFs.length > 0 ? Math.max(...extClkFFs.map((n) => n.x)) + 20 : clkStartX;
+    // CLK bus 우측 끝 — 가장 우측 FF의 CLK 핀 stub 끝(▷에서 좌측으로 stub 길이만큼)까지만.
+    //   이전엔 box.x + 20 (box 안쪽까지)로 잡혀 CLK bus가 stub 합류 지점 넘어 box 옆까지 그어져 거슬렸음.
+    const ffClkStubEnds = extClkFFs.map((n) =>
+      n.x - getFfPinStub("clk", Math.max(1, n.gate.inputs?.length ?? 0))
+    );
+    const ffEndX = ffClkStubEnds.length > 0 ? Math.max(...ffClkStubEnds) : clkStartX;
     const consumerEndX = clkGateConsumers.length > 0 ? Math.max(...clkGateConsumers.map((p) => p.x)) : clkStartX;
     const clkEndX = Math.max(ffEndX, consumerEndX);
     svg += `<text x="30" y="${clkBusY + 5}" font-size="14">CLK</text>`;
     svg += `<circle cx="${clkStartX}" cy="${clkBusY}" r="3" fill="black"/>`;
     svg += `<path d="M ${clkStartX} ${clkBusY} L ${clkEndX} ${clkBusY}" stroke="black" fill="none" stroke-width="2"/>`;
-    // FF clock pin stub (외부 CLK 사용 FF만) — ▷ 외부 stub end에서 진입
+    // FF clock pin stub (외부 CLK 사용 FF만) — ▷ 외부 stub end에서 진입.
+    //  같은 컬럼의 FF는 clkPinX가 동일 → riser를 FF마다 그리면 같은 x에 중복(겹침).
+    //  clkPinX별로 묶어 가장 위 핀까지 단일 수직선 하나만 그린다(중간 핀은 그 선이 관통하며 연결).
+    const clkRiserTop = new Map<number, number>(); // clkPinX → 가장 위(min) clkPinY
     for (const ff of extClkFFs) {
-      const ffInputCount = ff.gate.inputs?.length ?? 0;
-      const clkPinX = ff.x - getFfPinStub("clk", ffInputCount);
+      const clkPinX = ff.x - getFfPinStub("clk", ff.gate.inputs?.length ?? 0);
       const clkPinY = ff.y + ff.height - 6;
-      svg += `<path d="M ${clkPinX} ${clkBusY} L ${clkPinX} ${clkPinY}" stroke="black" fill="none" stroke-width="2"/>`;
+      clkRiserTop.set(clkPinX, Math.min(clkRiserTop.get(clkPinX) ?? Infinity, clkPinY));
+    }
+    for (const [clkPinX, topPinY] of clkRiserTop) {
+      svg += `<path d="M ${clkPinX} ${clkBusY} L ${clkPinX} ${topPinY}" stroke="black" fill="none" stroke-width="2"/>`;
       svg += `<circle cx="${clkPinX}" cy="${clkBusY}" r="3" fill="black"/>`;
     }
     // CLK input을 받는 비-FF 게이트 stub
@@ -321,6 +334,22 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
     // FF의 D/R/CLK stub end 옆에 입력 신호명 hint — 학생이 핀별 입력 신호를 분간 가능.
     if (isFlipFlop(node.gate.type) && !blankIdx.whole.has(node.gate.id)) {
       svg += renderFlipFlopPinLabels(node);
+    }
+  }
+
+  // 점선 박스 영역 (임용 5번 [단계 3]) — 지정 게이트 묶음을 dashed rect로 감싸고 라벨.
+  //   게이트는 그대로 보이며, 학생은 점선 영역의 게이트 종류를 도출(식별)한다.
+  for (const region of diagram.dashedRegions ?? []) {
+    const rnodes = nodes.filter((n) => region.gateIds.includes(n.gate.id));
+    if (rnodes.length === 0) continue;
+    const pad = 16;
+    const x1 = Math.min(...rnodes.map((n) => n.x)) - pad;
+    const y1 = Math.min(...rnodes.map((n) => n.y)) - pad;
+    const x2 = Math.max(...rnodes.map((n) => n.x + n.width)) + pad;
+    const y2 = Math.max(...rnodes.map((n) => n.y + n.height)) + pad;
+    svg += `<rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" fill="none" stroke="#9333ea" stroke-width="1.8" stroke-dasharray="6,4" rx="8"/>`;
+    if (region.label) {
+      svg += `<text x="${x1 + 6}" y="${y1 - 5}" font-size="14" font-weight="700" fill="#9333ea">${escapeSvg(region.label)}</text>`;
     }
   }
 
@@ -459,7 +488,7 @@ const PIN_STUB = 12;
  *     D-FF (1-input)    : D=12, CLK=40
  *     SRFF (2-input)    : S=12, R=26, CLK=54
  */
-const FF_STUB_STEP = 14;
+const FF_STUB_STEP = 20;
 function getFfPinStub(role: number | "clk", inputCount: number): number {
   if (role === "clk") return PIN_STUB + (inputCount + 1) * FF_STUB_STEP;
   return PIN_STUB + role * FF_STUB_STEP;
@@ -791,6 +820,52 @@ function renderFanoutRoute(
       svg += dot({ x: trunkX, y: dst.y });
     }
   }
+  return svg;
+}
+
+const FB_RISER_STEP = 16;   // FF 출력 riser 간 수직 채널 간격 (우측으로 stagger)
+const FB_DESCENT_STEP = 16; // 소비자 하강 수직 채널 간격 (핀 좌측으로 stagger)
+
+/**
+ * 피드백 신호 라우팅 — 상단 전용 채널 우회(over-the-top) + 수직 채널 distinct 분리.
+ *
+ *  · FF Q 출력 → 우측으로 살짝 비킨 riser(신호마다 다른 x) → 상단 trunk(topY) → 소비자 위에서 하강 → 핀.
+ *  · 상단 trunk(topY≈14~)는 모든 게이트(y≥90)보다 위 → 어떤 body도 비통과(규칙 #1).
+ *  · riser는 FF 우측에 신호별 distinct x, 하강선은 핀 좌측에 distinct x(전 신호 통합 stagger) →
+ *    두 수직선이 같은 x에 겹치지 않음(규칙 #3 — xlane 간격).
+ *  · 하강 채널은 소비자 y 오름차순(위쪽 핀이 핀에 더 가까운 채널)으로 배정 → 아래 소비자의 수평
+ *    진입선이 위쪽 수직선을 관통하지 않는다.
+ */
+function renderFeedbackWires(routes: { src: Point; consumers: Point[]; topY: number }[]): string {
+  let svg = "";
+  // 모든 소비자를 모아 y 오름차순(위쪽 먼저) rank → 핀 좌측 distinct 채널 x 배정.
+  const all = routes.flatMap((r, ri) => r.consumers.map((c) => ({ c, ri })));
+  if (all.length === 0) return svg;
+  all.sort((a, b) => a.c.y - b.c.y);
+  const minPinX = Math.min(...all.map((a) => a.c.x));
+  const descentX = new Map<string, number>();
+  all.forEach((a, rank) => {
+    descentX.set(`${a.ri}:${a.c.x}:${a.c.y}`, minPinX - 14 - rank * FB_DESCENT_STEP);
+  });
+
+  routes.forEach(({ src, consumers, topY }, ri) => {
+    // riser — FF 출력 우측 채널(신호별 distinct), 짧은 수평 jog 후 상단으로.
+    const riserX = src.x + 10 + ri * FB_RISER_STEP;
+    svg += `<circle cx="${src.x}" cy="${src.y}" r="3.5" fill="black"/>`;
+    svg += line(src, { x: riserX, y: src.y });
+    svg += line({ x: riserX, y: src.y }, { x: riserX, y: topY });
+    const dxs = consumers.map((c) => descentX.get(`${ri}:${c.x}:${c.y}`)!);
+    const minX = Math.min(riserX, ...dxs);
+    const maxX = Math.max(riserX, ...dxs);
+    svg += line({ x: minX, y: topY }, { x: maxX, y: topY }); // 상단 trunk
+    consumers.forEach((c) => {
+      const dx = descentX.get(`${ri}:${c.x}:${c.y}`)!;
+      svg += line({ x: dx, y: topY }, { x: dx, y: c.y }); // 하강
+      svg += line({ x: dx, y: c.y }, c);                  // 핀으로 수평 진입
+      svg += dot({ x: dx, y: topY });
+    });
+    if (riserX > minX + 0.5 && riserX < maxX - 0.5) svg += dot({ x: riserX, y: topY });
+  });
   return svg;
 }
 

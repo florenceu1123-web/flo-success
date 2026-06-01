@@ -90,7 +90,18 @@ export function generateBjtCharacteristicCurve(args: {
 
   // ── variant 선택 (라운드로빈) ─────────────────────
   //   index가 주어지면 그대로 사용, 아니면 seed 기반 무작위.
-  const pool = mode === "exam_similar" ? SIMILAR_VARIANTS : VARIANT_VARIANTS;
+  //   params.device 가 주어지면 (classifier가 원본 device를 식별한 경우) mode와 무관하게 그 device의 pool에서 pick.
+  const requestedDevice = args.params?.device;
+  let pool: Variant[];
+  if (requestedDevice) {
+    const allVariants = [...SIMILAR_VARIANTS, ...VARIANT_VARIANTS];
+    const filtered = allVariants.filter((v) => v.device === requestedDevice);
+    pool = filtered.length > 0
+      ? filtered
+      : (mode === "exam_similar" ? SIMILAR_VARIANTS : VARIANT_VARIANTS);
+  } else {
+    pool = mode === "exam_similar" ? SIMILAR_VARIANTS : VARIANT_VARIANTS;
+  }
   const idx = typeof args.index === "number"
     ? ((args.index % pool.length) + pool.length) % pool.length
     : Math.floor(rand() * pool.length);

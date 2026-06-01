@@ -1,4 +1,4 @@
-import type { CircuitType, FigureRole, SemanticStructure, SubjectKey, TopicKey } from "@/types";
+import type { CircuitType, CircuitTypeParams, FigureRole, SemanticStructure, SubjectKey, TopicKey } from "@/types";
 import { resolveDigitalRules } from "./digital";
 import { resolveElectronicsRules } from "./electronics";
 import { resolveCircuitTheoryRules } from "./circuitTheory";
@@ -20,6 +20,7 @@ export function resolveRules(args: {
   semantic: SemanticStructure;
   text?: string;
   circuitType?: CircuitType;
+  circuitTypeParams?: CircuitTypeParams;
 }): RuleSet {
   let base: RuleSet;
   switch (args.subject) {

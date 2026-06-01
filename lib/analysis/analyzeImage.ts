@@ -60,15 +60,18 @@ function buildAnalysisSchema(subject: SubjectKey): Record<string, unknown> {
           requiresMultiFigure: { type: "boolean" },
         },
       },
+      // ★ 1주차 refactor (2026-05-31): family·role·branches·betweenNodes 모두 GPT schema에서 제거.
+      //   GPT는 components 리스트(componentInventory)만 추출. topology 구조는 코드(Topology Recovery)가 derive.
+      //   topologySignature는 subjectKey + features(boolean flags)만 유지 — features도 components로 derive 가능하지만
+      //   downstream 코드 호환을 위해 보존 (2주차에 features도 코드 derive로 이전 예정).
       topologySignature: {
         anyOf: [
           {
             type: "object",
             additionalProperties: false,
-            required: ["subjectKey", "family", "features", "branches"],
+            required: ["subjectKey", "features"],
             properties: {
               subjectKey: { type: "string", enum: ["digital_logic", "circuit_theory", "electronics"] },
-              family: { type: "string" },
               features: {
                 type: "object",
                 additionalProperties: false,
@@ -81,62 +84,6 @@ function buildAnalysisSchema(subject: SubjectKey): Record<string, unknown> {
                   hasMesh: { type: "boolean" },
                   hasStateTransition: { type: "boolean" },
                   meshCount: { type: "number" },
-                },
-              },
-              branches: {
-                type: "array",
-                description: "회로의 모든 branch를 빠짐없이. 한 branch는 직렬 chain.",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["role", "components", "betweenNodes"],
-                  properties: {
-                    role: {
-                      type: "string",
-                      enum: [
-                        "voltage_source_leg", "current_source_leg", "dependent_source_leg",
-                        "switching_leg", "load_leg",
-                        "shared_supermesh_branch", "mesh_only_branch",
-                        "top_rail_resistor", "bottom_rail_wire",
-                      ],
-                      description:
-                        "voltage_source_leg/current_source_leg: vertical leg (top node↔GND)인 V/I. " +
-                        "mesh_only_branch: top rail에 끼인 horizontal V/dep source (예: ─R1─⊕V─R2─). " +
-                        "top_rail_resistor: top rail 위 horizontal R. " +
-                        "switching_leg: SW 포함 vertical chain. ★ SW + R + I 같은 직렬 component가 한 vertical leg에 함께 있으면 모두 한 switching_leg branch의 components 배열에 직렬로 박을 것 — 각각 별도 branch로 분리 절대 금지. " +
-                        "load_leg: 부하 R/I (vertical, top↔GND). " +
-                        "dependent_source_leg: VCVS/VCCS/CCVS/CCCS 포함 leg.",
-                    },
-                    components: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        additionalProperties: false,
-                        required: ["type", "value"],
-                        properties: {
-                          type: { type: "string" },
-                          value: { anyOf: [{ type: "string" }, { type: "number" }, { type: "null" }] },
-                        },
-                      },
-                    },
-                    betweenNodes: {
-                      anyOf: [
-                        { type: "null" },
-                        {
-                          type: "array",
-                          items: { type: "string" },
-                          minItems: 2,
-                          maxItems: 2,
-                        },
-                      ],
-                      description:
-                        "(선택) 명시적 노드 쌍 — 4-mesh 이상 또는 평행 가지가 있을 때 반드시 사용. " +
-                        "horizontal branch는 [좌측 노드, 우측 노드]. vertical leg는 [상단 노드, 'GND']. " +
-                        "node id는 의미 있게 부여 ('n_left', 'n_v1', 'n_v3', 'n_right' 등). " +
-                        "같은 노드 쌍에 여러 branch가 있으면 자동으로 평행 가지로 처리됨. " +
-                        "미지정 시 branches 순서대로 자동 배치 (3-mesh 이하 단순 ladder에만 OK).",
-                    },
-                  },
                 },
               },
             },
@@ -198,6 +145,18 @@ function buildPrompt(subject: SubjectKey): string {
   const topicEnum = (TOPICS_BY_SUBJECT[subject] as readonly TopicKey[]).join(" | ");
   return `당신은 전자임용(중등 정보·전자) 출제·해설 전문가입니다.
 첨부된 임용 기출 문제 이미지를 분석해 다음 JSON 스키마에 맞춰 응답하세요.
+
+🚫 ★ 1주차 refactor 절대 규칙 (2026-05-31) ★ 🚫
+다음 필드는 ★ schema에서 제거됨 ★ — 절대 결정하거나 추출하지 마라. 코드(Topology Recovery)가 자동 도출한다:
+  - topologySignature.family       (rl_circuit / parallel_rlc / ac_analysis 등 분류 라벨)
+  - topologySignature.branches     (branch 배열 자체)
+  - branches[].role                (voltage_source_leg / load_leg 등 의미 라벨)
+  - branches[].betweenNodes        (노드 매핑 ["n_a","GND"] 등)
+GPT의 역할은 ★ 관측(observation) ★ 만:
+  - components (componentInventory에 type·value)
+  - signals·semantic·fillInTheBlanks·nodeAnnotations·topic·interpretation
+  - topologySignature.features (boolean flags) — 가능하면 채움, 누락 OK
+아래 prompt 안에 "branches·family·role·betweenNodes 예시"가 등장하더라도 ★ 모두 무시 ★ 하고 위 4 필드는 절대 출력하지 마라.
 
 [과목] ${SUBJECT_LABEL[subject]} (${subject})
 [과목 힌트] ${SUBJECT_HINT[subject]}
@@ -596,6 +555,157 @@ K-map 문제를 분석할 때 ★ K-map 개수와 차원을 정확히 카운트 
 
 (이 케이스는 분류기가 sequence_detector path로 라우팅하여 (가) 블록도 + (나) 상태도(빈칸) +
 (다) 상태표(빈칸, don't care)의 3 figure만 생성된다.)
+
+【★ digital_logic 진리표 → 간략화 회로 + ㉠ 빈칸 게이트 — 절대 추출 규칙 (kmap_sop truthTableBlank 라우팅 핵심, 임용 5번 정보과)】
+
+다음 시각 단서 ★ 두 가지 이상 ★ 보이면 임용 5번 정보과 형식이다:
+  (1) (가) figure가 ★ 진리표 ★ — 행 16개(4-변수, W X Y Z 입력) 또는 8개(3-변수) + 출력 컬럼 F
+      ★ 입력 컬럼 라벨이 "W X Y Z" 또는 "A B C D" — K-map이 아니라 ★ truth table ★ ★
+  (2) 진리표에 ★ don't care 행 ★ — 출력 컬럼에 "×" 또는 "x" 또는 "d" 표기 (일부 행)
+  (3) (나) figure가 간략화된 ★ 조합논리회로 ★ — 인버터(NOT) 1~2개 + AND/OR 게이트 + ★ ㉠ 빈칸 게이트 ★
+  (4) 회로 내부에 ★ 점선박스(dashed rectangle) ★ — 일부 게이트 영역 표시
+  (5) [해석 절차] 박스 + [단계 1] K-map 도출, [단계 2] 최소 SOP + ㉠ 게이트, [단계 3] 점선 부분 게이트
+  (6) 본문에 "표 (가)는 어떤 조합논리회로의 진리표이고, 그림 (나)는 …" 류 문구
+
+이 경우 ★ 반드시 ★ 다음을 만족:
+
+(A) topicKey = "kmap_sop" 명시 ★ 강제 ★
+    ❌ "combinational_gate" 또는 "fsm" 절대 금지 — combinational_gate는 (가)=K-map 두 개 형식이라 다르다.
+
+(B) topic 또는 interpretation에 ★ "진리표" 단어 명시 ★
+    예: "(가) 진리표 + (나) 간략화된 조합논리회로에서 ㉠ 빈칸 게이트와 점선 부분 게이트 식별".
+    ★ 절대 금지 ★: "카르노맵 구현"·"K-map 회로" 같은 표현만 사용 (진리표 단어 누락). 카르노맵은 풀이 산출물이지 (가) figure가 아니다.
+
+(C) relatedConcepts 배열에 ★ 최소 4개 ★ 포함:
+    "진리표", "don't care", "K-map 최소화", "최소 SOP", "조합논리회로", "빈칸 게이트", "점선 부분 게이트" 중 4개 이상.
+
+(D) interpretation에 ★ ㉠ 마커 정확 transcribe ★ — 원본의 ㉠·㉡·㉢ Unicode 마커 그대로.
+
+(E) signals에 ★ 단일 출력 ★ 명시:
+    "signals": { "inputs": ["W","X","Y","Z"], "outputs": ["F"] }   // 변수명은 원본 그대로
+    ★ 절대 금지 ★: outputs를 ["F","G"]·["X","Y"]로 늘리지 마라 — 원본은 단일 출력.
+
+(F) fillInTheBlanks에 ㉠ 마커 sentence 포함:
+    예: { "sentence": "그림 (나)에서 ㉠에 들어갈 1개의 논리게이트를 구하시오.", "answer": "..." }
+
+(G) figureRequirements에 2개 figure 명시:
+    [
+      { "role": "truth_table",            "diagramType": "truth_table",  "scope": "single", "required": true },
+      { "role": "implementation_circuit", "diagramType": "logic_network", "scope": "single", "required": true }
+    ]
+    ⚠️ K-map figure는 ★ (가)/(나)에 추가하지 마라 ★ — 풀이 [단계 1] 산출물.
+
+★ 잘못된 추출 (절대 금지) ★:
+  - topicKey="combinational_gate" 잘못 지정 → 분류기가 (가)=K-map 2개 path로 라우팅하여 원본에 없는 K-map figure가 (가)로 생성됨 (사용자가 실제 신고함).
+  - outputs를 ["F","G"]로 multi-output 추출 → 원본은 단일 F. 변수도 W,X,Y,Z인데 A,B,C 3-변수로 축소 금지.
+  - 진리표를 K-map으로 잘못 읽기 — (가)의 행이 16개 + 입력 4컬럼(W,X,Y,Z) + 출력 1컬럼(F)이면 ★ truth table ★.
+  - 진리표 단어 누락 → 분류기가 진리표 분기 매치 실패하여 combinational_gate로 fallback.
+
+(이 케이스는 분류기가 kmap_sop path with truthTableBlank=true 로 라우팅하여 (가) 진리표 + (나) ㉠ 빈칸 회로 2 figure만 생성된다.)
+
+【★ digital_logic T-FF 2개 + 상태표 빈칸 + K-map 도출 — 절대 추출 규칙 (tff_state_table_blank 라우팅 핵심, 임용 7번 정보과)】
+
+다음 시각 단서 ★ 두 가지 이상 ★ 보이면 임용 7번 정보과 형식이다:
+  (1) (가) figure가 ★ 순서논리회로 ★ — NOR/NAND 게이트(조합부) + ★ T-FF 2개 ★ (라벨 T_A·T_B 또는 A·B) + Q_A·Q_B 출력 + Q_A'/Q_B' 반전 feedback + 공통 clock
+      ★ JK-FF·D-FF 아님 — 정확히 T-FF 2개 ★
+  (2) 외부 입력 ★ 단일 신호 C ★ (X·Y 같은 다중 외부 입력 아님)
+  (3) (나) figure가 ★ 상태표 ★ — 컬럼: [현재상태 Q_A(t)·Q_B(t)] [입력 C] [다음상태 Q_A(t+1)·Q_B(t+1)]
+      ★ 8행 (Q_A·Q_B·C 3-비트 조합) ★
+  (4) 상태표 일부 셀에 ★ 빈칸 마커 ㉠·㉡·㉢·㉣·㉤·㉥·㉦·㉧ ★ — 학생이 채울 자리
+  (5) [해석 절차] 박스 + 3단계:
+      [단계 1] (가) 회로의 T_A·T_B 입력식 도출
+      [단계 2] (나)의 빈칸 ㉠~㉧ 채우기
+      [단계 3] Q_A(t+1)·Q_B(t+1) K-map 작성 + 최소화된 불 함수
+
+이 경우 ★ 반드시 ★ 다음을 만족:
+
+(A) topicKey = "flipflop_counter" 또는 "fsm" — 정확한 enum 없으므로 둘 중 하나. 분류기는 시각 단서로 tff_state_table_blank로 재라우팅한다.
+    ❌ "kmap_sop" 절대 금지 — (가)가 진리표가 아니다.
+
+(B) topic 또는 interpretation에 ★ "T 플립플롭" + "상태표" 단어 명시 ★
+    예: "T 플립플롭 A·B 2개 + 입력 C → 상태표 빈칸 + K-map 도출"
+    ★ 절대 금지 ★: "순차논리회로 분석" 같은 일반 표현만 사용 (T 플립플롭·상태표 단어 누락).
+
+(C) relatedConcepts 배열에 ★ 최소 4개 ★ 포함:
+    "T 플립플롭", "순서논리회로", "상태표", "K-map 최소화", "최소화된 불 함수",
+    "Q_A·Q_B 출력", "조합부 입력식" 중 4개 이상.
+
+(D) interpretation에 ★ ㉠~㉧ 마커 정확 transcribe ★ — 원본 빈칸 갯수 보존.
+
+(E) signals에:
+    "signals": { "inputs": ["C", "CLK"], "outputs": ["Q_A", "Q_B"] }
+    ★ 절대 금지 ★: outputs를 ["F"·"G"]로 추출하지 마라 — 상태 변수 Q_A·Q_B.
+
+(F) componentInventory에 ★ T-FF 정확히 2개 ★:
+    [{ "id": "TFF_A", "type": "TFF" }, { "id": "TFF_B", "type": "TFF" }]
+    ❌ "DFF"·"JKFF" 절대 금지 — type="TFF".
+
+(G) fillInTheBlanks에 ㉠~㉧ sentence 포함:
+    예: { "sentence": "(나) 상태표의 ㉠~㉧에 들어갈 다음 상태 Q_A(t+1)·Q_B(t+1) 값을 구하시오.", "answer": "..." }
+
+(H) figureRequirements에 2개 figure 명시:
+    [
+      { "role": "implementation_circuit", "diagramType": "logic_network", "scope": "single", "required": true },
+      { "role": "truth_table",            "diagramType": "truth_table",   "scope": "single", "required": true }
+    ]
+    ⚠️ waveform·K-map figure는 (가)/(나)에 추가하지 마라 — K-map은 풀이 [단계 3] 산출물.
+
+★ 잘못된 추출 (절대 금지) ★:
+  - JK-FF 또는 D-FF로 잘못 추출 → T-FF 2개 정확히. 도장 모양(T 표기)을 확인.
+  - 외부 입력을 X·Y 다중으로 추출 → 정확히 C 단일.
+  - outputs를 ["F","G"] 같은 임의 라벨로 → Q_A·Q_B 상태 변수.
+  - 빈칸 마커 ㉠~㉧을 누락 → 학생 채울 자리 없어짐.
+
+(이 케이스는 분류기가 tff_state_table_blank path로 라우팅하여 (가) T-FF 2개 회로 + (나) 상태표(빈칸) 2 figure만 생성된다. K-map은 풀이 [단계 3] 산출물.)
+
+【★ circuit_theory AC + 인덕터 임피던스 표기 — 절대 추출 규칙 (universal_ac 라우팅 핵심, 임용 8번 정보과 RL 응용회로)】
+
+다음 시각 단서 ★ 두 가지 이상 ★ 보이면 임용 8번 RL 응용회로 형식이다:
+  (1) AC 단일 전압원 V = u(t) = V_m cos(ωt) 또는 phasor (V∠0°V)
+  (2) ★ 인덕터를 임피던스 표기 ★ — "j(2/3)Ω", "j2Ω", "j10Ω", "jXΩ" 등. 코일(나선) 심볼 + Ω 단위 라벨.
+  (3) 저항 2개 이상 vertical leg (1Ω·2Ω 같은 정수)
+  (4) 인덕터·R·R가 전원에 ★ 병렬 ★ 또는 인덕터 직렬 + R·R 병렬 토폴로지
+  (5) [해석 절차] 박스 + 3단계: [단계 1] 전원 공급 평균전력, [단계 2] 인덕터 평균전력, [단계 3] 각 R 평균전력
+
+이 경우 ★ 반드시 ★ 다음을 만족:
+
+(A) topicKey = "rlc_response" 또는 "ac_analysis" — 가능한 topicKey 중 하나.
+
+(B) componentInventory 추출 ★ 절대 규칙 ★:
+    - "j숫자Ω" 또는 "j수식Ω" 표기는 ★ 인덕터 L (type="L") ★ — 절대 current source(I)로 추출하지 마라.
+      예: "j(2/3)Ω" → { id:"L1", type:"L", value:"j(2/3)Ω" }
+      예: "j2Ω" → { id:"L1", type:"L", value:"j2Ω" }
+      예: "j10Ω" → { id:"L1", type:"L", value:"j10Ω" }
+    - 코일/나선(spiral) 심볼이 있는 것은 ★ 무조건 L ★ — 그 옆 라벨이 임피던스(jXΩ)이든 인덕턴스(H)이든 상관없이.
+    - "-j숫자Ω" 표기는 ★ 캐패시터 C (type="C") ★. current source 아님.
+    - current source는 화살표가 있는 ⊕ 또는 (↑) 심볼만.
+
+(C) topologySignature.branches 정확 추출 — V와 L의 토폴로지 관계를 ★ 시각 단서로 정확히 분리 ★ :
+    - 원본 임용 8번은 ★ V·L이 직렬 ★ (V는 좌측 vertical, L은 상단 horizontal로 V 위에서 우측으로) +
+      ★ R·R이 우측에서 V 음극으로 병렬 ★ — 즉 V·L과 R·R가 같은 노드 쌍에 있지 않다.
+    - ★ 절대 금지 ★: V·L·R·R 모두 같은 두 노드 사이 4-leg parallel로 묘사. 그건 V와 L이 단락 병렬되어 회로가 깨짐.
+    - ★ 정확한 betweenNodes ★ (3-노드 토폴로지: n_a = V 양극 = L 좌측, n_b = L 우측 = R 분기점, GND = V 음극 = R 하단):
+      [
+        { role: "voltage_source_leg", components:["V"],   betweenNodes:["n_a","GND"] },
+        { role: "load_leg",           components:["L"],   betweenNodes:["n_a","n_b"]  },
+        { role: "load_leg",           components:["R_1"], betweenNodes:["n_b","GND"] },
+        { role: "load_leg",           components:["R_2"], betweenNodes:["n_b","GND"] }
+      ]
+    - 인덕터가 horizontal 상단이면 ★ 반드시 ★ n_a와 n_b 두 노드를 분리. V 양극은 n_a, R 두 개 위쪽은 n_b. n_a ≠ n_b.
+    - 노드 식별 휴리스틱: 코일(나선) 심볼이 어떤 두 노드 사이에 있는지 시각 위치로 확인 (V 위쪽 노드와 R 위쪽 노드는 다르다 — L이 그 사이에 위치).
+
+(D) topic 또는 interpretation에 "평균전력" + "교류" + "인덕터" 명시.
+
+(E) signals에:
+    "signals": { "inputs": ["V"], "outputs": ["P_avg", "P_L", "P_R1", "P_R2"] }
+    또는 평균전력 변수 explicit.
+
+★ 잘못된 추출 (절대 금지) ★:
+  - "j2Ω" 라벨을 current source(I=j2A)로 잘못 추출 — j는 임피던스의 허수부 표기. type="L"이 맞다.
+  - 인덕터를 음의 임피던스(-j) 캐패시터로 잘못 추출.
+  - 회로 토폴로지를 V→L→R_1→R_2 직렬 1-mesh로 단순화. 원본은 병렬 토폴로지.
+
+(이 케이스는 분류기가 universal_ac path with maxAvgPower query로 라우팅하여 phasor MNA로 평균전력 3개 도출.)
 
 【★ circuit_theory Thevenin + Switched RC + 다단계 — 절대 추출 규칙 (thevenin_switched_rc 라우팅 핵심)】
 
@@ -1011,6 +1121,9 @@ export async function analyzeImage(args: {
         schema: buildAnalysisSchema(subject),
       },
     },
+    // 분석 단계 안정성 ↑ — 기본 1.0이면 같은 이미지에서 매번 다른 변수 갯수/출력 갯수가 나옴.
+    // 임용 5번 같이 시각 단서가 미세한 형식이 매번 일관되게 추출되도록 낮춤.
+    temperature: 0.2,
     max_tokens: 2200,
   }));
 
@@ -1059,7 +1172,24 @@ export async function analyzeImage(args: {
     log.warn("topologySignature 누락 — exam_similar 모드에서 topology 보존 불가");
   }
 
-  log.info("완료", { topic: parsed.topic, concepts: parsed.relatedConcepts.length });
+  // 디버그 — classifier 분기 미스 진단용. topic·topicKey·signals·빈칸 마커가 추출됐는지 한눈에.
+  const hasBlankCircle = /[㉠-㉣]/.test(
+    `${parsed.topic ?? ""} ${parsed.interpretation ?? ""} ${(parsed.relatedConcepts ?? []).join(" ")} ` +
+    `${(parsed.fillInTheBlanks ?? []).map((b) => b.sentence ?? "").join(" ")}`
+  );
+  const hasTruthTableWord = /진리표|truth table|truth_table/i.test(
+    `${parsed.topic ?? ""} ${parsed.interpretation ?? ""}`
+  );
+  log.info("완료", {
+    topic: parsed.topic,
+    topicKey: parsed.topicKey,
+    concepts: parsed.relatedConcepts.length,
+    inputs: parsed.signals?.inputs,
+    outputs: parsed.signals?.outputs,
+    hasTruthTableWord,
+    hasBlankCircle,
+    blankCount: parsed.fillInTheBlanks?.length ?? 0,
+  });
   return parsed;
 }
 

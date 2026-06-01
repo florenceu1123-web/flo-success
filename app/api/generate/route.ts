@@ -36,6 +36,7 @@ import { runKmapPosPipeline } from "@/lib/pipeline/runKmapPosPipeline";
 import { runFlipflopCounterPipeline } from "@/lib/pipeline/runFlipflopCounterPipeline";
 import { runFfWithWaveformPipeline } from "@/lib/pipeline/runFfWithWaveformPipeline";
 import { runFlipflopMixedPipeline } from "@/lib/pipeline/runFlipflopMixedPipeline";
+import { runTffStateTableBlankPipeline } from "@/lib/pipeline/runTffStateTableBlankPipeline";
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
@@ -114,6 +115,8 @@ export async function POST(req: NextRequest) {
       analysis?.circuitType?.type === "ac_parallel_branches";
     // rlc_resonance_max_power: phasor 정상상태 — waveform figure 불필요.
     const isRlcResonanceMaxPower = analysis?.circuitType?.type === "rlc_resonance_max_power";
+    // universal_ac: phasor 정상상태 query (componentAvgPower·maxAvgPower·resonanceFreq 등). 시간영역 waveform 불필요.
+    const isUniversalAc = analysis?.circuitType?.type === "universal_ac";
     // switched_rlc_*는 v_C(t) 응답이 학생 도출 정답이라 waveform figure를 안 만듦 (학습 의도).
     //  → state_before/state_after figure로 시간 변화 표현 → hasWaveformEvolution=false 강제로 waveform required 면제.
     const isSwitchedRlc =
@@ -133,18 +136,22 @@ export async function POST(req: NextRequest) {
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, requiresMultiFigure: false }
       : isRlcResonanceMaxPower
         ? { ...rawSemantic, hasWaveformEvolution: false }
-        : isSwStatePair || (rawSemantic.hasWaveformEvolution && (isAcSuperposition || isSwitchedRlc))
+        : isUniversalAc
           ? { ...rawSemantic, hasWaveformEvolution: false }
-          : rawSemantic;
+          : isSwStatePair || (rawSemantic.hasWaveformEvolution && (isAcSuperposition || isSwitchedRlc))
+            ? { ...rawSemantic, hasWaveformEvolution: false }
+            : rawSemantic;
     if (expectedSemantic !== rawSemantic) {
       log.info("semantic_normalized", {
         reason: isCharacteristicCurve
           ? "bjt_characteristic_curve (개념·도식 해석형) → all multi-figure flags off"
-          : isAcSuperposition
-            ? "ac_superposition (phasor 정상상태) → hasWaveformEvolution=false"
-            : isSwitchedRlc
-              ? "switched_rlc_* (v_C(t)는 학생 도출 정답) → hasWaveformEvolution=false"
-              : "SW state pair without C/L → hasWaveformEvolution=false",
+          : isUniversalAc
+            ? "universal_ac (phasor 정상상태 query) → hasWaveformEvolution=false"
+            : isAcSuperposition
+              ? "ac_superposition (phasor 정상상태) → hasWaveformEvolution=false"
+              : isSwitchedRlc
+                ? "switched_rlc_* (v_C(t)는 학생 도출 정답) → hasWaveformEvolution=false"
+                : "SW state pair without C/L → hasWaveformEvolution=false",
       });
     }
 
@@ -153,11 +160,27 @@ export async function POST(req: NextRequest) {
       topicKey: expectedTopicKey,
       semantic: expectedSemantic,
       circuitType: analysis?.circuitType?.type,
+      circuitTypeParams: analysis?.circuitType?.params,
     });
 
     // ★ Circuit-type 기반 dispatch — 결정론 파이프라인을 가진 type은 그쪽으로.
     // 현 phase: thevenin, norton. 나머지는 기존 free/strict 경로.
-    const circuitType = analysis?.circuitType?.type;
+    let circuitType = analysis?.circuitType?.type;
+    // ★ Step 4-pre (2026-05-31, minimal router) — tags가 "opamp" + "oscillator"이면 OPAMP path 강제.
+    //   universal_ac path는 V/I source 필수이지만 OPAMP 발진기는 source 없음 → trivial 회로 fail.
+    //   tags 기반 dispatch가 본격 framework 도입 전 임시 override.
+    const analysisTags = (analysis as { tags?: string[] } | null | undefined)?.tags ?? [];
+    if (
+      analysisTags.includes("opamp") &&
+      (analysisTags.includes("oscillator") || analysisTags.includes("transfer_function")) &&
+      circuitType !== "opamp" && circuitType !== "opamp_cascade_voltage_divider"
+    ) {
+      log.info("router_override", {
+        from: circuitType, to: "opamp",
+        reason: "tags.opamp + (oscillator|transfer_function) → OPAMP path 우선",
+      });
+      circuitType = "opamp";
+    }
     let problems: GeneratedProblem[];
     // ★ Topology-driven fallback — 회로이론에서 archetype의 가정과 원본 topology가 어긋나는
     //   hybrid 케이스(예: supermesh + SW + 종속전원 동시)는 generic topology-driven 파이프라인으로.
@@ -515,6 +538,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "flipflop_mixed_app" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "flipflop_mixed_pipeline", count: n, mode });
       problems = await runFlipflopMixedPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "tff_state_table_blank" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "tff_state_table_blank_pipeline", count: n, mode });
+      problems = await runTffStateTableBlankPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
