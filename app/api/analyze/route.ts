@@ -7,6 +7,7 @@ import { recoverTopology, recoverTopologyV2 } from "@/lib/analysis/topologyRecov
 import { extractLearningObjective, listObjectives } from "@/lib/analysis/learningObjective";
 import { buildCanonicalGraph } from "@/lib/graph/canonical";
 import { detectMotifs } from "@/lib/graph/motifDetector";
+import { validateCanonicalGraph } from "@/lib/graph/graphValidator";
 import { createLogger } from "@/lib/logger";
 import { SUBJECT_KEYS, type AnalysisResult, type SubjectKey, type TopologySignature } from "@/types";
 
@@ -107,6 +108,10 @@ export async function POST(req: NextRequest) {
     const motifResult = detectMotifs(canonicalGraph);
     for (const t of motifResult.tags) if (!tagsList.includes(t)) tagsList.push(t);
 
+    // ★ Step 4 — Graph Validator (2026-06-01): Canonical Graph 자체-일관성 검증 + confidence.
+    //   disconnected·floating·no-ground 등을 잡아 graphValidation으로 표면화(후속 재시도 신호).
+    const graphValidation = validateCanonicalGraph(canonicalGraph);
+
     log.info("=== Semantic ===", { flags: semanticFlags });
     log.info("=== Tags ===", { tags: tagsList, motifs: motifResult.motifs.map((m) => m.kind) });
     log.info("=== Canonical Graph ===", {
@@ -128,6 +133,7 @@ export async function POST(req: NextRequest) {
       tags: tagsList,
       motifs: motifResult.motifs,
       canonicalGraph,
+      graphValidation,
     });
   } catch (e) {
     if (e instanceof AnalyzeError) {
