@@ -79,7 +79,18 @@ export function generateTffStateTableBlank(args: {
     return pick(SIGNAL_FORMS, rand);
   };
   const TA = pickUnique();
-  const TB = pickUnique();
+  let TB = pickUnique();
+  // ★ 입력 C는 조합부 입력이어야 한다 — TA·TB 둘 다 C를 안 쓰면 C가 회로에서 dangling이 된다.
+  //   둘 다 C 미사용이면 TB를 C 사용 form(서로 다른 expr)으로 교체해 C 연결을 보장.
+  if (!TA.expr.includes("C") && !TB.expr.includes("C")) {
+    const cForms = SIGNAL_FORMS.filter((f) => f.expr.includes("C") && f.expr !== TA.expr);
+    if (cForms.length > 0) {
+      const replacement = pick(cForms, rand);
+      usedExprs.delete(TB.expr);
+      usedExprs.add(replacement.expr);
+      TB = replacement;
+    }
+  }
 
   // 상태표 8행: index 비트 순서 = Q_A · Q_B · C  (i = qa<<2 | qb<<1 | c)
   type Row = {
