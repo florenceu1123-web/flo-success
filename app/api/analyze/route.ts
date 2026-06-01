@@ -6,6 +6,7 @@ import { compactAnalysis } from "@/lib/analysis/compactAnalysis";
 import { recoverTopology, recoverTopologyV2 } from "@/lib/analysis/topologyRecovery";
 import { extractLearningObjective, listObjectives } from "@/lib/analysis/learningObjective";
 import { buildCanonicalGraph } from "@/lib/graph/canonical";
+import { detectMotifs } from "@/lib/graph/motifDetector";
 import { createLogger } from "@/lib/logger";
 import { SUBJECT_KEYS, type AnalysisResult, type SubjectKey, type TopologySignature } from "@/types";
 
@@ -100,8 +101,14 @@ export async function POST(req: NextRequest) {
     //   Motif Detector(3순위)와 Tags 자동 생성(4순위)의 입력.
     const canonicalGraph = buildCanonicalGraph(inventory);
 
+    // ★ Step 3 — Motif Detector (2026-06-01): Canonical Graph sub-pattern → motif·tags.
+    //   minimal tagsList(소자·objective)에 motif 기반 tags(parallel_rl·voltage_divider·
+    //   wien_bridge·rlc·rc_network 등)를 합친다. dispatch가 archetype 폭증 없이 motif로 분기 가능.
+    const motifResult = detectMotifs(canonicalGraph);
+    for (const t of motifResult.tags) if (!tagsList.includes(t)) tagsList.push(t);
+
     log.info("=== Semantic ===", { flags: semanticFlags });
-    log.info("=== Tags ===", { tags: tagsList });
+    log.info("=== Tags ===", { tags: tagsList, motifs: motifResult.motifs.map((m) => m.kind) });
     log.info("=== Canonical Graph ===", {
       nodeCount: canonicalGraph.features.nodeCount,
       edgeCount: canonicalGraph.features.edgeCount,
@@ -119,6 +126,7 @@ export async function POST(req: NextRequest) {
       circuitType,
       learningObjective: objective,
       tags: tagsList,
+      motifs: motifResult.motifs,
       canonicalGraph,
     });
   } catch (e) {
