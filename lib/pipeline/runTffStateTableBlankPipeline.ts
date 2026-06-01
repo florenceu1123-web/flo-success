@@ -34,7 +34,7 @@ export async function runTffStateTableBlankPipeline(args: {
   const contextHint = buildContextHint(analysis);
 
   return generateInParallel(count, async (i, seed) => {
-    const gen = generateTffStateTableBlank({ params: analysis?.circuitType?.params, seed });
+    const gen = generateTffStateTableBlank({ params: analysis?.circuitType?.params, seed, mode });
     log.info("tff_state_table_blank_generated", {
       expressions: gen.expressions,
       qaNextSop: gen.qaNextSop,

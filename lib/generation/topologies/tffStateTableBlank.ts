@@ -1,5 +1,6 @@
 import type {
   CircuitTypeParams,
+  GenerationMode,
   KmapDiagram,
   LogicGate,
   LogicNetworkDiagram,
@@ -56,6 +57,10 @@ const SIGNAL_FORMS: Array<{ expr: string; eval: Signal3 }> = [
   { expr: "Q_A · Q_B'", eval: (a, b) => a & (1 - b) },
   { expr: "C + Q_A'", eval: (a, _b, c) => c | (1 - a) },
   { expr: "C' + Q_B", eval: (_a, b, c) => (1 - c) | b },
+  // E-NOR (XNOR, ⊙) — 배타적 부정논리합. exam_variant에서 E-OR과 짝으로 사용.
+  { expr: "C ⊙ Q_A", eval: (a, _b, c) => 1 - (c ^ a) },
+  { expr: "C ⊙ Q_B", eval: (_a, b, c) => 1 - (c ^ b) },
+  { expr: "Q_A ⊙ Q_B", eval: (a, b) => 1 - (a ^ b) },
 ];
 
 const BLANK_SYMBOLS = ["㉠", "㉡", "㉢", "㉣", "㉤", "㉥", "㉦", "㉧"];
@@ -63,32 +68,45 @@ const BLANK_SYMBOLS = ["㉠", "㉡", "㉢", "㉣", "㉤", "㉥", "㉦", "㉧"];
 export function generateTffStateTableBlank(args: {
   params?: CircuitTypeParams;
   seed?: number;
+  /** exam_variant이면 한 게이트는 E-OR(XOR)·다른 한 게이트는 E-NOR(XNOR)로 구성. */
+  mode?: GenerationMode;
 }): TffStateTableBlankGeneration {
   const rand = makeRand(args.seed);
 
-  // 조합부 form 2개 (T_A, T_B) — 서로 다른 form 강제.
-  const usedExprs = new Set<string>();
-  const pickUnique = () => {
-    for (let tries = 0; tries < 30; tries++) {
-      const f = pick(SIGNAL_FORMS, rand);
-      if (!usedExprs.has(f.expr)) {
-        usedExprs.add(f.expr);
-        return f;
-      }
+  type Form = (typeof SIGNAL_FORMS)[number];
+  let TA: Form;
+  let TB: Form;
+
+  if (args.mode === "exam_variant") {
+    // ★ 변형 유형: 한 FF는 E-OR(⊕), 다른 FF는 E-NOR(⊙). 입력 C 사용 보장.
+    const xorForms = SIGNAL_FORMS.filter((f) => f.expr.includes("⊕"));
+    const xnorForms = SIGNAL_FORMS.filter((f) => f.expr.includes("⊙"));
+    let xf = pick(xorForms, rand);
+    let nf = pick(xnorForms, rand);
+    if (!xf.expr.includes("C") && !nf.expr.includes("C")) {
+      // 둘 다 C 미사용이면 C 사용 form으로 교체(XNOR 우선, 없으면 XOR).
+      const cXnor = xnorForms.filter((f) => f.expr.includes("C"));
+      const cXor = xorForms.filter((f) => f.expr.includes("C"));
+      if (cXnor.length > 0) nf = pick(cXnor, rand);
+      else if (cXor.length > 0) xf = pick(cXor, rand);
     }
-    return pick(SIGNAL_FORMS, rand);
-  };
-  const TA = pickUnique();
-  let TB = pickUnique();
-  // ★ 입력 C는 조합부 입력이어야 한다 — TA·TB 둘 다 C를 안 쓰면 C가 회로에서 dangling이 된다.
-  //   둘 다 C 미사용이면 TB를 C 사용 form(서로 다른 expr)으로 교체해 C 연결을 보장.
-  if (!TA.expr.includes("C") && !TB.expr.includes("C")) {
-    const cForms = SIGNAL_FORMS.filter((f) => f.expr.includes("C") && f.expr !== TA.expr);
-    if (cForms.length > 0) {
-      const replacement = pick(cForms, rand);
-      usedExprs.delete(TB.expr);
-      usedExprs.add(replacement.expr);
-      TB = replacement;
+    // 어느 FF가 E-OR/E-NOR인지 다양화.
+    if (rand() < 0.5) { TA = xf; TB = nf; } else { TA = nf; TB = xf; }
+  } else {
+    // 유사 유형: 서로 다른 form 2개 무작위. 입력 C는 반드시 한쪽 이상에서 사용.
+    const usedExprs = new Set<string>();
+    const pickUnique = (): Form => {
+      for (let tries = 0; tries < 30; tries++) {
+        const f = pick(SIGNAL_FORMS, rand);
+        if (!usedExprs.has(f.expr)) { usedExprs.add(f.expr); return f; }
+      }
+      return pick(SIGNAL_FORMS, rand);
+    };
+    TA = pickUnique();
+    TB = pickUnique();
+    if (!TA.expr.includes("C") && !TB.expr.includes("C")) {
+      const cForms = SIGNAL_FORMS.filter((f) => f.expr.includes("C") && f.expr !== TA.expr);
+      if (cForms.length > 0) TB = pick(cForms, rand);
     }
   }
 
@@ -273,6 +291,10 @@ function buildTffNetwork(taExpr: string, tbExpr: string): LogicNetworkDiagram {
 function parseExpr(expr: string): { op: string; args: string[] } {
   const norm = expr.replace(/\s+/g, "");
   const sig = (s: string): string => (s.endsWith("'") ? `${s.slice(0, -1)}_n` : s);
+  if (norm.includes("⊙")) {
+    const [a, b] = norm.split("⊙");
+    return { op: "XNOR", args: [sig(a), sig(b)] };
+  }
   if (norm.includes("⊕")) {
     const [a, b] = norm.split("⊕");
     return { op: "XOR", args: [sig(a), sig(b)] };
