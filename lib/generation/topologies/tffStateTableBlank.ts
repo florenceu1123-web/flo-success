@@ -32,6 +32,8 @@ export type TffStateTableBlankGeneration = {
   qbNextSop: string;
   blankAnswers: Array<{ symbol: string; answer: string }>;
   expressions: { TA: string; TB: string };
+  /** FF별 종류 — 변형유형에서 D-FF·혼합(D_A·T_B) 가능. textWriter 문구·특성식 분기. */
+  ffTypes: { A: "TFF" | "DFF"; B: "TFF" | "DFF" };
 };
 
 type Signal3 = (qa: number, qb: number, c: number) => number;
@@ -72,43 +74,69 @@ export function generateTffStateTableBlank(args: {
   mode?: GenerationMode;
 }): TffStateTableBlankGeneration {
   const rand = makeRand(args.seed);
+  // RNG warm-up — 순차/작은 seed에서 xorshift32 첫 출력이 작게 편향되는 것 방지
+  //   (변형 분기·form pick이 seed 따라 한쪽으로 쏠리지 않도록 분포 안정화).
+  for (let i = 0; i < 8; i++) rand();
 
   type Form = (typeof SIGNAL_FORMS)[number];
+  const usedExprs = new Set<string>();
+  const pickUnique = (): Form => {
+    for (let tries = 0; tries < 30; tries++) {
+      const f = pick(SIGNAL_FORMS, rand);
+      if (!usedExprs.has(f.expr)) { usedExprs.add(f.expr); return f; }
+    }
+    return pick(SIGNAL_FORMS, rand);
+  };
+  // 둘 다 C 미사용이면 b를 C 사용 form으로 교체 — 입력 C dangling 방지.
+  const ensureCUsed = (a: Form, b: Form): Form => {
+    if (a.expr.includes("C") || b.expr.includes("C")) return b;
+    const cForms = SIGNAL_FORMS.filter((f) => f.expr.includes("C") && f.expr !== a.expr);
+    return cForms.length > 0 ? pick(cForms, rand) : b;
+  };
+
+  // 변형유형은 세 가지 중 하나(사용자 요청). 플립플롭 종류는 FF별로(ffA·ffB) 결정:
+  //   A. 둘 다 D 플립플롭 (D_A·D_B)
+  //   B. 혼합 — FF A는 D 플립플롭, FF B는 T 플립플롭 (D_A·T_B)
+  //   C. 게이트를 E-OR(⊕) 1개 + E-NOR(⊙) 1개로 (둘 다 T 플립플롭 유지)
   let TA: Form;
   let TB: Form;
+  let ffA: "TFF" | "DFF" = "TFF";
+  let ffB: "TFF" | "DFF" = "TFF";
 
   if (args.mode === "exam_variant") {
-    // ★ 변형 유형: 한 FF는 E-OR(⊕), 다른 FF는 E-NOR(⊙). 입력 C 사용 보장.
-    const xorForms = SIGNAL_FORMS.filter((f) => f.expr.includes("⊕"));
-    const xnorForms = SIGNAL_FORMS.filter((f) => f.expr.includes("⊙"));
-    let xf = pick(xorForms, rand);
-    let nf = pick(xnorForms, rand);
-    if (!xf.expr.includes("C") && !nf.expr.includes("C")) {
-      // 둘 다 C 미사용이면 C 사용 form으로 교체(XNOR 우선, 없으면 XOR).
-      const cXnor = xnorForms.filter((f) => f.expr.includes("C"));
-      const cXor = xorForms.filter((f) => f.expr.includes("C"));
-      if (cXnor.length > 0) nf = pick(cXnor, rand);
-      else if (cXor.length > 0) xf = pick(cXor, rand);
-    }
-    // 어느 FF가 E-OR/E-NOR인지 다양화.
-    if (rand() < 0.5) { TA = xf; TB = nf; } else { TA = nf; TB = xf; }
-  } else {
-    // 유사 유형: 서로 다른 form 2개 무작위. 입력 C는 반드시 한쪽 이상에서 사용.
-    const usedExprs = new Set<string>();
-    const pickUnique = (): Form => {
-      for (let tries = 0; tries < 30; tries++) {
-        const f = pick(SIGNAL_FORMS, rand);
-        if (!usedExprs.has(f.expr)) { usedExprs.add(f.expr); return f; }
+    const variant = rand();
+    if (variant < 1 / 3) {
+      // A — 둘 다 D-FF.
+      ffA = "DFF"; ffB = "DFF";
+      TA = pickUnique();
+      TB = ensureCUsed(TA, pickUnique());
+    } else if (variant < 2 / 3) {
+      // B — 혼합 D_A·T_B.
+      ffA = "DFF"; ffB = "TFF";
+      TA = pickUnique();
+      TB = ensureCUsed(TA, pickUnique());
+    } else {
+      // C — E-OR 1개 + E-NOR 1개 (둘 다 T-FF).
+      ffA = "TFF"; ffB = "TFF";
+      const xorForms = SIGNAL_FORMS.filter((f) => f.expr.includes("⊕"));
+      const xnorForms = SIGNAL_FORMS.filter((f) => f.expr.includes("⊙"));
+      let xf = pick(xorForms, rand);
+      let nf = pick(xnorForms, rand);
+      if (!xf.expr.includes("C") && !nf.expr.includes("C")) {
+        const cXnor = xnorForms.filter((f) => f.expr.includes("C"));
+        const cXor = xorForms.filter((f) => f.expr.includes("C"));
+        if (cXnor.length > 0) nf = pick(cXnor, rand);
+        else if (cXor.length > 0) xf = pick(cXor, rand);
       }
-      return pick(SIGNAL_FORMS, rand);
-    };
-    TA = pickUnique();
-    TB = pickUnique();
-    if (!TA.expr.includes("C") && !TB.expr.includes("C")) {
-      const cForms = SIGNAL_FORMS.filter((f) => f.expr.includes("C") && f.expr !== TA.expr);
-      if (cForms.length > 0) TB = pick(cForms, rand);
+      if (rand() < 0.5) { TA = xf; TB = nf; } else { TA = nf; TB = xf; }
     }
+  } else {
+    // 유사 유형 — 둘 다 T 플립플롭 + 무작위 form 2개.
+    TA = pickUnique();
+    TB = ensureCUsed(TA, pickUnique());
   }
+  const isDffA = ffA === "DFF";
+  const isDffB = ffB === "DFF";
 
   // 상태표 8행: index 비트 순서 = Q_A · Q_B · C  (i = qa<<2 | qb<<1 | c)
   type Row = {
@@ -123,9 +151,9 @@ export function generateTffStateTableBlank(args: {
     const c = i & 1;
     const ta = TA.eval(qa, qb, c);
     const tb = TB.eval(qa, qb, c);
-    // T-FF rule: Q(t+1) = Q ⊕ T
-    const qaNext = qa ^ ta;
-    const qbNext = qb ^ tb;
+    // D-FF: Q(t+1) = D(=form). T-FF: Q(t+1) = Q ⊕ T. (FF별로 다를 수 있음 — 혼합 변형)
+    const qaNext = isDffA ? ta : qa ^ ta;
+    const qbNext = isDffB ? tb : qb ^ tb;
     fullRows.push({ qa, qb, c, ta, tb, qaNext, qbNext });
   }
 
@@ -222,13 +250,12 @@ export function generateTffStateTableBlank(args: {
     rows: qbKmap.cells.map((cells, ri) => ({ label: qbKmap.rowOrder[ri], values: cells })),
   };
 
-  // logicNetworkDiagram — 조합부 + T-FF 2개.
-  const logicNetworkDiagram = buildTffNetwork(TA.expr, TB.expr);
+  // logicNetworkDiagram — 조합부 + 플립플롭 2개 (FF별 타입).
+  const logicNetworkDiagram = buildTffNetwork(TA.expr, TB.expr, ffA, ffB);
 
-  // 최소 SOP — 학생 학습용으로 expression 그대로 (T-FF rule상 Q_next = Q ⊕ T).
-  //   실제 최소화는 textWriter가 GPT로 풀이 작성.
-  const qaNextSop = `Q_A ⊕ (${TA.expr})`;
-  const qbNextSop = `Q_B ⊕ (${TB.expr})`;
+  // 다음 상태 식 — D-FF: Q(t+1)=D=form. T-FF: Q(t+1)=Q⊕T. (FF별)
+  const qaNextSop = isDffA ? TA.expr : `Q_A ⊕ (${TA.expr})`;
+  const qbNextSop = isDffB ? TB.expr : `Q_B ⊕ (${TB.expr})`;
 
   return {
     logicNetworkDiagram,
@@ -239,13 +266,21 @@ export function generateTffStateTableBlank(args: {
     qbNextSop,
     blankAnswers,
     expressions: { TA: TA.expr, TB: TB.expr },
+    ffTypes: { A: ffA, B: ffB },
   };
 }
 
 // =====================================================================
 // 회로 (logic_network) 구성 — 조합부 + T-FF 2개
 // =====================================================================
-function buildTffNetwork(taExpr: string, tbExpr: string): LogicNetworkDiagram {
+function buildTffNetwork(
+  taExpr: string,
+  tbExpr: string,
+  ffA: "TFF" | "DFF",
+  ffB: "TFF" | "DFF",
+): LogicNetworkDiagram {
+  const inA = ffA === "DFF" ? "D_A" : "T_A";
+  const inB = ffB === "DFF" ? "D_B" : "T_B";
   const gates: LogicGate[] = [];
   // NOT 게이트 (Q_A', Q_B', C')
   const needsNot = new Set<string>();
@@ -273,12 +308,12 @@ function buildTffNetwork(taExpr: string, tbExpr: string): LogicNetworkDiagram {
     return outputName;
   };
 
-  const taSig = exprToInput(taExpr, "T_A", 1);
-  const tbSig = exprToInput(tbExpr, "T_B", 2);
+  const taSig = exprToInput(taExpr, inA, 1);
+  const tbSig = exprToInput(tbExpr, inB, 2);
 
-  // T-FF 2개 — Q_A·Q_B output.
-  gates.push({ id: "G_tff_QA", type: "TFF", inputs: [taSig], output: "Q_A" });
-  gates.push({ id: "G_tff_QB", type: "TFF", inputs: [tbSig], output: "Q_B" });
+  // 플립플롭 2개 (FF별 TFF/DFF) — Q_A·Q_B output.
+  gates.push({ id: "G_ff_QA", type: ffA, inputs: [taSig], output: "Q_A" });
+  gates.push({ id: "G_ff_QB", type: ffB, inputs: [tbSig], output: "Q_B" });
 
   return {
     inputs: ["C"],
