@@ -95,6 +95,53 @@ check(
 // 전체 그래프가 한 덩어리 (고립 루프 없음): 모든 branch가 V·I·L·R·C 6개
 check("branch 6개 전부 보존", (resE?.branches ?? []).length === 6, String((resE?.branches ?? []).length));
 
+// ─── Case F: I 전원의 아래쪽 끝이 유령 노드 — GND로 수리 (병렬 전원 회피) ───
+//   (2026-06-03 18:19 실제 버그: I[n_left, n_top]에서 n_left가 유령 노드(실제로는 GND).
+//    이전 규칙은 V의 hot 노드(n_mid)에 붙여 I∥V 완전 병렬을 만들었음 → 그림·답 모두 깨짐)
+console.log("\n[Case F] I 전원 유령 노드 — GND 수리 (병렬 전원 회피)");
+const phantomBottomNode = [
+  { id: "I1", type: "I", value: "18∠90°A", pins: ["n_left", "n_top"] },  // n_left = 유령 (실제 GND)
+  { id: "V1", type: "V", value: "9∠90°V", pins: ["n_top", "n_mid"] },
+  { id: "R1", type: "R", value: "0.25Ω", pins: ["n_mid", "GND"] },
+  { id: "L1", type: "L", value: "j3Ω", pins: ["n_top", "n_a"] },
+  { id: "R2", type: "R", value: "2Ω", pins: ["n_a", "n_b"] },
+  { id: "C1", type: "C", value: "-j3Ω", pins: ["n_b", "GND"] },
+];
+const resF = recoverTopologyFromPins(phantomBottomNode);
+check("pins_graph_v3 채택", resF?.strategy === "pins_graph_v3", resF?.strategy);
+const iBranchF = (resF?.branches ?? []).find((b) => b.components[0].type === "I");
+const vBranchF = (resF?.branches ?? []).find((b) => b.components[0].type === "V");
+check(
+  "I의 유령 끝이 GND로 수리 (current_source_leg)",
+  iBranchF?.betweenNodes?.includes("GND") === true && iBranchF?.role === "current_source_leg",
+  `${JSON.stringify(iBranchF?.betweenNodes)} role=${iBranchF?.role}`,
+);
+check(
+  "I와 V가 완전 병렬이 아님 (다른 노드 쌍)",
+  JSON.stringify([...(iBranchF?.betweenNodes ?? [])].sort()) !==
+    JSON.stringify([...(vBranchF?.betweenNodes ?? [])].sort()),
+  `I=${JSON.stringify(iBranchF?.betweenNodes)} V=${JSON.stringify(vBranchF?.betweenNodes)}`,
+);
+
+// ─── Case G: pickBetterInventory — dangling 패널티로 일관된 추출 우선 ─────────
+console.log("\n[Case G] pickBetterInventory — 유령 노드 있는 추출보다 일관된 추출 우선");
+const runWithPhantom = phantomBottomNode;             // 6개, dangling 1개 (n_left)
+const runConsistent = [                               // 6개, dangling 0개
+  { id: "I1", type: "I", value: "18∠90°A", pins: ["n_top", "GND"] },
+  { id: "V1", type: "V", value: "9∠90°V", pins: ["n_top", "n_mid"] },
+  { id: "R1", type: "R", value: "0.25Ω", pins: ["n_mid", "GND"] },
+  { id: "L1", type: "L", value: "j3Ω", pins: ["n_top", "n_right"] },
+  { id: "R2", type: "R", value: "2Ω", pins: ["n_right", "n_a"] },
+  { id: "C1", type: "C", value: "-j3Ω", pins: ["n_a", "GND"] },
+];
+const { pickBetterInventory } = await import("../lib/analysis/extractComponentInventory.ts");
+const pickedG = pickBetterInventory(runWithPhantom, runConsistent);
+check(
+  "유령 노드 없는 추출(두 번째)이 선택됨",
+  pickedG === runConsistent,
+  `선택된 I pins: ${JSON.stringify(pickedG.find((c) => c.type === "I")?.pins)}`,
+);
+
 // ─── Case D: 통합 — /api/generate (dev 서버 필요) ────────────────────────────
 console.log("\n[Case D] /api/generate 통합 (최대 평균전력)");
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";

@@ -176,24 +176,41 @@ export function recoverTopologyFromPins(inventory: ComponentInventoryItem[]): Re
 
     // 재연결 후보 우선순위 (2026-06-03 보강 — GPT가 같은 물리 노드에 다른 이름을 붙인 케이스):
     //  ① 다른 전원(V/I)의 비접지 hot 노드 — 임용 회로의 전원들은 같은 공급 rail을 공유하는 관례.
-    //  ② 최고 degree 비접지 노드 (tie → 알파벳).
-    //  ★ GND는 후보 제외 — GND에 붙이면 전원+직렬소자가 본 회로와 분리된 고립 루프가 됨.
-    //    (정말 GND에 연결돼야 한다면 GPT가 애초에 GND로 라벨링했을 것)
-    const otherSourceHotNodes: string[] = [];
-    for (const other of twoPinComps) {
-      if (other.id === c.id) continue;
+    //     ★ 단, 그 연결이 다른 전원과 "같은 노드 쌍"(완전 병렬)을 만들면 회피 — 보통 잘못된 수리.
+    //  ② GND (라벨이 존재할 때) — 전원 leg의 아래쪽 끝이 dangling인 케이스 (예: I[유령노드, 상단rail]).
+    //  ③ hot 후보가 병렬을 만들지만 GND 라벨이 없으면 hot 후보 허용 (최선의 수리).
+    //  ④ 최고 degree 비접지 노드 (tie → 알파벳).
+    const otherSources = twoPinComps.filter((other) => {
       const ot = other.type.toUpperCase();
-      if (ot !== "V" && ot !== "I") continue;
+      return other.id !== c.id && (ot === "V" || ot === "I");
+    });
+    const otherSourceHotNodes: string[] = [];
+    for (const other of otherSources) {
       for (const n of pinsMap.get(other.id)!) {
         if (!isGndLabel(n) && n !== danglingEnd && n !== otherEnd) otherSourceHotNodes.push(n);
       }
     }
     const byDegreeDesc = (x: string, y: string) =>
       (deg.get(y)! - deg.get(x)!) || (x < y ? -1 : 1);
+    /** target으로 재연결하면 다른 전원과 같은 노드 쌍(완전 병렬)이 되는가 */
+    const wouldParallelAnotherSource = (target: string): boolean => {
+      const myPair = [target, otherEnd].sort().join("|");
+      return otherSources.some(
+        (other) => [...pinsMap.get(other.id)!].sort().join("|") === myPair,
+      );
+    };
+    const gndNode = [...deg.keys()].find(isGndLabel);
+    const hotCandidates = [...new Set(otherSourceHotNodes)].sort(byDegreeDesc);
+
     let target: string | undefined;
-    if (otherSourceHotNodes.length > 0) {
-      target = [...new Set(otherSourceHotNodes)].sort(byDegreeDesc)[0];
-    } else {
+    // ① 병렬을 만들지 않는 hot 후보
+    target = hotCandidates.find((n) => !wouldParallelAnotherSource(n));
+    // ② GND (라벨 존재 시) — hot 후보가 없거나 전부 병렬을 만드는 경우
+    if (!target && gndNode) target = gndNode;
+    // ③ GND 라벨이 없으면 병렬이라도 hot 후보 사용 (최선의 수리)
+    if (!target) target = hotCandidates[0];
+    // ④ 최고 degree 비접지 노드
+    if (!target) {
       const candidates = [...deg.keys()].filter(
         (n) => n !== danglingEnd && n !== otherEnd && !isGndLabel(n),
       );

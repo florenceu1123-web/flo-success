@@ -457,20 +457,36 @@ export function applySourceExpressions(
 /**
  * 2회 병렬 추출 결과 중 더 완전한 inventory 선택.
  *
- *  점수 = 소자 수(지배 항목) + pins 커버리지 + 값 커버리지.
+ *  점수 = 소자 수(지배 항목) + pins 커버리지 + 값 커버리지 − dangling 노드 패널티.
  *  Vision 추출은 stochastic — 같은 이미지라도 실행마다 소자 수가 다르다 (예: R 누락).
  *  소자를 더 많이 잡은 쪽이 거의 항상 더 정확하므로 소자 수를 가장 크게 가중.
+ *
+ *  ★ dangling 패널티 (2026-06-03): 한 번만 등장하는 비접지 노드(유령 노드)는 GPT가 같은
+ *    물리 노드에 다른 이름을 붙인 신호 — 내부적으로 일관된(dangling 없는) 추출을 우선.
  *
  * @returns 점수 높은 inventory (동점이면 첫 번째)
  */
 export function pickBetterInventory(
   ...candidates: ComponentInventoryItem[][]
 ): ComponentInventoryItem[] {
+  const countDangling = (inv: ComponentInventoryItem[]): number => {
+    const deg = new Map<string, number>();
+    for (const c of inv) {
+      for (const n of c.pins ?? []) deg.set(n, (deg.get(n) ?? 0) + 1);
+    }
+    let dangling = 0;
+    for (const [node, d] of deg) {
+      const u = node.toUpperCase();
+      if (u === "GND" || u === "GROUND" || u === "0") continue;
+      if (d <= 1) dangling++;
+    }
+    return dangling;
+  };
   const score = (inv: ComponentInventoryItem[]): number => {
     if (inv.length === 0) return -1;
     const pinsCoverage = inv.filter((c) => c.pins && c.pins.length >= 2).length / inv.length;
     const valueCoverage = inv.filter((c) => c.value).length / inv.length;
-    return inv.length * 10 + pinsCoverage * 5 + valueCoverage * 3;
+    return inv.length * 10 + pinsCoverage * 5 + valueCoverage * 3 - countDangling(inv) * 2;
   };
   let best = candidates[0] ?? [];
   let bestScore = score(best);
