@@ -9,7 +9,7 @@ import {
 import { solveAcQueries, type AcQuery, type AcQueryResult } from "@/lib/solver/universalAc";
 import { netlistToComplexStandalone } from "@/lib/solver/netlistToComplex";
 import { validateAcResult } from "@/lib/solver/validateAcResult";
-import { findVariableResistor } from "@/lib/generation/topologyDriven/inferDcQueries";
+import { addLoadResistor } from "@/lib/generation/topologyDriven/addLoadResistor";
 import { writeUniversalAcText } from "@/lib/generation/topologies/universalAcTextWriter";
 import { applyRlExamVariant } from "@/lib/analysis/topologyRecovery";
 import { GenerateError } from "@/lib/generation/_core";
@@ -82,13 +82,26 @@ export async function runUniversalAcPipeline(args: {
     let chosen: Attempt | null = null;
     let bestFallback: Attempt | null = null;
 
+    const hasMaxPowerQuery = rawQueries.some((q) => q.kind === "maxAvgPower");
+
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const localSeed = seed + attempt * 104729;
       const perturbedTopology = perturbTopology(baseTopology, mode, localSeed);
       const gen = buildFromTopology({ topology: perturbedTopology, mode, seed: localSeed });
 
+      // ★ 최대전력 문제 — 부하 R_L을 측정 단자에 별도 component로 추가.
+      //   R_L은 그림의 placeholder(inventory 제외 대상)이므로 회로 기존 R(전원 내부저항 등)을
+      //   가변으로 바꾸지 않고 부하 단자에 새로 추가해야 원본과 같은 회로가 된다.
+      const loadInfo = hasMaxPowerQuery
+        ? addLoadResistor(gen.netlistOpen, analysis)
+        : null;
+
       // netlist 단독으로 ComplexSolverNetwork 구성 (DC solver 결과 의존 안 함)
       const complexNet = netlistToComplexStandalone(gen.netlistOpen, omega);
+      // R_L은 비수치 값("R_L")이라 complexNet에서 빠짐 — placeholder 1Ω로 등록 (sweep이 교체)
+      if (loadInfo && !complexNet.resistors.some((r) => r.id === loadInfo.id)) {
+        complexNet.resistors.push({ id: loadInfo.id, a: loadInfo.nodeA, b: loadInfo.nodeB, R: 1 });
+      }
 
       const resolved: AcQuery[] = resolveAcQueryRefs(
         rawQueries,
@@ -135,17 +148,9 @@ export async function runUniversalAcPipeline(args: {
       );
     }
 
-    // 가변 R 표기 단일화 — placeholder 박스 제거, 라벨만 "R"로.
-    //   ★ maxAvgPower query가 있을 때만 (즉 "최대 전력 전달" 문제) 가변 R 표시.
-    //     componentAvgPower만 있는 평균전력 문제(임용 8번)는 R 모두 고정값으로 둠.
-    const hasMaxAvgPower = final.queryResults.some((r) => r.query.kind === "maxAvgPower");
-    if (hasMaxAvgPower) {
-      const varRid = findVariableResistor(final.gen.netlistOpen, analysis);
-      if (varRid) {
-        const comp = final.gen.netlistOpen.components.find((c) => c.id === varRid);
-        if (comp) comp.value = "R";
-      }
-    }
+    // R_L은 addLoadResistor가 이미 별도 component로 추가함 (value "R_L" 표시).
+    //   기존 회로 R은 모두 고정값 유지 — findVariableResistor로 기존 R을 가변으로 바꾸던
+    //   이전 동작은 전원 내부저항을 부하로 오선택하는 버그라 제거 (2026-06-03).
     // analysis loadPlaceholders 제거 (보라 dashed box 중복 방지)
     final.gen.netlistOpen.loadPlaceholders = [];
 

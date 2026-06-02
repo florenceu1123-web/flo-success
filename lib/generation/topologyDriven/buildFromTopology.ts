@@ -6,6 +6,7 @@ import type {
   TopologySignature,
 } from "@/types";
 import { solveMNA, type SolverNetwork, type SolverResult } from "@/lib/solver/mna";
+import { parsePhasor } from "@/lib/solver/parsePhasor";
 import { makeRand, NICE_CURRENTS, NICE_RESISTORS, NICE_VOLTAGES, pick, round3 } from "../topologies/_helpers";
 import { parseValue } from "./parseValue";
 
@@ -438,6 +439,39 @@ function addComponent(
       pins: [{ id: "p1", node: a, side: "top" }, { id: "p2", node: b, side: "bottom" }],
     });
     solver.resistors.push({ id, a, b, R });
+    if (belongsToSwitching) switchingIds.add(id);
+    return;
+  }
+
+  // ★ AC phasor 표기 ("9∠90°V"·"18∠90°A"·"3+j4V")는 원본 문자열 보존 (2026-06-03).
+  //   parseValue가 못 읽어 random nice 값으로 대체되면 크기·위상이 모두 사라져
+  //   AC 해석이 완전히 다른 회로가 됨. AC 솔버(netlistToComplexStandalone → parsePhasor)가
+  //   문자열을 직접 읽으므로 component value는 그대로 두고, DC 솔버에는 크기 근사만 등록.
+  const isPhasorValue =
+    (t === "V" || t === "VS" || t === "I" || t === "IS") &&
+    typeof comp.value === "string" &&
+    /∠|[+−-]\s*j/.test(comp.value);
+  if (isPhasorValue) {
+    const sourceType = t === "V" || t === "VS" ? "V" : "I";
+    const ph = parsePhasor(comp.value as string);
+    const mag = ph ? Math.hypot(ph.phasor.re, ph.phasor.im) : 1;
+    usedValues[id] = mag;
+    components.push({
+      id,
+      type: sourceType,
+      value: String(comp.value),
+      pins: sourceType === "V"
+        ? [
+            { id: "p1", node: a, side: "top", role: "positive" },
+            { id: "p2", node: b, side: "bottom", role: "negative" },
+          ]
+        : [
+            { id: "p1", node: a, side: "top" },
+            { id: "p2", node: b, side: "bottom" },
+          ],
+    });
+    if (sourceType === "V") solver.vsources.push({ id, a, b, V: mag });
+    else solver.isources.push({ id, a, b, I: mag });
     if (belongsToSwitching) switchingIds.add(id);
     return;
   }

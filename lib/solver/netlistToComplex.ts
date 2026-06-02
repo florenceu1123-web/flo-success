@@ -36,6 +36,30 @@ function parseInductorImpedance(raw: string | number | undefined): number | null
 }
 
 /**
+ * C의 임피던스 표기 ("-j3Ω", "-j(1/2)Ω", "−j5") → 숫자 X (1/(jωC) = -jX → X 반환).
+ * 매치 안 되면 null. omega로 C = 1/(ω·X)로 환산 가능.
+ * −(U+2212 minus sign)·-(hyphen) 모두 인식.
+ */
+function parseCapacitorImpedance(raw: string | number | undefined): number | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().replace(/\s+/g, "");
+  // -j(분수)Ω — -j(2/3)Ω, -j(1/2)
+  const fracMatch = trimmed.match(/^[−-]j\((\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\)Ω?$/i);
+  if (fracMatch) {
+    const num = parseFloat(fracMatch[1]);
+    const den = parseFloat(fracMatch[2]);
+    if (den !== 0 && Number.isFinite(num / den) && num / den > 0) return num / den;
+  }
+  // -j숫자Ω — -j3Ω, -j10Ω, -j0.5
+  const numMatch = trimmed.match(/^[−-]j(\d+(?:\.\d+)?)Ω?$/i);
+  if (numMatch) {
+    const v = parseFloat(numMatch[1]);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+
+/**
  * netlist 단독으로 ComplexSolverNetwork 구성. AC pipeline에서 권장.
  */
 export function netlistToComplexStandalone(
@@ -81,8 +105,22 @@ export function netlistToComplexStandalone(
       }
       if (!Number.isFinite(L) || L <= 0) L = 10e-3;  // fallback default 10mH (v1: trivial 결과 회피)
       inductors.push({ id: c.id, a, b, L });
-    } else if (c.type === "C" && numericRaw !== undefined && numericRaw > 0) {
-      capacitors.push({ id: c.id, a, b, C: scaleByUnit(numericRaw, parsed?.suffix, "F") });
+    } else if (c.type === "C") {
+      // C value parsing — F 단위 우선, "-j숫자Ω" 임피던스 표기는 ω로 F 환산.
+      let C = numericRaw !== undefined && numericRaw > 0
+        ? scaleByUnit(numericRaw, parsed?.suffix, "F")
+        : NaN;
+      if (!Number.isFinite(C) || C <= 0) {
+        // 임피던스 표기 시도: "-j3Ω" → X_C → C = 1/(ω·X_C)
+        const impedance = parseCapacitorImpedance(c.value as string | number | undefined);
+        if (impedance !== null && omega > 0) {
+          C = 1 / (omega * impedance);  // 1/(jωC) = -jX → C = 1/(ωX)
+        }
+      }
+      // ★ 파싱 실패한 C를 조용히 누락시키지 않음 — 회로에서 빠지면 완전히 다른 회로가 됨.
+      //   L과 동일하게 안전 default (X_C = 10Ω 상당)로 폴백.
+      if (!Number.isFinite(C) || C <= 0) C = omega > 0 ? 1 / (omega * 10) : 1e-6;
+      capacitors.push({ id: c.id, a, b, C });
     } else if (c.type === "V") {
       // polar phasor 지원 — "5∠30°V" 또는 일반 "10V" 모두 파싱
       const phasor = parsePhasor(c.value as string | number | undefined);

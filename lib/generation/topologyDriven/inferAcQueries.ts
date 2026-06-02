@@ -138,20 +138,30 @@ export function resolveAcQueryRefs(
   const primaryVs = netlist.components.find((c) => c.type === "V");
   const primaryVsId = primaryVs?.id;
 
-  // 3) variable R — load_leg R 또는 마지막 R (DC와 같은 휴리스틱)
-  const placeholderR = analysis.loadPlaceholders?.find((ph) =>
-    ph.label && /^R(_L)?$/i.test(ph.label.trim()),
-  );
+  // 3) variable R — 우선순위:
+  //   (0) ★ R_L 부하 component (addLoadResistor가 추가한 것) — 최대전력 문제의 정답 경로.
+  //       기존 회로 R(전원 내부저항 등)을 가변으로 오선택하지 않도록 항상 최우선.
+  //   (1) loadPlaceholders 위치 매칭 R
+  //   (2) load_leg R (legacy 휴리스틱)
+  //   (3) 마지막 R (fallback)
   let variableRid: string | undefined;
-  if (placeholderR) {
-    const [a, b] = placeholderR.betweenNodes;
-    const match = netlist.components.find(
-      (c) =>
-        c.type === "R" &&
-        c.pins.some((p) => p.node === a) &&
-        c.pins.some((p) => p.node === b),
+  const loadR = netlist.components.find((c) => c.type === "R" && /^R_?L$/i.test(c.id));
+  if (loadR) variableRid = loadR.id;
+
+  if (!variableRid) {
+    const placeholderR = analysis.loadPlaceholders?.find((ph) =>
+      ph.label && /^R(_L)?$/i.test(ph.label.trim()),
     );
-    variableRid = match?.id;
+    if (placeholderR) {
+      const [a, b] = placeholderR.betweenNodes;
+      const match = netlist.components.find(
+        (c) =>
+          c.type === "R" &&
+          c.pins.some((p) => p.node === a) &&
+          c.pins.some((p) => p.node === b),
+      );
+      variableRid = match?.id;
+    }
   }
   if (!variableRid) {
     const legR = netlist.components.find((c) => c.type === "R" && /R_leg/i.test(c.id));

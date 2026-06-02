@@ -45,7 +45,14 @@ export async function writeUniversalAcText(args: {
     return base;
   };
 
-  const ansLines = queryResults.map((q) => `- ${q.query.label} = ${fmt(q.value, q.unit, q.meta)}`);
+  const ansLines = queryResults.map((q) => {
+    let line = `- ${q.query.label} = ${fmt(q.value, q.unit, q.meta)}`;
+    // 최대전력 query는 그때의 P_max도 함께 표기 (문제의 최종 질문)
+    if (q.query.kind === "maxAvgPower" && typeof q.meta?.Pmax === "number" && Number.isFinite(q.meta.Pmax)) {
+      line += `, P_max = ${fmt(q.meta.Pmax, "W")}`;
+    }
+    return line;
+  });
 
   // componentAvgPower query가 있으면 임용 8번 형식(평균전력 3단계)으로 answer/solution 정리.
   const avgPowerResults = queryResults.filter((r) => r.query.kind === "componentAvgPower");

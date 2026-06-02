@@ -196,14 +196,10 @@ function evaluate(
       };
     }
     case "maxAvgPower": {
-      // R_L sweep → R_L에서 P_avg = |V_RL|²/(2·R_L) (peak phasor) 또는 |V_RL|²/R_L (rms) 최대
-      const [rMin, rMax] = q.rRange ?? [0.1, 1000];
-      let bestR = NaN;
-      let bestP = -Infinity;
-      const N = 300;
-      for (let k = 0; k <= N; k++) {
-        const t = k / N;
-        const R = rMin * Math.pow(rMax / rMin, t);
+      // R_L sweep → R_L에서 P_avg = |V_RL|²/(2·R_L) (peak phasor) 최대.
+      //   이론값: 저항성 부하의 최대전력 전달 조건 R_L = |Z_th|.
+      //   1) coarse log sweep으로 최대 근방 탐색 → 2) ternary search 정밀화 → 3) nice 값 snap.
+      const powerAt = (R: number): number => {
         const sub: ComplexSolverNetwork = {
           ...net,
           resistors: net.resistors.map((r) => (r.id === q.resistorId ? { ...r, R } : r)),
@@ -211,19 +207,60 @@ function evaluate(
         try {
           const s = solveComplexMna(sub);
           const targetR = sub.resistors.find((r) => r.id === q.resistorId);
-          if (!targetR) continue;
+          if (!targetR) return -Infinity;
           const va = s.nodeVoltages[targetR.a];
           const vb = s.nodeVoltages[targetR.b];
+          if (!va || !vb) return -Infinity;
           const vDrop = { re: va.re - vb.re, im: va.im - vb.im };
           const mag2 = vDrop.re * vDrop.re + vDrop.im * vDrop.im;
           // peak phasor 가정 — P_avg = |V|²/(2R). rms phasor면 |V|²/R.
-          const P = mag2 / (2 * R);
-          if (P > bestP) {
-            bestP = P;
-            bestR = R;
-          }
-        } catch { /* singular */ }
+          return mag2 / (2 * R);
+        } catch {
+          return -Infinity; // singular
+        }
+      };
+
+      // 1) coarse log sweep
+      const [rMin, rMax] = q.rRange ?? [0.1, 1000];
+      let bestR = NaN;
+      let bestP = -Infinity;
+      const N = 300;
+      for (let k = 0; k <= N; k++) {
+        const t = k / N;
+        const R = rMin * Math.pow(rMax / rMin, t);
+        const P = powerAt(R);
+        if (P > bestP) {
+          bestP = P;
+          bestR = R;
+        }
       }
+      if (!Number.isFinite(bestR) || bestP <= 0) {
+        return { query: q, value: NaN, unit: "Ω", meta: { Pmax: NaN } };
+      }
+
+      // 2) ternary search 정밀화 — coarse best 주변 (log scale)
+      const stepRatio = Math.pow(rMax / rMin, 1 / N);
+      let lo = bestR / stepRatio;
+      let hi = bestR * stepRatio;
+      for (let iter = 0; iter < 60; iter++) {
+        const m1 = lo * Math.pow(hi / lo, 1 / 3);
+        const m2 = lo * Math.pow(hi / lo, 2 / 3);
+        if (powerAt(m1) < powerAt(m2)) lo = m1;
+        else hi = m2;
+      }
+      bestR = Math.sqrt(lo * hi);
+      bestP = powerAt(bestR);
+
+      // 3) nice 값 snap — 정수·0.5 단위에 1% 이내면 snap (임용 답은 보통 nice 값)
+      const snapCandidates = [Math.round(bestR), Math.round(bestR * 2) / 2];
+      for (const cand of snapCandidates) {
+        if (cand > 0 && Math.abs(bestR - cand) / bestR < 0.01) {
+          bestR = cand;
+          bestP = powerAt(cand);
+          break;
+        }
+      }
+
       return {
         query: q,
         value: round(bestR, 4),
