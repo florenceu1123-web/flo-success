@@ -48,6 +48,11 @@ export function detectFourNodeImyong(netlist: CircuitNetlist): null | {
   const ground = netlist.ground ?? "GND";
   const isGnd = (n: string) => GROUND_LABELS.has(n) || n === ground;
 
+  // ★ DC ladder 전용 — L/C(리액티브 소자)가 있는 AC 회로는 대상 아님 (2026-06-03).
+  //   AC 회로(변형유형의 V leg + I·C horizontal 등)가 잘못 매치되면 column walk가
+  //   노드를 누락해 소자가 겹쳐 그려짐 → generic mesh layout으로 fallback해야 함.
+  if (netlist.components.some((c) => c.type === "L" || c.type === "C")) return null;
+
   // V 소스 식별.
   const vSources = netlist.components.filter((c) => c.type === "V");
   if (vSources.length !== 1) return null;
@@ -101,7 +106,13 @@ export function detectFourNodeImyong(netlist: CircuitNetlist): null | {
     columns.push(next);
     current = next;
   }
-  // 미방문 non-GND가 있으면 (branch 가지 등) 일단 append — column 순서로 fallback.
+  // ★ walk가 모든 horizontal-연결 노드를 커버하지 못하면 (분기 walk 누락 등) 이 layout 부적합 (2026-06-03).
+  //   누락된 노드의 component들이 fallback 위치에 겹쳐 그려지는 시각 버그 방지 — generic layout으로.
+  for (const n of adj.keys()) {
+    if (!visited.has(n)) return null;
+  }
+
+  // 미방문 non-GND가 있으면 (horizontal 연결 없는 고립 leg 노드) append — column 순서로 fallback.
   for (const n of nonGndNodes) {
     if (!visited.has(n)) {
       columns.push(n);
