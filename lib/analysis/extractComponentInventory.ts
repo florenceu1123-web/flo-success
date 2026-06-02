@@ -39,6 +39,14 @@ R_L, V_ab 같은 annotation(부하·측정 표시)도 절대 포함하지 마라
 
 【허용 type enum】 R, V, I, C, L, SW, VCVS, VCCS, CCVS, CCCS, D, OPAMP, BJT, MOSFET
 
+【★ 완전성(빠짐없이) — 절대 규칙】
+추출을 마치기 전, 회로의 ★ 모든 가지(branch) ★ 를 훑으며 셀프 체크하라:
+  · 상단 가로(horizontal) 라인의 소자 — 직렬로 늘어선 소자 각각 별도 항목
+  · 좌·우·중간의 세로(vertical) 가지 소자 — 병렬 가지 각각 별도 항목
+  · 전원에 ★ 직렬로 붙은 작은 저항 ★ (0.25Ω, 0.5Ω 등 내부저항) — 값이 작아도 반드시 포함
+  · 전원이 여러 개면 (전압원 + 전류원 혼합 포함) ★ 모두 ★ 별도 항목
+값·심볼이 있는 모든 소자를 세었는지 개수를 그림과 대조하라. 누락 1개가 회로 해석 전체를 망친다.
+
 【★ pins (Connectivity) — 절대 규칙 (2026-05-31 신규)】
 2-pin component (R·V·I·C·L·SW·D·dep source)는 ★ pins: [node_a, node_b] ★ 두 노드 필수.
 노드 라벨은 회로의 ★ 동일 전위 wire 영역 ★ 마다 고유한 id로 부여:
@@ -61,7 +69,6 @@ R_L, V_ab 같은 annotation(부하·측정 표시)도 절대 포함하지 마라
 
 ★ 3+ pin component (OPAMP·BJT·MOSFET) ★ — 일단 v1에선 pins 누락 OK (별도 작업).
 
-【★ AC source value 표기 — 절대 규칙】
 ※ OPAMP(연산증폭기, U1·U2 등 삼각형 심볼)·BJT(npn/pnp 트랜지스터, Q1)·MOSFET(M1)도 반드시 추출. 회로에 N개 보이면 N개 항목으로.
 
 【규칙】
@@ -83,6 +90,21 @@ R_L, V_ab 같은 annotation(부하·측정 표시)도 절대 포함하지 마라
   잘못   ✗: { "type":"V", "value":"V_p" } (식 표기 누락)
 한 회로에 DC V_CC와 AC v_i(t)가 둘 다 있으면 별도 entry 두 개로 추출.
 
+【★ 페이저(phasor) 전원 표기 — 절대 규칙】
+"18∠90°A", "9∠90°V", "5∠-30° A" 같은 ★ ∠ 표기 ★ 전원은 ★ 단위 문자가 type을 결정 ★ 한다:
+  · 단위가 ★ A ★ (암페어) → type="I" (전류원). 예: "18∠90°A" → { "type":"I", "value":"18∠90°A" }
+  · 단위가 ★ V ★ (볼트)   → type="V" (전압원). 예: "9∠90°V"  → { "type":"V", "value":"9∠90°V" }
+value는 ∠ 각도·단위를 ★ 원본 그대로 ★ 보존하라 ("18∠90°A" → "18∠90°A", 절대 "18A"·"AC 18V"로 줄이지 마라).
+
+심볼로도 구분 가능:
+  · 원(○) 안에 ★ 화살표(↑/→) ★ → 전류원(I)
+  · 원(○) 안에 ★ 물결(∿) 또는 +/− ★ → 전압원(V)
+
+★ 다중 전원 절대 규칙 ★: 한 회로에 전류원과 전압원이 ★ 둘 다 ★ 있으면 (예: 테브난·중첩·최대전력 문제)
+반드시 ★ 둘 다 별도 항목 ★ 으로 추출하라. 하나로 합치거나 한쪽을 버리는 것 절대 금지.
+  ❌ I(18∠90°A)와 V(9∠90°V)가 있는데 V 항목 하나("AC 18∠90° V")만 출력 — 단위 뒤바뀜 + 누락
+  ✅ { "type":"I", "value":"18∠90°A" } 와 { "type":"V", "value":"9∠90°V" } 두 항목
+
 【★ OPAMP 갯수 — 절대 규칙 (2026-05-31 보강)】
 임용 문제 이미지는 ★ (가)·(나) 두 그림이 같은 회로의 변형 ★ 인 경우가 많다. 같은 OPAMP를
 두 그림에 각각 그렸어도 ★ 한 개의 OPAMP만 추출 ★ 하라. (가)·(나) 그림이 사실상 동일 회로면
@@ -98,13 +120,18 @@ componentInventory에 OPAMP 1개만.
 
 다른 component(R·C·L 등)도 (가)·(나) 두 그림에 같은 소자가 중복 표시되면 ★ 1번만 ★ 추출.
 
-【★ 인덕터(L) 인식 — 절대 규칙 (2026-05-31 보강)】
-다음 시각·라벨 단서 중 ★ 하나라도 ★ 있으면 무조건 type="L":
-  · 코일(나선·여러 호) 심볼 — ⌒⌒⌒ 또는 둥근 호 3~4개 연속 패턴
+【★ 인덕터(L)·커패시터(C) 임피던스 표기 — 절대 규칙 (2026-05-31 보강)】
+임피던스 j 표기는 ★ 부호가 type을 결정 ★ 한다:
+  · ★ 양수 +j ★ — "j숫자Ω", "j(분수)Ω", "jXΩ", "jωL" (예: j2Ω, j(2/3)Ω, j10Ω) → type="L" (인덕터)
+  · ★ 음수 −j ★ — "-j숫자Ω", "−jXΩ", "-j/(ωC)" (예: -j3Ω, -j5Ω) → type="C" (커패시터). 절대 L 아님!
+다음 단서도 type="L":
+  · 코일(나선·여러 호) 심볼 — ⌒⌒⌒ 또는 둥근 호 3~4개 연속 패턴 (값이 -jXΩ면 예외 — C)
   · 라벨에 "L_N" (L_1·L_2 등) 또는 단독 "L"
-  · 라벨이 ★ 임피던스 j 표기 ★ — "j숫자Ω", "j(분수)Ω", "jXΩ", "jωL" 등 (예: j2Ω, j(2/3)Ω, j10Ω)
   · 라벨이 ★ 인덕턴스 H 단위 ★ — "0.5H", "2mH", "L=10μH" 등
-value는 원본 라벨 그대로 (j(2/3)Ω → "j(2/3)Ω", 2H → "2H").
+다음 단서는 type="C":
+  · 평행판(두 짧은 평행선 =) 심볼
+  · 라벨이 F 단위 — "1μF", "0.2F" 등
+value는 원본 라벨 그대로 (j(2/3)Ω → "j(2/3)Ω", -j3Ω → "-j3Ω", 2H → "2H").
 
 ★ 절대 금지 (자주 일어나는 오인) ★:
   ❌ "j2Ω" 표기를 current source(I)로 추출 — j는 임피던스의 허수부 표기.
@@ -113,8 +140,9 @@ value는 원본 라벨 그대로 (j(2/3)Ω → "j(2/3)Ω", 2H → "2H").
 
 current source(I)는 ★ 다음 단서가 모두 있을 때만 ★:
   · 원 안에 위쪽 화살표(↑) 또는 ⊕ 심볼
-  · 라벨이 A 단위 (3A, 0.5A 등) 또는 "I_s" 같은 전류 라벨
+  · 라벨이 A 단위 (3A, 0.5A, ★ 18∠90°A 페이저 표기 포함 ★ 등) 또는 "I_s" 같은 전류 라벨
   · j_Ω 표기 ★ 없음 ★
+단, A 단위 페이저(예: 18∠90°A)가 원+화살표 심볼 옆에 있으면 ★ 확실한 전류원 ★ — type="V"로 바꾸지 마라.
 
 확인 절차: 회로 한 component를 inventory에 넣기 전, 그 옆 심볼이 ★ 코일(나선) ★인지 ★ 원+화살표 ★ 인지 다시 본다. 코일이면 L, 원+화살표면 I.
 
@@ -122,6 +150,35 @@ current source(I)는 ★ 다음 단서가 모두 있을 때만 ★:
 }
 
 type RawShape = { components?: unknown };
+
+/**
+ * 물리 법칙 기반 결정론 type 교정 (프롬프트 보강의 안전망 — 범용 규칙, 특정 문제 hardcode 아님).
+ *  ① 음수 리액턴스 -jXΩ는 커패시터 — L로 추출됐어도 C로 교정.
+ *  ② 양수 리액턴스 +jXΩ가 C로 추출됐으면 L로 교정.
+ *  ③ A(암페어) 단위 값(페이저 N∠θ°A 포함)이 V로 추출됐으면 I로 교정. V(볼트) 단위가 I로 추출됐으면 V로.
+ *
+ * @param type  GPT가 추출한 type (대문자)
+ * @param value 추출된 value 문자열
+ * @returns 교정된 type
+ */
+function correctTypeByValue(type: string, value?: string): string {
+  if (!value) return type;
+  const v = value.replace(/\s+/g, "");
+  // ① -jXΩ → C (음수 리액턴스 = 커패시터). −(U+2212)·-(hyphen) 모두 인식.
+  const isNegativeReactance = /^[−-]j/i.test(v);
+  // ② +jXΩ → L (양수 리액턴스 = 인덕터). "j..."로 시작 (음수 부호 없음).
+  const isPositiveReactance = /^\+?j/i.test(v) && !isNegativeReactance;
+  if (type === "L" && isNegativeReactance) return "C";
+  if (type === "C" && isPositiveReactance) return "L";
+  // ③ 전원 단위 교정 — 값 끝 단위 문자로 V/I 판별 (페이저 "18∠90°A"·"3A"·"0.5mA" 등).
+  const unitMatch = v.match(/([mkμu]?)(A|V)$/i);
+  if (unitMatch && (type === "V" || type === "I")) {
+    const unit = unitMatch[2].toUpperCase();
+    if (unit === "A" && type === "V") return "I";
+    if (unit === "V" && type === "I") return "V";
+  }
+  return type;
+}
 
 function normalize(raw: unknown): ComponentInventoryItem[] | null {
   if (!raw || typeof raw !== "object") return null;
@@ -146,8 +203,14 @@ function normalize(raw: unknown): ComponentInventoryItem[] | null {
       id = `${id}_${suffix}`;
     }
     seenIds.add(id);
-    const item: ComponentInventoryItem = { id, type: t };
-    if (typeof o.value === "string" && o.value.length > 0) item.value = o.value;
+    const value = typeof o.value === "string" && o.value.length > 0 ? o.value : undefined;
+    // 물리 법칙 기반 결정론 type 교정 — GPT 오인을 value 표기로 보정 (범용 규칙)
+    const corrected = correctTypeByValue(t, value);
+    if (corrected !== t) {
+      log.info("type_corrected", { id, from: t, to: corrected, value });
+    }
+    const item: ComponentInventoryItem = { id, type: corrected };
+    if (value) item.value = value;
     // Connectivity Detection — pins 배열 (2-pin: [node_a, node_b]).
     if (Array.isArray(o.pins)) {
       const pinStrs = o.pins.filter((p): p is string => typeof p === "string" && p.length > 0);
@@ -232,7 +295,8 @@ export async function extractComponentInventory(args: { image: string }): Promis
         },
       },
     },
-    max_tokens: 800,
+    // 7+ 소자 × pins 포함 출력은 800 token 초과 가능 → 잘림으로 인한 누락 방지
+    max_tokens: 1600,
   });
 
   const raw = completion.choices[0]?.message?.content ?? "{}";

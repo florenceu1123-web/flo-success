@@ -12,6 +12,7 @@ import { validateAcResult } from "@/lib/solver/validateAcResult";
 import { findVariableResistor } from "@/lib/generation/topologyDriven/inferDcQueries";
 import { writeUniversalAcText } from "@/lib/generation/topologies/universalAcTextWriter";
 import { applyRlExamVariant } from "@/lib/analysis/topologyRecovery";
+import { GenerateError } from "@/lib/generation/_core";
 import { buildContextHint, generateInParallel } from "./_common";
 import {
   TOPIC_LABEL,
@@ -120,6 +121,18 @@ export async function runUniversalAcPipeline(args: {
     }
     if (!chosen) {
       log.warn("ac_rejection_exhausted", { fallbackNiceness: final.niceness });
+    }
+
+    // ★ NaN 게이트 — fallback조차 NaN/Inf면 답이 깨진 문제를 출력하지 않고 생성 자체를 실패시킨다.
+    //   원인은 대부분 inventory 추출 누락(R 없는 회로 등)으로 회로가 해석 불가능한 경우.
+    const brokenResults = final.queryResults.filter((r) => !Number.isFinite(r.value));
+    if (brokenResults.length > 0) {
+      const labels = brokenResults.map((r) => r.query.label).join(", ");
+      log.error("ac_result_not_finite", { labels, niceness: final.niceness });
+      throw new GenerateError(
+        `AC 회로 해석 결과가 유한하지 않습니다 (${labels}). ` +
+        "회로 소자 추출이 불완전했을 가능성이 높습니다 — 이미지를 다시 분석해 주세요.",
+      );
     }
 
     // 가변 R 표기 단일화 — placeholder 박스 제거, 라벨만 "R"로.
