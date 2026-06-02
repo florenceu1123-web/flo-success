@@ -6,7 +6,6 @@ import SubjectSelector from "@/components/SubjectSelector";
 import GenerationModeSelector from "@/components/GenerationModeSelector";
 import ProblemCountSelector from "@/components/ProblemCountSelector";
 import AnalysisPanel from "@/components/AnalysisPanel";
-import InventoryReviewPanel from "@/components/InventoryReviewPanel";
 import GeneratedProblems from "@/components/GeneratedProblems";
 import type {
   SubjectKey,
@@ -175,16 +174,6 @@ export default function Home() {
 
           <div className="space-y-5">
             <AnalysisPanel analysis={analysis} isLoading={isAnalyzing} />
-            <InventoryReviewPanel
-              analysis={analysis}
-              subject={subject}
-              disabled={isGenerating}
-              onApplied={(updated) => {
-                // 보정된 inventory·topology로 analysis 교체 — 이후 생성은 이 결과 사용
-                setAnalysis(updated);
-                resetGenerationState();
-              }}
-            />
             <GeneratedProblems
               problems={problems}
               mode={mode}
