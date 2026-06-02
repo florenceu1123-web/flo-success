@@ -216,6 +216,22 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     }
   }
 
+  // 3.5 ★ Top node 경로 정렬 (2026-06-03) — horizontal 인접 그래프의 경로 순서로 재배치.
+  //   기존 등장순 배치는 horizontal이 비인접 슬롯을 가로질러 다른 component와 겹치고
+  //   (전압원·코일 위치 오류), 연결 안 된 인접 노드 사이에 false rail wire가 그려졌다.
+  //   경로 정렬 후에는 모든 horizontal이 인접 슬롯을 잇고 false wire가 사라진다.
+  //
+  //   x 좌표는 누적 배치 — 한 노드에 병렬 leg가 여러 개면(xSlot 분리, C ∥ R_L 등)
+  //   다음 노드가 그 slot 영역을 침범하지 않도록 간격을 추가한다 (component 겹침 방지).
+  const orderedTopNodes = orderTopNodesByAdjacency(topNodes, horizontals);
+  topPos.clear();
+  let cumulativeX = LEFT_X;
+  for (const n of orderedTopNodes) {
+    topPos.set(n, { x: cumulativeX, y: TOP_Y });
+    const extraSlots = Math.max(0, (verticalsByTopNode.get(n)?.length ?? 0) - 1);
+    cumulativeX += X_PITCH + extraSlots * VERTICAL_PARALLEL_GAP;
+  }
+
   // 4. Vertical 슬롯 할당 (같은 top node에 여러 vertical이 있으면 spread)
   const verticals: VPlace[] = [];
   for (const [topNode, comps] of verticalsByTopNode) {
@@ -256,7 +272,7 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   const parts: string[] = [];
 
   // 5.1 Top rail wires (인접 top node 사이에 horizontal component가 없을 때만)
-  parts.push(renderTopRailWires(topNodes, topPos, horizontals));
+  parts.push(renderTopRailWires(orderedTopNodes, topPos, horizontals));
 
   // 5.2 Top stubs — offset된 vertical (xSlot>0)에 대해 top rail에서 vertical x까지 가로 stub
   for (const v of verticals) {
@@ -473,6 +489,85 @@ function classifyNodes(netlist: CircuitNetlist): {
   return { topNodes, groundIds };
 }
 
+/**
+ * Top node를 horizontal component 인접 그래프의 경로(path) 순서로 정렬 (2026-06-03).
+ *
+ *  목적: horizontal로 연결된 노드들이 항상 ★ 인접 슬롯 ★ 에 오도록 — 그래야 horizontal
+ *  component가 다른 component 위를 가로지르지 않고, 연결 안 된 노드 사이에 false rail
+ *  wire가 그려지지 않는다. (예: V[n_top,n_mid]·L[n_top,n_right]가 등장순 배치되면 L이
+ *  V를 덮으며 그려져 "V와 L이 직렬"인 잘못된 회로로 보임)
+ *
+ *  방법: degree-1 끝점부터 경로 walk. 분기(degree≥3)가 있으면 기존 순서 유지 (fallback).
+ *  horizontal에 연결 안 된 고립 노드는 기존 순서대로 뒤에 붙임.
+ *
+ * @param topNodes    기존 등장순 top node 목록
+ * @param horizontals 분류된 horizontal component 목록
+ * @returns 경로 순서로 정렬된 top node 목록
+ */
+function orderTopNodesByAdjacency(topNodes: string[], horizontals: HPlace[]): string[] {
+  if (topNodes.length <= 2 || horizontals.length === 0) return topNodes;
+
+  // horizontal 인접 그래프
+  const adj = new Map<string, Set<string>>();
+  for (const n of topNodes) adj.set(n, new Set());
+  for (const h of horizontals) {
+    if (!adj.has(h.node1) || !adj.has(h.node2)) continue;
+    adj.get(h.node1)!.add(h.node2);
+    adj.get(h.node2)!.add(h.node1);
+  }
+
+  // 분기 노드(degree≥3)가 있으면 단일 경로 배치 불가 — 기존 순서 유지
+  for (const n of topNodes) {
+    if ((adj.get(n)?.size ?? 0) >= 3) return topNodes;
+  }
+
+  const visited = new Set<string>();
+  const ordered: string[] = [];
+
+  // 연결 성분별로 끝점(degree 1)부터 walk. 끝점 선택은 기존 순서 빠른 쪽 (결정론).
+  for (const start of topNodes) {
+    if (visited.has(start)) continue;
+    if ((adj.get(start)?.size ?? 0) === 0) continue; // 고립 노드는 마지막에
+
+    // 이 연결 성분 수집 (DFS)
+    const componentNodes: string[] = [];
+    const stack = [start];
+    const seen = new Set<string>([start]);
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      componentNodes.push(cur);
+      for (const next of adj.get(cur) ?? []) {
+        if (!seen.has(next)) {
+          seen.add(next);
+          stack.push(next);
+        }
+      }
+    }
+    const endpoints = componentNodes
+      .filter((n) => adj.get(n)!.size === 1)
+      .sort((a, b) => topNodes.indexOf(a) - topNodes.indexOf(b));
+    const walkStart = endpoints[0] ?? start; // 사이클이면 임의 시작 (한 바퀴 walk)
+
+    let prev: string | undefined;
+    let cur: string | undefined = walkStart;
+    while (cur !== undefined && !visited.has(cur)) {
+      visited.add(cur);
+      ordered.push(cur);
+      const next: string | undefined = [...(adj.get(cur) ?? [])]
+        .find((n) => n !== prev && !visited.has(n));
+      prev = cur;
+      cur = next;
+    }
+  }
+
+  // 고립 노드 (horizontal 연결 없음) — 기존 순서대로 뒤에
+  for (const n of topNodes) {
+    if (!visited.has(n)) ordered.push(n);
+  }
+
+  return ordered;
+}
+
 function renderTopRailWires(
   topNodes: string[],
   topPos: Map<string, Point>,
@@ -501,16 +596,20 @@ function renderHorizontalComponent(
   a: Point,
   b: Point,
 ): string {
-  const cx = (a.x + b.x) / 2;
-  const cy = a.y;
+  // ★ 좌→우 정규화 (2026-06-03) — node1이 node2보다 오른쪽에 배치된 경우(경로 정렬 후 발생 가능)
+  //   에도 양쪽 연결 wire가 그려지도록. 정규화 없이는 두 wire 조건이 모두 false가 되어
+  //   component가 rail에서 끊긴 것처럼 보임 (전압원 wire 끊김 버그).
+  const [left, right] = a.x <= b.x ? [a, b] : [b, a];
+  const cx = (left.x + right.x) / 2;
+  const cy = left.y;
   const half = componentHalfWidth(c);
   let svg = "";
-  if (cx - half > a.x) {
-    svg += `<path d="M ${a.x} ${a.y} L ${cx - half} ${cy}" stroke="black" fill="none" stroke-width="2"/>`;
+  if (cx - half > left.x) {
+    svg += `<path d="M ${left.x} ${left.y} L ${cx - half} ${cy}" stroke="black" fill="none" stroke-width="2"/>`;
   }
   svg += renderComponentOnEdge(c, { x: cx, y: cy }, "horizontal");
-  if (b.x > cx + half) {
-    svg += `<path d="M ${cx + half} ${cy} L ${b.x} ${b.y}" stroke="black" fill="none" stroke-width="2"/>`;
+  if (right.x > cx + half) {
+    svg += `<path d="M ${cx + half} ${cy} L ${right.x} ${right.y}" stroke="black" fill="none" stroke-width="2"/>`;
   }
   return svg;
 }
@@ -609,10 +708,10 @@ function renderJunctionDots(
 
 type Bbox = { x: number; y: number; w: number; h: number; type: string };
 
-/** horizontal component bbox 추정 (component_half + label margin 포함) */
+/** horizontal component bbox 추정 (component_half + label margin 포함). a·b 좌우 순서 무관. */
 function bboxHorizontal(c: CircuitComponent, a: Point, b: Point): Bbox {
   const cx = (a.x + b.x) / 2;
-  const cy = a.y;
+  const cy = Math.min(a.y, b.y);
   const half = componentHalfWidth(c);
   return { x: cx - half - 4, y: cy - 36, w: 2 * half + 8, h: 72, type: c.type };
 }
