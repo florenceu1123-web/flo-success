@@ -1,5 +1,7 @@
 import type { TopologySignature } from "@/types";
 import type { ComponentInventoryItem } from "@/lib/analysis/extractComponentInventory";
+import { buildCanonicalGraph } from "@/lib/graph/canonical";
+import { validateCanonicalGraph } from "@/lib/graph/graphValidator";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("lib/analysis/topologyRecovery");
@@ -23,10 +25,10 @@ const log = createLogger("lib/analysis/topologyRecovery");
 
 export type RecoveryResult = {
   branches: TopologySignature["branches"];
-  /** v2 pattern 매칭 신뢰도. v1 ladder는 0.5, v2 pattern 매치는 0.9, empty 0. */
+  /** 매칭 신뢰도. v1 ladder는 0.5, v2 pattern 매치는 0.9, v3 pins 그래프는 0.9~0.95, empty 0. */
   confidence: number;
   /** 어떤 strategy로 생성됐는지 (디버그·로깅) */
-  strategy: "ladder_v1" | "single_leg_v1" | "pattern_rl_v2" | "pattern_rc_v2" | "pattern_rlc_v2" | "empty";
+  strategy: "ladder_v1" | "single_leg_v1" | "pattern_rl_v2" | "pattern_rc_v2" | "pattern_rlc_v2" | "pins_graph_v3" | "empty";
 };
 
 /**
@@ -90,8 +92,174 @@ export function recoverTopologyV2(
     return buildVSourceSeriesReactiveParallelR(correctedInventory, "LC", "pattern_rlc_v2");
   }
 
+  // Pattern 매치 없음 → v3 pins 기반 그래프 복원 시도 (2026-06-02).
+  //   다중 전원(테브난·중첩·최대전력)·비정형 topology를 GPT가 본 연결 구조 그대로 보존.
+  //   pattern이 v3보다 우선인 이유: pattern은 해당 임용 형식에 맞게 검증된 layout이고,
+  //   pins는 GPT connectivity 추출 품질에 의존하므로 비정형 케이스의 흡수용.
+  const pinsResult = recoverTopologyFromPins(correctedInventory);
+  if (pinsResult) return pinsResult;
+
   // 매치 없음 → v1 fallback (corrected inventory가 아닌 원본 사용).
   return recoverTopology(inventory);
+}
+
+/**
+ * v3 (2026-06-02) — pins(Connectivity Detection) 기반 회로 그래프 복원.
+ *
+ *  inventory의 pins로 실제 회로 그래프를 그대로 TopologySignature.branches로 변환.
+ *  v1 ladder·v2 pattern과 달리 GPT가 본 연결 구조를 보존 → 다중 전원(테브난·중첩·최대전력),
+ *  비정형 topology도 해석 가능한 형태로 복원한다.
+ *
+ *  단계:
+ *   1. coverage 검사 — 2-pin component 전부 pins 보유 (하나라도 누락 → null로 fallback)
+ *   2. 그래프 repair (범용 규칙, 특정 문제 hardcode 아님):
+ *      a. 전원(V/I)의 dangling 끝(degree≤1) → 최고 degree 노드에 재연결
+ *         (전원은 항상 닫힌 loop의 일부 — dangling이면 GPT가 wire를 누락한 것)
+ *      b. GND 라벨이 없으면 최고 degree 노드를 GND로 지정 (기준 전위 선택은 해석에 영향 없음)
+ *      c. 남은 dangling 비전원 노드 → GND로 닫음 (외부 단자 관례)
+ *   3. component → branch 변환:
+ *      GND 접촉 → vertical leg role (V/I/R·L·C/SW별), 아니면 horizontal role
+ *   4. 복원 그래프 재검증 — connected + cycle ≥ 1이어야 채택, 아니면 null (pattern/ladder fallback)
+ *
+ * @param inventory pins가 포함된 component 리스트
+ * @returns 채택 가능하면 RecoveryResult, 품질 미달이면 null
+ */
+export function recoverTopologyFromPins(inventory: ComponentInventoryItem[]): RecoveryResult | null {
+  const TWO_PIN_TYPES = new Set(["R", "V", "I", "C", "L", "SW", "VCVS", "VCCS", "CCVS", "CCCS", "D"]);
+  const twoPinComps = inventory.filter((c) => TWO_PIN_TYPES.has(c.type.toUpperCase()));
+  if (twoPinComps.length < 2) return null;
+  // coverage — 2-pin 소자 전부 valid pins 필요
+  const allHavePins = twoPinComps.every(
+    (c) => c.pins && c.pins.length >= 2 && c.pins[0] !== c.pins[1],
+  );
+  if (!allHavePins) {
+    log.info("pins_recovery_skipped", { reason: "pins coverage 불충분" });
+    return null;
+  }
+
+  const isGndLabel = (n: string): boolean => {
+    const u = n.toUpperCase();
+    return u === "GND" || u === "GROUND" || u === "0";
+  };
+
+  // 작업용 pins 사본 — repair 과정에서 수정
+  const pinsMap = new Map<string, [string, string]>();
+  for (const c of twoPinComps) pinsMap.set(c.id, [c.pins![0], c.pins![1]]);
+
+  const degreeOf = (): Map<string, number> => {
+    const deg = new Map<string, number>();
+    for (const [a, b] of pinsMap.values()) {
+      deg.set(a, (deg.get(a) ?? 0) + 1);
+      deg.set(b, (deg.get(b) ?? 0) + 1);
+    }
+    return deg;
+  };
+
+  // ── 2a. 전원(V/I) dangling 끝 재연결 ─────────────────────────────────────
+  for (const c of twoPinComps) {
+    const t = c.type.toUpperCase();
+    if (t !== "V" && t !== "I") continue;
+    const deg = degreeOf();
+    const [a, b] = pinsMap.get(c.id)!;
+    const aDangling = !isGndLabel(a) && (deg.get(a) ?? 0) <= 1;
+    const bDangling = !isGndLabel(b) && (deg.get(b) ?? 0) <= 1;
+    if (!aDangling && !bDangling) continue;
+    if (aDangling && bDangling) continue; // 완전 고립 전원 — 검증에서 reject
+    const danglingEnd = aDangling ? a : b;
+    const otherEnd = aDangling ? b : a;
+    // 재연결 후보: 자기 두 끝 제외, 최고 degree (tie → 알파벳)
+    const candidates = [...deg.keys()].filter((n) => n !== danglingEnd && n !== otherEnd);
+    if (candidates.length === 0) continue;
+    candidates.sort((x, y) => (deg.get(y)! - deg.get(x)!) || (x < y ? -1 : 1));
+    const target = candidates[0];
+    pinsMap.set(c.id, aDangling ? [target, b] : [a, target]);
+    log.info("pins_repair_dangling_source", { id: c.id, from: danglingEnd, to: target });
+  }
+
+  // ── 2b. GND 지정 ─────────────────────────────────────────────────────────
+  let deg = degreeOf();
+  const hasGndLabel = [...deg.keys()].some(isGndLabel);
+  if (hasGndLabel) {
+    // "ground"·"0" → "GND" normalize
+    for (const [id, [a, b]] of pinsMap) {
+      pinsMap.set(id, [isGndLabel(a) ? "GND" : a, isGndLabel(b) ? "GND" : b]);
+    }
+  } else {
+    // 최고 degree 노드를 GND로 — tie면 두 번째 pin(음극/하단 관례)으로 더 자주 등장한 노드 → 알파벳
+    const secondPinCount = new Map<string, number>();
+    for (const [, b] of pinsMap.values()) secondPinCount.set(b, (secondPinCount.get(b) ?? 0) + 1);
+    const nodes = [...deg.keys()];
+    nodes.sort((x, y) =>
+      (deg.get(y)! - deg.get(x)!) ||
+      ((secondPinCount.get(y) ?? 0) - (secondPinCount.get(x) ?? 0)) ||
+      (x < y ? -1 : 1));
+    const gndNode = nodes[0];
+    for (const [id, [a, b]] of pinsMap) {
+      pinsMap.set(id, [a === gndNode ? "GND" : a, b === gndNode ? "GND" : b]);
+    }
+    log.info("pins_ground_designated", { node: gndNode });
+  }
+
+  // ── 2c. 남은 dangling 비전원 노드 → GND ──────────────────────────────────
+  deg = degreeOf();
+  for (const [id, [a, b]] of pinsMap) {
+    const aD = a !== "GND" && (deg.get(a) ?? 0) <= 1;
+    const bD = b !== "GND" && (deg.get(b) ?? 0) <= 1;
+    if (aD && bD) continue; // 양끝 고립 component — 검증에서 reject
+    if (aD) pinsMap.set(id, ["GND", b]);
+    else if (bD) pinsMap.set(id, [a, "GND"]);
+  }
+
+  // ── 3. component → branch 변환 ───────────────────────────────────────────
+  const branches: TopologySignature["branches"] = [];
+  for (const c of twoPinComps) {
+    const [a, b] = pinsMap.get(c.id)!;
+    const t = c.type.toUpperCase();
+    const touchesGnd = a === "GND" || b === "GND";
+    if (touchesGnd) {
+      const top = a === "GND" ? b : a;
+      branches.push({
+        role: inferVerticalLegRole(t),
+        components: [{ type: t, value: c.value }],
+        betweenNodes: [top, "GND"] as [string, string],
+      });
+    } else {
+      branches.push({
+        role: inferHorizontalRole(t),
+        components: [{ type: t, value: c.value }],
+        betweenNodes: [a, b] as [string, string],
+      });
+    }
+  }
+
+  // ── 4. 복원 그래프 재검증 ────────────────────────────────────────────────
+  const repairedInventory: ComponentInventoryItem[] = twoPinComps.map((c) => ({
+    ...c,
+    pins: [...pinsMap.get(c.id)!],
+  }));
+  const graph = buildCanonicalGraph(repairedInventory);
+  const validation = validateCanonicalGraph(graph);
+  if (graph.features.connectedComponentCount > 1 || graph.features.cycleCount === 0) {
+    log.info("pins_recovery_rejected", {
+      cc: graph.features.connectedComponentCount,
+      cycles: graph.features.cycleCount,
+      reason: "끊김 또는 닫힌 loop 없음 — pattern/ladder fallback",
+    });
+    return null;
+  }
+
+  log.info("recovered_v3", {
+    strategy: "pins_graph_v3",
+    components: twoPinComps.length,
+    branches: branches.length,
+    graphConfidence: Number(validation.confidence.toFixed(2)),
+  });
+
+  return {
+    branches,
+    confidence: Math.max(0.9, validation.confidence),
+    strategy: "pins_graph_v3",
+  };
 }
 
 /**

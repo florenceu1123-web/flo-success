@@ -237,7 +237,7 @@ function reconcileBranches(
         branches: recovered.branches,
       };
       log.info("topology_recovered", {
-        version: recovered.strategy.includes("_v2") ? "v2" : "v1",
+        version: recovered.strategy.includes("_v3") ? "v3" : recovered.strategy.includes("_v2") ? "v2" : "v1",
         strategy: recovered.strategy,
         confidence: recovered.confidence,
         branchCount: recovered.branches.length,
@@ -268,7 +268,7 @@ function reconcileBranches(
   }
   insertedBranches.push(...otherExtras);
 
-  let mergedBranches = insertedBranches;
+  const mergedBranches = insertedBranches;
   // ★ switching chain merge — switching_leg가 SW만 있고 별도 R·I가 떠 있으면 합쳐
   //   원본 supermesh 8번 패턴(SW + R + I 직렬 chain)을 정확히 재현. GPT가 chain을
   //   분리 추출한 케이스 자동 보정.
