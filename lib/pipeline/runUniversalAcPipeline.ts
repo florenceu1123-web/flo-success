@@ -11,7 +11,7 @@ import { netlistToComplexStandalone } from "@/lib/solver/netlistToComplex";
 import { validateAcResult } from "@/lib/solver/validateAcResult";
 import { addLoadResistor } from "@/lib/generation/topologyDriven/addLoadResistor";
 import { writeUniversalAcText } from "@/lib/generation/topologies/universalAcTextWriter";
-import { applyRlExamVariant } from "@/lib/analysis/topologyRecovery";
+import { applyRlExamVariant, applySourceReactiveSwapVariant } from "@/lib/analysis/topologyRecovery";
 import { GenerateError } from "@/lib/generation/_core";
 import { buildContextHint, generateInParallel } from "./_common";
 import {
@@ -50,13 +50,20 @@ export async function runUniversalAcPipeline(args: {
     throw new Error("runUniversalAcPipeline: analysis.topologySignature 누락");
   }
 
-  // ★ 기출변형유형 변형 — pattern_rl_v2 → L→C swap + R 직렬 ladder (임용 8번 variant).
-  //   exam_similar는 원본 V·L 직렬 + R 병렬 유지, exam_variant만 변형.
+  // ★ 기출변형유형 변형 — exam_similar는 원본 topology 유지, exam_variant만 구조 변형.
+  //   ① V↔I·L↔C 위치 교환 (다중 전원 + L·C 회로 — 임용 11번류) 우선 시도
+  //   ② pattern_rl_v2 → L→C swap + R 직렬 ladder (임용 8번 variant) fallback
   if (mode === "exam_variant") {
-    const variant = applyRlExamVariant(baseTopology);
-    if (variant) {
-      baseTopology = variant;
-      log.info("variant_topology_applied", { transform: "rl_exam_variant" });
+    const swapped = applySourceReactiveSwapVariant(baseTopology);
+    if (swapped) {
+      baseTopology = swapped;
+      log.info("variant_topology_applied", { transform: "source_reactive_swap" });
+    } else {
+      const variant = applyRlExamVariant(baseTopology);
+      if (variant) {
+        baseTopology = variant;
+        log.info("variant_topology_applied", { transform: "rl_exam_variant" });
+      }
     }
   }
 

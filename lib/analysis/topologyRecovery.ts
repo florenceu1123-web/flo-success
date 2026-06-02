@@ -536,6 +536,83 @@ export function applyRlExamVariant(baseTopology: TopologySignature): TopologySig
   };
 }
 
+/**
+ * 변형유형(exam_variant) topology 변형 — V↔I 위치 교환 + L↔C 위치 교환 (2026-06-03 사용자 요구).
+ *
+ *  같은 소자·값으로 ★ 위치만 서로 바꿔 ★ 구조가 다른 변형 문제를 만든다.
+ *  (예: 임용 11번 — 전압원이 있던 자리에 전류원, 코일 자리에 커패시터)
+ *  학습 목표(테브난·최대전력 등)는 동일하지만 회로 모양과 답이 달라진다.
+ *
+ *  적용 조건 (범용 — 특정 문제 hardcode 아님):
+ *   - V와 I가 각각 1개씩 → 두 전원의 위치(betweenNodes) 교환
+ *   - L과 C가 각각 1개씩 → 두 리액티브 소자의 위치 교환
+ *   - 한쪽 쌍만 있으면 그 쌍만 교환. 둘 다 교환 불가면 null (변형 미적용)
+ *  교환 후 각 branch의 role은 새 위치(GND 접촉 여부)와 소자 type에 맞게 재계산.
+ *
+ * @param topology 원본 topology
+ * @returns 교환 적용된 topology, 적용 불가면 null
+ */
+export function applySourceReactiveSwapVariant(
+  topology: TopologySignature,
+): TopologySignature | null {
+  // 깊은 복사 (원본 불변)
+  const branches = topology.branches.map((b) => ({
+    ...b,
+    components: b.components.map((c) => ({ ...c })),
+  }));
+
+  // 단일 component branch 중 해당 type 찾기
+  const findIdx = (type: string): number =>
+    branches.findIndex(
+      (b) => b.components.length === 1 && (b.components[0].type ?? "").toUpperCase() === type,
+    );
+  const countOf = (type: string): number =>
+    branches.filter(
+      (b) => b.components.length === 1 && (b.components[0].type ?? "").toUpperCase() === type,
+    ).length;
+
+  const isGndNode = (n: string | undefined): boolean => {
+    if (!n) return false;
+    const u = n.toUpperCase();
+    return u === "GND" || u === "GROUND" || u === "0";
+  };
+  /** 교환 후 새 위치에 맞는 role 재계산 */
+  const roleForBranch = (b: (typeof branches)[number]): TopologySignature["branches"][number]["role"] => {
+    const type = (b.components[0]?.type ?? "").toUpperCase();
+    const touchesGnd = (b.betweenNodes ?? []).some(isGndNode);
+    return touchesGnd ? inferVerticalLegRole(type) : inferHorizontalRole(type);
+  };
+  /** 두 branch의 components를 서로 교환하고 role 재계산 */
+  const swapComponents = (i: number, j: number) => {
+    [branches[i].components, branches[j].components] = [branches[j].components, branches[i].components];
+    branches[i].role = roleForBranch(branches[i]);
+    branches[j].role = roleForBranch(branches[j]);
+  };
+
+  let swappedAny = false;
+
+  // ① V ↔ I 위치 교환 (각각 정확히 1개일 때만 — 다중 전원은 모호)
+  if (countOf("V") === 1 && countOf("I") === 1) {
+    swapComponents(findIdx("V"), findIdx("I"));
+    swappedAny = true;
+  }
+  // ② L ↔ C 위치 교환
+  if (countOf("L") === 1 && countOf("C") === 1) {
+    swapComponents(findIdx("L"), findIdx("C"));
+    swappedAny = true;
+  }
+
+  if (!swappedAny) return null;
+
+  log.info("variant_applied", {
+    transform: "source_reactive_swap",
+    note: "V↔I 위치 교환 + L↔C 위치 교환",
+    branches: branches.map((b) => `${b.components[0]?.type}:${b.role}`),
+  });
+
+  return { ...topology, branches };
+}
+
 function inferHorizontalRole(type: string): TopologySignature["branches"][number]["role"] {
   switch (type.toUpperCase()) {
     case "R":

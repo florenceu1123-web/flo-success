@@ -36,7 +36,27 @@ export function perturbTopology(
         ...branch,
         components: branch.components.map((c) => {
           const parsed = parseValue(c.value);
-          if (!parsed || !Number.isFinite(parsed.numeric)) return c;
+          if (!parsed || !Number.isFinite(parsed.numeric)) {
+            // ★ parseValue가 못 읽는 표기 — phasor(9∠90°V)·임피던스(j3Ω·-j3Ω) perturbation (2026-06-03).
+            //   이전에는 그대로 반환되어 생성 예시가 원본과 거의 동일했음 (저항만 바뀜).
+            if (typeof c.value === "string") {
+              const phasorPerturbed = perturbPhasorValue(c.value, mode, rand);
+              if (phasorPerturbed !== null) {
+                // 전원이므로 polarity flip은 위상 +180°로 흡수
+                const t2 = (c.type ?? "").toUpperCase();
+                if (t2 === "V" || t2 === "I" || t2 === "VS" || t2 === "IS") {
+                  const idx = sourceCounter++;
+                  if (flip?.has(idx) && !isGroundReferenced) {
+                    return { ...c, value: flipPhasorPolarity(phasorPerturbed) };
+                  }
+                }
+                return { ...c, value: phasorPerturbed };
+              }
+              const impedancePerturbed = perturbImpedanceValue(c.value, mode, rand);
+              if (impedancePerturbed !== null) return { ...c, value: impedancePerturbed };
+            }
+            return c;
+          }
           const t = (c.type ?? "").toUpperCase();
           const isSource = t === "V" || t === "I" || t === "VS" || t === "IS";
           let newNumeric = perturbNumeric(parsed.numeric, c.type, mode, rand);
@@ -70,6 +90,72 @@ export function listSourceIndices(topology: TopologySignature): number[] {
     }
   }
   return indices;
+}
+
+/**
+ * 페이저 전원 표기("9∠90°V"·"18∠90°A") perturbation — 크기만 정수로 변형, 위상·단위 유지 (2026-06-03).
+ *
+ *  exam_similar: ×0.6~1.5 (예: 9V → 6~13V 정수)
+ *  exam_variant: ×0.5~2.0
+ *
+ * @returns 변형된 페이저 문자열, 페이저 표기가 아니면 null
+ */
+export function perturbPhasorValue(
+  raw: string,
+  mode: GenerationMode,
+  rand: () => number,
+): string | null {
+  const s = raw.replace(/\s+/g, "").replace(/−/g, "-");
+  const m = s.match(/^(-?\d+(?:\.\d+)?)∠(-?\d+(?:\.\d+)?)°?(V|A)$/i);
+  if (!m) return null;
+  const mag = Math.abs(parseFloat(m[1]));
+  const phase = m[2];
+  const unit = m[3].toUpperCase();
+  const range = mode === "exam_variant" ? [0.5, 2.0] : [0.6, 1.5];
+  const factor = range[0] + rand() * (range[1] - range[0]);
+  const newMag = Math.max(1, Math.round(mag * factor));
+  return `${newMag}∠${phase}°${unit}`;
+}
+
+/**
+ * 페이저 극성 반전 — 크기 부호 대신 위상 +180°로 흡수 (그림은 항상 양의 크기 표기).
+ */
+function flipPhasorPolarity(phasorValue: string): string {
+  const s = phasorValue.replace(/\s+/g, "").replace(/−/g, "-");
+  const m = s.match(/^(\d+(?:\.\d+)?)∠(-?\d+(?:\.\d+)?)°?(V|A)$/i);
+  if (!m) return phasorValue;
+  const mag = m[1];
+  let phase = parseFloat(m[2]) + 180;
+  // -180 < phase ≤ 180 정규화
+  while (phase > 180) phase -= 360;
+  while (phase <= -180) phase += 360;
+  return `${mag}∠${phase}°${m[3].toUpperCase()}`;
+}
+
+/**
+ * 임피던스 표기("j3Ω"·"-j3Ω"·"j(2/3)Ω") perturbation — 리액턴스 크기만 정수로 변형, 부호 유지 (2026-06-03).
+ *
+ *  +jXΩ (인덕터) → +jX'Ω, -jXΩ (커패시터) → -jX'Ω
+ *  분수 표기 j(a/b)Ω는 변형하지 않고 그대로 (nice 분수 유지가 어렵기 때문).
+ *
+ * @returns 변형된 임피던스 문자열, 임피던스 표기가 아니면 null
+ */
+export function perturbImpedanceValue(
+  raw: string,
+  mode: GenerationMode,
+  rand: () => number,
+): string | null {
+  const s = raw.replace(/\s+/g, "").replace(/−/g, "-");
+  // 분수 표기는 변형 제외 (그대로 유지)
+  if (/^-?j\(/.test(s)) return null;
+  const m = s.match(/^(-?)j(\d+(?:\.\d+)?)Ω?$/i);
+  if (!m) return null;
+  const sign = m[1];
+  const x = parseFloat(m[2]);
+  const range = mode === "exam_variant" ? [0.5, 2.0] : [0.6, 1.5];
+  const factor = range[0] + rand() * (range[1] - range[0]);
+  const newX = Math.max(1, Math.round(x * factor));
+  return `${sign}j${newX}Ω`;
 }
 
 /** Nice value 풀 — exam_similar 모드에서 perturb 후 snap. */
