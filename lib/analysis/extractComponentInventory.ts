@@ -1,4 +1,4 @@
-import { getOpenAI, DEFAULT_MODEL } from "@/lib/openai";
+import { getOpenAI, VISION_MODEL } from "@/lib/openai";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("lib/analysis/extractComponentInventory");
@@ -35,8 +35,17 @@ R_L, V_ab 같은 annotation(부하·측정 표시)도 절대 포함하지 마라
     { "id": "V1", "type": "V", "value": "5V",  "pins": ["n_a", "GND"] },
     { "id": "C1", "type": "C", "value": "1μF", "pins": ["n_b", "GND"] },
     { "id": "L1", "type": "L", "value": "j2Ω", "pins": ["n_a", "n_b"] }
-  ]
+  ],
+  "sourceExpressions": ["v(t)=9cos(ωt+90°)", "i(t)=18cos(ωt+90°)"]
 }
+
+【★ sourceExpressions — 본문 전원 식 추출 (절대 규칙)】
+문제 본문·단서 괄호에 v(t)=…, i(t)=… 같은 ★ 시간영역 전원 식 ★ 이 인쇄돼 있으면
+★ 원문 그대로 ★ sourceExpressions 배열에 적어라.
+  예: "(단, V와 I는 각각 v(t)=9cos(ωt+90°)와 i(t)=18cos(ωt+90°)의 페이저 전압과 페이저 전류이다)"
+    → "sourceExpressions": ["v(t)=9cos(ωt+90°)", "i(t)=18cos(ωt+90°)"]
+본문에 식이 없으면 빈 배열 [].
+※ 인쇄된 본문 식은 그림 라벨보다 정확하다 — 이 식이 전원 값의 ★ 최종 기준 ★ 으로 사용된다.
 
 【허용 type enum】 R, V, I, C, L, SW, VCVS, VCCS, CCVS, CCCS, D, OPAMP, BJT, MOSFET
 
@@ -154,8 +163,9 @@ type RawShape = { components?: unknown };
 
 /**
  * 물리 법칙 기반 결정론 type 교정 (프롬프트 보강의 안전망 — 범용 규칙, 특정 문제 hardcode 아님).
- *  ① 음수 리액턴스 -jXΩ는 커패시터 — L로 추출됐어도 C로 교정.
- *  ② 양수 리액턴스 +jXΩ가 C로 추출됐으면 L로 교정.
+ *  ① 음수 리액턴스 -jXΩ는 커패시터 — L·R로 추출됐어도 C로 교정.
+ *  ② 양수 리액턴스 +jXΩ는 인덕터 — C·R로 추출됐어도 L로 교정.
+ *     (저항은 실수 임피던스만 가능 — jXΩ 값을 가진 R은 물리적으로 존재 불가)
  *  ③ A(암페어) 단위 값(페이저 N∠θ°A 포함)이 V로 추출됐으면 I로 교정. V(볼트) 단위가 I로 추출됐으면 V로.
  *
  * @param type  GPT가 추출한 type (대문자)
@@ -169,8 +179,9 @@ function correctTypeByValue(type: string, value?: string): string {
   const isNegativeReactance = /^[−-]j/i.test(v);
   // ② +jXΩ → L (양수 리액턴스 = 인덕터). "j..."로 시작 (음수 부호 없음).
   const isPositiveReactance = /^\+?j/i.test(v) && !isNegativeReactance;
-  if (type === "L" && isNegativeReactance) return "C";
-  if (type === "C" && isPositiveReactance) return "L";
+  // 리액턴스 값은 type 불문 L/C로 강제 — R·L·C 모두 적용 (저항은 실수 임피던스만 가능).
+  if ((type === "L" || type === "C" || type === "R") && isNegativeReactance) return "C";
+  if ((type === "L" || type === "C" || type === "R") && isPositiveReactance) return "L";
   // ③ 전원 단위 교정 — 값 끝 단위 문자로 V/I 판별 (페이저 "18∠90°A"·"3A"·"0.5mA" 등).
   const unitMatch = v.match(/([mkμu]?)(A|V)$/i);
   if (unitMatch && (type === "V" || type === "I")) {
@@ -223,17 +234,21 @@ function normalize(raw: unknown): ComponentInventoryItem[] | null {
   return out.length > 0 ? out : null;
 }
 
-export async function extractComponentInventory(args: { image: string }): Promise<ComponentInventoryItem[]> {
-  const { image } = args;
+export async function extractComponentInventory(args: {
+  image: string;
+  /** Vision 모델 override — 미지정 시 VISION_MODEL. 모델별 정확도 A/B 테스트에 사용. */
+  model?: string;
+}): Promise<ComponentInventoryItem[]> {
+  const { image, model } = args;
   const openai = getOpenAI();
   const prompt = buildPrompt();
 
-  log.info("start");
+  log.info("start", { model: model ?? VISION_MODEL });
 
   // OpenAI Structured Outputs (json_schema strict): 모든 항목에 type·id·value 강제,
   // type은 enum 강제 → GPT가 누락·잘못된 type 출력 못 함. nullable value는 ["string","null"].
   const completion = await openai.chat.completions.create({
-    model: DEFAULT_MODEL,
+    model: model ?? VISION_MODEL,
     messages: [{
       role: "user",
       content: [
@@ -249,8 +264,15 @@ export async function extractComponentInventory(args: { image: string }): Promis
         schema: {
           type: "object",
           additionalProperties: false,
-          required: ["components"],
+          required: ["components", "sourceExpressions"],
           properties: {
+            sourceExpressions: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "문제 본문에 인쇄된 시간영역 전원 식 원문 (예: \"v(t)=9cos(ωt+90°)\", \"i(t)=18cos(ωt+90°)\"). " +
+                "없으면 빈 배열. 인쇄 텍스트는 그림 라벨보다 정확 — 전원 값의 최종 기준으로 사용됨.",
+            },
             components: {
               type: "array",
               description: "회로 이미지에서 보이는 모든 전기 회로 소자 (R_L 부하 placeholder 제외)",
@@ -296,26 +318,174 @@ export async function extractComponentInventory(args: { image: string }): Promis
         },
       },
     },
-    // 7+ 소자 × pins 포함 출력은 800 token 초과 가능 → 잘림으로 인한 누락 방지
-    max_tokens: 1600,
+    // 7+ 소자 × pins 포함 출력은 800 token 초과 가능 → 잘림으로 인한 누락 방지.
+    // max_completion_tokens: 구·신 모델 공통 지원 (gpt-5.x는 max_tokens 미지원 + reasoning 토큰 포함).
+    max_completion_tokens: 4000,
   });
 
   const raw = completion.choices[0]?.message?.content ?? "{}";
   let parsed: unknown;
   try { parsed = JSON.parse(raw); }
   catch (e) { throw new InventoryExtractionError("inventory JSON 파싱 실패", { cause: e }); }
-  const inv = normalize(parsed);
-  if (!inv) {
+  const normalized = normalize(parsed);
+  if (!normalized) {
     log.error("schema_fail", { sample: JSON.stringify(parsed).slice(0, 300) });
     throw new InventoryExtractionError("inventory 스키마 불일치");
   }
+  // ★ 본문 전원 식으로 V/I 값·종류 결정론 교정 (텍스트 > 그림 라벨 신뢰 원칙, 2026-06-03)
+  const expressions = extractExpressionsField(parsed);
+  const inv = applySourceExpressions(normalized, expressions);
   log.info("done", {
     count: inv.length,
     types: inv.map((c) => c.type),
     items: inv.map((c) => ({ id: c.id, type: c.type, value: c.value, pins: c.pins })),
     pinsCoverage: `${inv.filter((c) => c.pins && c.pins.length >= 2).length}/${inv.length}`,
+    sourceExpressions: expressions,
   });
   return inv;
+}
+
+/** raw JSON에서 sourceExpressions 문자열 배열 추출 (없으면 빈 배열). */
+function extractExpressionsField(raw: unknown): string[] {
+  if (!raw || typeof raw !== "object") return [];
+  const arr = (raw as Record<string, unknown>).sourceExpressions;
+  if (!Array.isArray(arr)) return [];
+  return arr.filter((s): s is string => typeof s === "string" && s.trim().length > 0);
+}
+
+/**
+ * 시간영역 전원 식 → 페이저 표기 변환 (결정론).
+ *
+ *  "v(t)=9cos(ωt+90°)"  → { kind: "V", phasorValue: "9∠90°V" }
+ *  "i(t)=18cos(ωt+90°)" → { kind: "I", phasorValue: "18∠90°A" }
+ *  "v(t)=10sin(ωt)"     → { kind: "V", phasorValue: "10∠-90°V" }  (sin = cos 기준 -90°)
+ *
+ * @param expr 본문 식 원문
+ * @returns 변환 결과, 파싱 불가 시 null
+ */
+export function parseSourceExpression(expr: string): { kind: "V" | "I"; phasorValue: string } | null {
+  // 공백 제거 + 유니코드 마이너스 통일
+  const s = expr.replace(/\s+/g, "").replace(/−/g, "-");
+  // v(t)= / i(t)= / v_s(t)= 형식 — 진폭·cos/sin 추출
+  const m = s.match(/^([vi])(?:_?[a-z0-9]*)?\(t\)=(-?\d+(?:\.\d+)?)(?:[·*])?(cos|sin)\(/i);
+  if (!m) return null;
+  const kind = m[1].toLowerCase() === "v" ? "V" : "I";
+  let amplitude = parseFloat(m[2]);
+  const fn = m[3].toLowerCase();
+  // 위상 추출 — (ωt+90°)·(wt-45)·(ωt) 등. ω 또는 w 표기 모두.
+  const phaseMatch = s.match(/\([ωw]t([+-]\d+(?:\.\d+)?)?°?\)/i);
+  let phase = phaseMatch?.[1] ? parseFloat(phaseMatch[1]) : 0;
+  // sin → cos 기준 위상 변환: A·sin(ωt+φ) = A·cos(ωt+φ-90°)
+  if (fn === "sin") phase -= 90;
+  // 음수 진폭은 위상 +180°로 흡수
+  if (amplitude < 0) {
+    amplitude = -amplitude;
+    phase += 180;
+  }
+  const unit = kind === "V" ? "V" : "A";
+  return { kind, phasorValue: `${amplitude}∠${phase}°${unit}` };
+}
+
+/**
+ * 본문 전원 식으로 inventory의 V/I 전원 값·종류를 교정 (텍스트 > 그림 라벨 신뢰 원칙).
+ *
+ *  케이스 A — 종류별 개수 일치 (v식 수 = V 수, i식 수 = I 수): 순서대로 값만 교정.
+ *  케이스 B — 총 수는 일치하나 종류 분배가 다름 (V↔I 오인): 진폭 매칭으로 종류·값 재배정.
+ *  케이스 C — 수 자체가 다름: 종류별로 min(식, 전원) 개수만 보수적으로 순서 교정.
+ *
+ * @param inventory   normalize된 component 리스트
+ * @param expressions 본문 전원 식 원문 배열
+ * @returns 교정된 inventory (교정 사항 없으면 입력 그대로)
+ */
+export function applySourceExpressions(
+  inventory: ComponentInventoryItem[],
+  expressions: string[],
+): ComponentInventoryItem[] {
+  const parsed = expressions
+    .map(parseSourceExpression)
+    .filter((p): p is NonNullable<ReturnType<typeof parseSourceExpression>> => p !== null);
+  if (parsed.length === 0) return inventory;
+
+  const vExprs = parsed.filter((p) => p.kind === "V");
+  const iExprs = parsed.filter((p) => p.kind === "I");
+  const isSource = (c: ComponentInventoryItem) => c.type === "V" || c.type === "I";
+  const sources = inventory.filter(isSource);
+  const vSrcs = sources.filter((c) => c.type === "V");
+  const iSrcs = sources.filter((c) => c.type === "I");
+  if (sources.length === 0) return inventory;
+
+  // 교정 결과를 id → 교정값 맵으로 수집
+  const corrections = new Map<string, { type: "V" | "I"; value: string }>();
+  const recordCorrection = (item: ComponentInventoryItem, expr: { kind: "V" | "I"; phasorValue: string }) => {
+    if (item.type !== expr.kind || item.value !== expr.phasorValue) {
+      log.info("source_corrected_by_text", {
+        id: item.id,
+        from: `${item.type}=${item.value ?? "?"}`,
+        to: `${expr.kind}=${expr.phasorValue}`,
+      });
+    }
+    corrections.set(item.id, { type: expr.kind, value: expr.phasorValue });
+  };
+
+  if (vExprs.length === vSrcs.length && iExprs.length === iSrcs.length) {
+    // 케이스 A — 순서대로 값 교정
+    vSrcs.forEach((src, i) => recordCorrection(src, vExprs[i]));
+    iSrcs.forEach((src, i) => recordCorrection(src, iExprs[i]));
+  } else if (parsed.length === sources.length) {
+    // 케이스 B — V↔I 오인 의심: 진폭 매칭(1순위) → 같은 종류(2순위) → 남은 식(3순위)
+    const remaining = [...parsed];
+    for (const src of sources) {
+      const srcAmp = (src.value ?? "").match(/\d+(?:\.\d+)?/)?.[0];
+      let idx = srcAmp ? remaining.findIndex((p) => p.phasorValue.startsWith(`${srcAmp}∠`)) : -1;
+      if (idx < 0) idx = remaining.findIndex((p) => p.kind === src.type);
+      if (idx < 0) idx = 0;
+      recordCorrection(src, remaining.splice(idx, 1)[0]);
+    }
+  } else {
+    // 케이스 C — 보수적: 종류별 min 개수만 순서 교정
+    vSrcs.slice(0, vExprs.length).forEach((src, i) => recordCorrection(src, vExprs[i]));
+    iSrcs.slice(0, iExprs.length).forEach((src, i) => recordCorrection(src, iExprs[i]));
+  }
+
+  if (corrections.size === 0) return inventory;
+  return inventory.map((c) => {
+    const corr = corrections.get(c.id);
+    return corr ? { ...c, type: corr.type, value: corr.value } : c;
+  });
+}
+
+/**
+ * 2회 병렬 추출 결과 중 더 완전한 inventory 선택.
+ *
+ *  점수 = 소자 수(지배 항목) + pins 커버리지 + 값 커버리지.
+ *  Vision 추출은 stochastic — 같은 이미지라도 실행마다 소자 수가 다르다 (예: R 누락).
+ *  소자를 더 많이 잡은 쪽이 거의 항상 더 정확하므로 소자 수를 가장 크게 가중.
+ *
+ * @returns 점수 높은 inventory (동점이면 첫 번째)
+ */
+export function pickBetterInventory(
+  ...candidates: ComponentInventoryItem[][]
+): ComponentInventoryItem[] {
+  const score = (inv: ComponentInventoryItem[]): number => {
+    if (inv.length === 0) return -1;
+    const pinsCoverage = inv.filter((c) => c.pins && c.pins.length >= 2).length / inv.length;
+    const valueCoverage = inv.filter((c) => c.value).length / inv.length;
+    return inv.length * 10 + pinsCoverage * 5 + valueCoverage * 3;
+  };
+  let best = candidates[0] ?? [];
+  let bestScore = score(best);
+  for (let i = 1; i < candidates.length; i++) {
+    const s = score(candidates[i]);
+    if (s > bestScore) {
+      best = candidates[i];
+      bestScore = s;
+    }
+  }
+  log.info("inventory_picked", {
+    candidates: candidates.map((c) => ({ count: c.length, score: Number(score(c).toFixed(1)) })),
+    pickedCount: best.length,
+  });
+  return best;
 }
 
 export function tallyTypeCounts(inventory: ComponentInventoryItem[]): Record<string, number> {

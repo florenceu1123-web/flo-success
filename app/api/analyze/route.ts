@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImage, AnalyzeError } from "@/lib/analysis/analyzeImage";
-import { extractComponentInventory, type ComponentInventoryItem } from "@/lib/analysis/extractComponentInventory";
+import { extractComponentInventory, pickBetterInventory, type ComponentInventoryItem } from "@/lib/analysis/extractComponentInventory";
 import { compactAnalysis } from "@/lib/analysis/compactAnalysis";
 import { recoverTopologyV2 } from "@/lib/analysis/topologyRecovery";
 import { deriveCircuitMeta } from "@/lib/analysis/deriveCircuitMeta";
@@ -21,15 +21,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `subject는 ${SUBJECT_KEYS.join("/")} 중 하나여야 합니다.` }, { status: 400 });
     }
 
-    // analyzeImage(전체) + extractComponentInventory(독립 vision 호출) 병렬 수행.
+    // analyzeImage(전체) + extractComponentInventory(독립 vision 호출 ★ 2회 병렬 ★) 수행.
     // inventory가 잡은 type별 개수가 floor로 generate에 강제됨 — analyze branches가 일부 component 놓쳐도 보강.
-    const [analysis, inventory] = await Promise.all([
-      analyzeImage({ image, subject: subject as SubjectKey }),
+    //
+    // ★ 2회 병렬 추출 (2026-06-03): Vision 추출은 stochastic — 같은 이미지라도 실행마다
+    //   소자 수·값이 다르다 (R 누락, 값 환각 등). 2회 추출해서 더 완전한 쪽(소자 수·pins·값
+    //   커버리지 점수)을 채택해 랜덤 누락을 흡수한다.
+    const safeExtract = () =>
       extractComponentInventory({ image }).catch((e) => {
         log.warn("inventory_extraction_failed", { message: (e as Error).message });
         return [] as Awaited<ReturnType<typeof extractComponentInventory>>;
-      }),
+      });
+    const [analysis, inventoryA, inventoryB] = await Promise.all([
+      analyzeImage({ image, subject: subject as SubjectKey }),
+      safeExtract(),
+      safeExtract(),
     ]);
+    const inventory = pickBetterInventory(inventoryA, inventoryB);
 
     const compact = compactAnalysis(analysis);
     const withInventory = inventory.length > 0

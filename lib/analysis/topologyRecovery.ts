@@ -51,16 +51,22 @@ export function recoverTopologyV2(
 
   // inventory 보정 — textHint에 "인덕터/inductor/j숫자Ω/임피던스/H" 키워드 + inventory L=0 + I≥1.
   //   GPT가 코일 심볼을 current source로 오인한 케이스 자동 보정.
+  //   ★ 단, 페이저 표기(∠)나 A 단위 값을 가진 I는 확인된 전류원 — 절대 변환 금지 (2026-06-03).
+  //     (본문 식 교차 검증·correctTypeByValue로 확정된 전류원을 L로 바꾸면 회로가 깨짐)
   const correctedInventory = (() => {
     const text = (textHint ?? "").toLowerCase();
     const hasInductorHint = /인덕터|inductor|impedance|임피던스|j\(|j\d|jω|H\b|코일|coil/i.test(text);
     const hasL = inventory.some((c) => c.type.toUpperCase() === "L");
-    const iSources = inventory.filter((c) => c.type.toUpperCase() === "I");
-    if (hasInductorHint && !hasL && iSources.length >= 1) {
-      // 첫 I를 L로 교체.
-      const first = iSources[0];
+    const isConfirmedCurrentSource = (c: ComponentInventoryItem): boolean =>
+      typeof c.value === "string" && /∠|A$/i.test(c.value.trim());
+    const swappableISources = inventory.filter(
+      (c) => c.type.toUpperCase() === "I" && !isConfirmedCurrentSource(c),
+    );
+    if (hasInductorHint && !hasL && swappableISources.length >= 1) {
+      // 첫 (미확인) I를 L로 교체.
+      const first = swappableISources[0];
       log.info("inventory_corrected", {
-        reason: "textHint 인덕터 키워드 + L=0 + I≥1 → 첫 I를 L로 교체",
+        reason: "textHint 인덕터 키워드 + L=0 + 미확인 I≥1 → 첫 I를 L로 교체",
         originalId: first.id,
         originalType: first.type,
       });
@@ -167,11 +173,33 @@ export function recoverTopologyFromPins(inventory: ComponentInventoryItem[]): Re
     if (aDangling && bDangling) continue; // 완전 고립 전원 — 검증에서 reject
     const danglingEnd = aDangling ? a : b;
     const otherEnd = aDangling ? b : a;
-    // 재연결 후보: 자기 두 끝 제외, 최고 degree (tie → 알파벳)
-    const candidates = [...deg.keys()].filter((n) => n !== danglingEnd && n !== otherEnd);
-    if (candidates.length === 0) continue;
-    candidates.sort((x, y) => (deg.get(y)! - deg.get(x)!) || (x < y ? -1 : 1));
-    const target = candidates[0];
+
+    // 재연결 후보 우선순위 (2026-06-03 보강 — GPT가 같은 물리 노드에 다른 이름을 붙인 케이스):
+    //  ① 다른 전원(V/I)의 비접지 hot 노드 — 임용 회로의 전원들은 같은 공급 rail을 공유하는 관례.
+    //  ② 최고 degree 비접지 노드 (tie → 알파벳).
+    //  ★ GND는 후보 제외 — GND에 붙이면 전원+직렬소자가 본 회로와 분리된 고립 루프가 됨.
+    //    (정말 GND에 연결돼야 한다면 GPT가 애초에 GND로 라벨링했을 것)
+    const otherSourceHotNodes: string[] = [];
+    for (const other of twoPinComps) {
+      if (other.id === c.id) continue;
+      const ot = other.type.toUpperCase();
+      if (ot !== "V" && ot !== "I") continue;
+      for (const n of pinsMap.get(other.id)!) {
+        if (!isGndLabel(n) && n !== danglingEnd && n !== otherEnd) otherSourceHotNodes.push(n);
+      }
+    }
+    const byDegreeDesc = (x: string, y: string) =>
+      (deg.get(y)! - deg.get(x)!) || (x < y ? -1 : 1);
+    let target: string | undefined;
+    if (otherSourceHotNodes.length > 0) {
+      target = [...new Set(otherSourceHotNodes)].sort(byDegreeDesc)[0];
+    } else {
+      const candidates = [...deg.keys()].filter(
+        (n) => n !== danglingEnd && n !== otherEnd && !isGndLabel(n),
+      );
+      target = candidates.sort(byDegreeDesc)[0];
+    }
+    if (!target) continue;
     pinsMap.set(c.id, aDangling ? [target, b] : [a, target]);
     log.info("pins_repair_dangling_source", { id: c.id, from: danglingEnd, to: target });
   }

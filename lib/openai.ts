@@ -27,6 +27,17 @@ export function getOpenAI(): OpenAI {
 export const DEFAULT_MODEL = "gpt-4o";
 
 /**
+ * Vision 추출(회로 소자·connectivity) 전용 모델 (2026-06-03 도입).
+ *
+ * 임용 11번 비교 테스트 결과 (scripts/compareVisionModels.mjs):
+ *   gpt-4o: 75~80점 (R 누락·값 환각·실행마다 다름) → gpt-5.4-mini: 100점·100점 (완벽·재현 가능)
+ *
+ * gpt-5.x는 max_tokens 미지원 → 이 모델을 쓰는 호출은 max_completion_tokens 사용 필수.
+ * textWriter류(문제 텍스트 생성)는 DEFAULT_MODEL 유지 — 정확도 병목이 아니고 max_tokens 호환 필요.
+ */
+export const VISION_MODEL = "gpt-5.4-mini";
+
+/**
  * 429 rate-limit 응답을 자체 catch해서 메시지의 "try again in Xs" 텍스트를 따라 backoff 후 재시도.
  *   SDK의 기본 retry로 부족하거나 body-only Retry-After 표기를 정확히 따르고 싶을 때 wrapping.
  *

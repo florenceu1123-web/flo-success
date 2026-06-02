@@ -67,6 +67,34 @@ const disconnectedInventory = [
 const resC = recoverTopologyFromPins(disconnectedInventory);
 check("null 반환 (연결성 검증 실패)", resC === null);
 
+// ─── Case E: GPT 노드 이름 불일치 — dangling 전원을 다른 전원 hot 노드에 재연결 ──
+//   (2026-06-03 17:59 실제 버그: V의 top을 "n_top", I·L의 같은 물리 노드를 "n_left"로
+//    다르게 명명 → V dangling → 이전 규칙은 GND에 붙여 V+R 고립 루프를 만들었음)
+console.log("\n[Case E] 노드 이름 불일치 — dangling 전원 재연결");
+const inconsistentNaming = [
+  { id: "I1", type: "I", value: "18∠90°A", pins: ["n_left", "GND"] },
+  { id: "V1", type: "V", value: "9∠90°V", pins: ["n_top", "n_mid"] },  // n_top = 물리적으로 n_left와 같은 노드
+  { id: "R1", type: "R", value: "0.25Ω", pins: ["n_mid", "GND"] },
+  { id: "L1", type: "L", value: "j3Ω", pins: ["n_left", "n_right"] },
+  { id: "R2", type: "R", value: "2Ω", pins: ["n_right", "n_a"] },
+  { id: "C1", type: "C", value: "-j3Ω", pins: ["n_a", "GND"] },
+];
+const resE = recoverTopologyFromPins(inconsistentNaming);
+check("pins_graph_v3 채택", resE?.strategy === "pins_graph_v3", resE?.strategy);
+const vBranchE = (resE?.branches ?? []).find((b) => b.components[0].type === "V");
+check(
+  "V의 dangling 끝이 다른 전원 hot 노드(n_left)에 연결 (GND 고립 루프 금지)",
+  vBranchE?.betweenNodes?.includes("n_left") === true,
+  JSON.stringify(vBranchE?.betweenNodes),
+);
+check(
+  "V는 horizontal (mesh_only_branch) — n_left↔n_mid",
+  vBranchE?.role === "mesh_only_branch",
+  vBranchE?.role,
+);
+// 전체 그래프가 한 덩어리 (고립 루프 없음): 모든 branch가 V·I·L·R·C 6개
+check("branch 6개 전부 보존", (resE?.branches ?? []).length === 6, String((resE?.branches ?? []).length));
+
 // ─── Case D: 통합 — /api/generate (dev 서버 필요) ────────────────────────────
 console.log("\n[Case D] /api/generate 통합 (최대 평균전력)");
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
