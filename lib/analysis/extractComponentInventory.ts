@@ -3,7 +3,8 @@ import { createLogger } from "@/lib/logger";
 
 const log = createLogger("lib/analysis/extractComponentInventory");
 
-const ALLOWED_TYPES = new Set([
+/** 추출 허용 component type — 검수·편집 게이트 UI의 type 드롭다운·recover-topology 검증도 공유. */
+export const ALLOWED_TYPES = new Set([
   "R", "V", "I", "C", "L", "SW",
   "VCVS", "VCCS", "CCVS", "CCCS", "D",
   "OPAMP", "BJT", "MOSFET",   // 능동 소자 — 전자회로 archetype dispatch에 필요

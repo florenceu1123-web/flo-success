@@ -268,8 +268,31 @@ export type AnalysisResult = {
    * 별도 vision 호출로 추출한 component inventory (analyze branches와 독립적 source of truth).
    * type별 개수 floor를 generate에 강제 — analyze branches가 일부 component를 놓쳐도
    * inventory가 잡은 개수만큼은 반드시 생성되도록.
+   * pins: Connectivity Detection — 각 component 양 끝 노드 라벨 (검수·편집 게이트에서 편집 가능).
    */
-  componentInventory?: Array<{ id: string; type: string; value?: string }>;
+  componentInventory?: Array<{ id: string; type: string; value?: string; pins?: string[] }>;
+  /**
+   * Canonical Graph 자체-일관성 검증 결과 — /api/analyze·/api/recover-topology가 첨부.
+   * 검수·편집 게이트 UI가 confidence·경고 표시에 사용.
+   */
+  graphValidation?: {
+    ok: boolean;
+    confidence: number;
+    errors: string[];
+    warnings: string[];
+    floatingNodes: string[];
+  };
+  /**
+   * motif·objective 기반 자동 생성 tags — /api/analyze·/api/recover-topology가 첨부.
+   */
+  tags?: string[];
+  /**
+   * topology 복원 전략·신뢰도 — /api/recover-topology가 첨부 (검수·편집 게이트 표시용).
+   */
+  topologyRecovery?: {
+    strategy: string;
+    confidence: number;
+  };
   /**
    * 회로 archetype 분류 — netlist generator가 분기 키로 사용.
    * lib/analysis/classifyCircuitType.ts가 다른 분석 필드에서 derive (추가 GPT 호출 없음).

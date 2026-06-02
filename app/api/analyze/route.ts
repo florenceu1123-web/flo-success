@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImage, AnalyzeError } from "@/lib/analysis/analyzeImage";
 import { extractComponentInventory, type ComponentInventoryItem } from "@/lib/analysis/extractComponentInventory";
-import { classifyCircuitType } from "@/lib/analysis/classifyCircuitType";
 import { compactAnalysis } from "@/lib/analysis/compactAnalysis";
-import { recoverTopology, recoverTopologyV2 } from "@/lib/analysis/topologyRecovery";
-import { extractLearningObjective, listObjectives } from "@/lib/analysis/learningObjective";
-import { buildCanonicalGraph } from "@/lib/graph/canonical";
-import { detectMotifs } from "@/lib/graph/motifDetector";
-import { validateCanonicalGraph } from "@/lib/graph/graphValidator";
+import { recoverTopologyV2 } from "@/lib/analysis/topologyRecovery";
+import { deriveCircuitMeta } from "@/lib/analysis/deriveCircuitMeta";
 import { createLogger } from "@/lib/logger";
 import { SUBJECT_KEYS, type AnalysisResult, type SubjectKey, type TopologySignature } from "@/types";
 
@@ -63,77 +59,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // circuit_type 분류 — 추가 GPT 호출 없이 derive
-    const circuitType = classifyCircuitType(reconciled, subject as SubjectKey);
-
-    // ★ Step 1+2 (2026-05-31) — learning objective + tags 진단 출력.
-    //   사용자 박은 형식:  === Semantic === / === Tags === / === Selected Pipeline ===
-    //   pipeline routing은 generate 단계라 여기선 circuitType.type 사용.
-    const textHint = [
-      reconciled.topic ?? "",
-      reconciled.interpretation ?? "",
-      (reconciled.relatedConcepts ?? []).join(" "),
-      ...(reconciled.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`),
-    ].join(" ");
-    const objective = extractLearningObjective(textHint);
-    const semanticFlags = listObjectives(objective);
-
-    // Step 3 — tags 배열 (현재 minimal: component·circuitType.type만). Motif Detector 도입 후 확장.
-    const tagsList: string[] = [];
-    const inv2 = reconciled.componentInventory ?? [];
-    if (inv2.some((c) => c.type.toUpperCase() === "OPAMP")) tagsList.push("opamp");
-    if (inv2.some((c) => c.type.toUpperCase() === "R")) tagsList.push("resistive");
-    if (inv2.some((c) => c.type.toUpperCase() === "C")) tagsList.push("capacitive");
-    if (inv2.some((c) => c.type.toUpperCase() === "L")) tagsList.push("inductive");
-    if (inv2.some((c) => c.type.toUpperCase() === "BJT")) tagsList.push("bjt");
-    if (inv2.some((c) => c.type.toUpperCase() === "MOSFET")) tagsList.push("mosfet");
-    if (objective.asks_transfer_function) tagsList.push("transfer_function");
-    if (objective.asks_oscillation_frequency) tagsList.push("oscillator");
-    if (objective.asks_average_power) tagsList.push("average_power");
-    if (objective.asks_max_power_transfer) tagsList.push("max_power_transfer");
-    if (objective.asks_transient_response) tagsList.push("transient");
-    if (objective.asks_frequency_response) tagsList.push("frequency_response");
-    if (objective.asks_equivalent_circuit) tagsList.push("equivalent_circuit");
-    if (objective.asks_region_identification) tagsList.push("region_identification");
-    if (objective.asks_logic_minimization) tagsList.push("logic_minimization");
-    if (objective.asks_state_analysis) tagsList.push("state_analysis");
-
-    // ★ Step 2 — Canonical Graph (2026-05-31): components+pins → graph + features.
-    //   Motif Detector(3순위)와 Tags 자동 생성(4순위)의 입력.
-    const canonicalGraph = buildCanonicalGraph(inventory);
-
-    // ★ Step 3 — Motif Detector (2026-06-01): Canonical Graph sub-pattern → motif·tags.
-    //   minimal tagsList(소자·objective)에 motif 기반 tags(parallel_rl·voltage_divider·
-    //   wien_bridge·rlc·rc_network 등)를 합친다. dispatch가 archetype 폭증 없이 motif로 분기 가능.
-    const motifResult = detectMotifs(canonicalGraph);
-    for (const t of motifResult.tags) if (!tagsList.includes(t)) tagsList.push(t);
-
-    // ★ Step 4 — Graph Validator (2026-06-01): Canonical Graph 자체-일관성 검증 + confidence.
-    //   disconnected·floating·no-ground 등을 잡아 graphValidation으로 표면화(후속 재시도 신호).
-    const graphValidation = validateCanonicalGraph(canonicalGraph);
-
-    log.info("=== Semantic ===", { flags: semanticFlags });
-    log.info("=== Tags ===", { tags: tagsList, motifs: motifResult.motifs.map((m) => m.kind) });
-    log.info("=== Canonical Graph ===", {
-      nodeCount: canonicalGraph.features.nodeCount,
-      edgeCount: canonicalGraph.features.edgeCount,
-      cycleCount: canonicalGraph.features.cycleCount,
-      cc: canonicalGraph.features.connectedComponentCount,
-      nodes: canonicalGraph.nodes,
-      skipped: canonicalGraph.skippedComponents.length,
-    });
-    log.info("=== Selected Pipeline ===", { circuitType: circuitType.type, note: "router_pending — circuitType single-string fallback" });
-
-    log.info("circuit_type_classified", { type: circuitType.type, confidence: circuitType.confidence });
+    // ★ 결정론 메타 derive — circuitType·objective·tags·canonical graph·motifs·validation.
+    //   /api/recover-topology(검수·편집 게이트)와 동일 로직 공유 (lib/analysis/deriveCircuitMeta.ts).
+    const meta = deriveCircuitMeta(reconciled, subject as SubjectKey);
 
     return NextResponse.json({
       ...reconciled,
-      circuitType,
-      learningObjective: objective,
-      tags: tagsList,
-      motifs: motifResult.motifs,
-      canonicalGraph,
-      graphValidation,
+      circuitType: meta.circuitType,
+      learningObjective: meta.learningObjective,
+      tags: meta.tags,
+      motifs: meta.motifs,
+      canonicalGraph: meta.canonicalGraph,
+      graphValidation: meta.graphValidation,
     });
   } catch (e) {
     if (e instanceof AnalyzeError) {
