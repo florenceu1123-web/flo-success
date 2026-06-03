@@ -38,6 +38,12 @@ for (const pattern of ["110", "101", "011"]) {
     hideAnswers: true,
   });
 
+  // 전이 라벨 위치 — 양방향 edge(A→B / B→A)의 라벨이 같은 자리에 겹치면 한쪽이 가려짐 (버그).
+  //   모든 전이 라벨 <text>의 (x, y) 좌표가 서로 달라야 한다.
+  const labelPositions = [...stateSvg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"[^>]*fill="#dc2626"/g)]
+    .map((m) => `${m[1]},${m[2]}`);
+  const distinctPositions = new Set(labelPositions);
+
   // Verify SVG non-empty + has key markers
   const checks = [
     { name: "blockSvg has 시퀀스 검출기", ok: blockSvg.includes("시퀀스 검출기") },
@@ -46,6 +52,7 @@ for (const pattern of ["110", "101", "011"]) {
     { name: "stateSvg has ㉢", ok: stateSvg.includes("㉢") },
     { name: "stateSvg has ㉣", ok: stateSvg.includes("㉣") },
     { name: "stateSvg has 4 states", ok: ALL_STATES.every((s) => stateSvg.includes(`>${s}<`)) },
+    { name: `전이 라벨 위치 겹침 없음 (${labelPositions.length}개 라벨)`, ok: distinctPositions.size === labelPositions.length },
     { name: "tableSvg has don't care 'x'", ok: tableSvg.includes(">x<") },
     { name: "tableSvg has all 4 states", ok: ALL_STATES.every((s) => tableSvg.includes(`>${s[0]}<`)) },
   ];

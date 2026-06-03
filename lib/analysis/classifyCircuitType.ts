@@ -592,11 +592,17 @@ export function classifyCircuitType(
     const trigC = analysis.topicKey === "sequence_detector";
     const trigD = hasQuotedPattern && (dffKw || dffInventoryCount >= 2);
     // ★ J-K 플립플롭 가드 — JK-FF 기반 상태도/상태표 문제(임용 9번 전자)는 sequence_detector가 아님.
-    //   Vision이 JK-FF를 DFF로 오추출(inventory)해도 텍스트에 J-K 키워드가 있으면 제외.
+    //   진짜 시퀀스 검출기 문제(임용 8번 정보과)는 D 플립플롭만 사용 — J-K 언급 자체가 없다.
+    //   (GPT가 오해석하면 D-FF 키워드도 함께 넣으므로 "&& !dffKw" 조건은 가드를 무력화함 — 제거.)
     const jkFfGuard = matchesKeyword(text, [
       "JK 플립플롭", "J-K 플립플롭", "JK-FF", "J-K 플립", "JK 플립",
-    ]) && !dffKw;
-    if ((trigA || trigB || trigC || trigD) && !jkFfGuard) {
+    ]);
+    // ★ 검출 증거 게이트 — 진짜 시퀀스 검출기 문제는 검출 패턴('110' 등 quoted 비트열) 또는
+    //   블록도(입력 → 검출기 박스 → 출력) 언급이 본문에 반드시 있다. GPT가 J-K 상태도 문제를
+    //   topic·topicKey까지 "시퀀스 검출기"로 오해석해도 이 게이트가 차단 (실제 신고 사례).
+    const blockDiagramKw = matchesKeyword(text, ["블록도", "블록 다이어그램", "block diagram"]);
+    const seqEvidenceGate = hasQuotedPattern || blockDiagramKw;
+    if ((trigA || trigB || trigC || trigD) && !jkFfGuard && seqEvidenceGate) {
       // 시퀀스 패턴 추출 — text에 '110'/'101'/'011' 등이 quoted로 있으면 그것 사용, 없으면 기본 '110'
       const seqMatch = text.match(/['"](1[01]+|0[01]+)['"]/);
       const pattern = seqMatch ? seqMatch[1] : "110";

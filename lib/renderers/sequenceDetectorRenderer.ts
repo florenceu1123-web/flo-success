@@ -139,10 +139,12 @@ function renderTransitionArrow(from: StateCode, to: StateCode, label: string): s
   const endX = p2.x - ux * STATE_RADIUS;
   const endY = p2.y - uy * STATE_RADIUS;
   // perpendicular offset (양방향 화살표 분리용)
-  //   from < to 알파벳 순이면 +offset, 아니면 -offset
-  const offsetSign = from < to ? 1 : -1;
-  const perpX = -uy * 22 * offsetSign;
-  const perpY = ux * 22 * offsetSign;
+  //   edge 진행 방향의 왼쪽으로 일정 offset. 역방향 edge는 방향 벡터(ux·uy)가 반대이므로
+  //   perp도 자동으로 반대쪽 → A→B와 B→A가 서로 다른 쪽으로 분리된다.
+  //   ⚠️ 이전 코드는 여기에 (from < to ? 1 : -1)을 곱했는데, 이 부호가 방향 벡터 반전과
+  //   상쇄되어 양방향 edge 두 개가 같은 자리에 겹치는 버그 (한 edge의 라벨이 가려짐).
+  const perpX = -uy * 22;
+  const perpY = ux * 22;
   // Cubic Bezier control points
   const cp1x = startX + perpX;
   const cp1y = startY + perpY;

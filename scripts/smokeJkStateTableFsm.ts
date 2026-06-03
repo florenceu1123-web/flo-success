@@ -77,6 +77,59 @@ async function main() {
     clsWrongSubject.type === "fsm", `${clsWrongSubject.type} (${clsWrongSubject.reasoning})`);
   check("switched_dc 오분류 아님", clsWrongSubject.type !== "switched_dc");
 
+  // 오분류 시나리오 3 — GPT가 "시퀀스 검출기"로 완전 오해석 (실제 사례, dev 로그 07:50)
+  //   topic·topicKey 모두 sequence_detector + 추출 규칙이 강제한 D 플립플롭 언급까지 포함.
+  //   J-K 키워드가 남아있으면 jkFfGuard로, 없어도 검출 패턴('110')·블록도 부재로 차단되어야 함.
+  const seqPoisoned = {
+    ...IMYONG9_ANALYSIS,
+    topic: "시퀀스 검출기와 상태 전이 해석",
+    topicKey: "sequence_detector",
+    interpretation:
+      "시퀀스 검출기의 상태 전이를 분석하는 문제입니다. J-K 플립플롭 2개로 구성된 순서논리회로의 상태도와 " +
+      "상태표를 통해 입력 x에 따른 출력 y를 구하고, D 플립플롭 입력 논리식을 도출하는 과정입니다. " +
+      "상태표의 ㉠, ㉡, ㉢, ㉣, ㉤, ㉥ 빈칸을 채웁니다.",
+    relatedConcepts: ["시퀀스 검출기", "D 플립플롭", "상태 전이도", "상태표", "Mealy"],
+    componentInventory: [
+      { id: "DFF_A", type: "DFF" },
+      { id: "DFF_B", type: "DFF" },
+    ],
+  } as unknown as AnalysisResult;
+  const clsSeqPoisoned = classifyCircuitType(seqPoisoned, "digital_logic");
+  check("시퀀스 검출기 오해석(J-K 언급 잔존)도 sequence_detector 아님 → fsm",
+    clsSeqPoisoned.type !== "sequence_detector" && clsSeqPoisoned.type === "fsm", clsSeqPoisoned.type);
+
+  // 완전 오염 (J-K 언급조차 없음) — 검출 패턴·블록도 부재로 sequence_detector만은 차단
+  const seqFullyPoisoned = {
+    ...seqPoisoned,
+    interpretation:
+      "시퀀스 검출기의 상태 전이를 분석하는 문제입니다. 상태도와 상태표를 통해 입력에 따른 출력을 구하고, " +
+      "D 플립플롭 입력 논리식을 도출합니다. 상태표의 ㉠, ㉡, ㉢, ㉣ 빈칸을 채웁니다.",
+    fillInTheBlanks: [],
+  } as unknown as AnalysisResult;
+  const clsSeqFully = classifyCircuitType(seqFullyPoisoned, "digital_logic");
+  check("완전 오염(검출 패턴·블록도 없음)이어도 sequence_detector 차단",
+    clsSeqFully.type !== "sequence_detector", clsSeqFully.type);
+
+  // 진짜 시퀀스 검출기 문제 (임용 8번 정보과)는 여전히 sequence_detector로 분류
+  const realSeqDetector = {
+    topic: "시퀀스 검출기 상태도·상태표 빈칸",
+    interpretation:
+      "입력 y가 '110'의 순서로 입력될 때 출력 z=1이 되는 시퀀스 검출기. (가) 블록도(y → 검출기 → z), " +
+      "(나) 상태도의 ㉠, ㉡, ㉢, ㉣ 빈칸, (다) 상태표(don't care 포함)를 채운다. D 플립플롭 2개(Q_A·Q_B) 사용.",
+    relatedConcepts: ["시퀀스 검출기", "D 플립플롭", "상태 전이도", "Mealy", "don't care"],
+    fillInTheBlanks: [],
+    subjectKey: "digital_logic",
+    topicKey: "sequence_detector",
+    componentInventory: [
+      { id: "DFF_A", type: "DFF" },
+      { id: "DFF_B", type: "DFF" },
+    ],
+    signals: { inputs: ["y", "CLK"], outputs: ["z"] },
+  } as unknown as AnalysisResult;
+  const clsRealSeq = classifyCircuitType(realSeqDetector, "digital_logic");
+  check("진짜 시퀀스 검출기(블록도+'110' 패턴)는 sequence_detector 유지",
+    clsRealSeq.type === "sequence_detector", clsRealSeq.type);
+
   // false-positive 방어 — T-FF 상태표 (임용 7번 정보과)는 tff_state_table_blank 유지
   const tffAnalysis = {
     topic: "T 플립플롭 상태표 해석",
