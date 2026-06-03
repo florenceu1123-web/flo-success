@@ -26,6 +26,14 @@ export function resolveDigitalRules(args: {
   } else if (args.circuitType === "kmap_sop" && args.circuitTypeParams?.truthTableBlank) {
     // 임용 5번 정보과 — (가) 진리표 + (나) 간략화된 조합논리회로. kmap은 풀이 [단계 1] 산출물.
     required.push("truth_table", "implementation_circuit");
+  } else if (
+    args.circuitType === "fsm" &&
+    (args.circuitTypeParams?.ffTypes ?? []).includes("JK") &&
+    args.circuitTypeParams?.hasStateTable
+  ) {
+    // 임용 9번 전자 (JK 상태표 형식) — (가) 상태도 + (나) 상태표(빈칸 ㉠~㉥).
+    // 원본에 구현 회로 figure가 없음 — implementation_circuit 요구 금지.
+    required.push("state_diagram", "truth_table");
   } else {
     if (args.topicKey === "kmap_sop" || args.topicKey === "kmap_pos") {
       required.push("kmap", "implementation_circuit");

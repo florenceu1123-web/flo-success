@@ -12,7 +12,9 @@
 import { classifyCircuitType } from "../lib/analysis/classifyCircuitType";
 import { generateJkStateTableFsm } from "../lib/generation/topologies/fsm";
 import { runFsmPipeline } from "../lib/pipeline/runFsmPipeline";
-import type { AnalysisResult } from "../types";
+import { resolveRules } from "../lib/rules";
+import { validateProblem } from "../lib/validators";
+import type { AnalysisResult, SemanticStructure } from "../types";
 
 let pass = 0;
 let fail = 0;
@@ -201,6 +203,35 @@ async function main() {
   check("MUX·구현회로 figure 없음 (원본 형식)", !figs.some((f) => f.diagramType === "logic_network"));
   check("풀이 figure: 완성된 상태표", (p.solutionFigures ?? []).length >= 1);
   check("문제 간 값 다양성", problems[0].answer !== problems[1].answer);
+
+  // ════════════════════════════════════════════════════════════════
+  console.log("\n[D] validator — 필수 figure role 충족 (missing_figure_variant 회귀 방지)");
+  // ════════════════════════════════════════════════════════════════
+  //   route.ts와 동일하게 resolveRules에 circuitType + params 전달 (text 없음).
+  const semantic: SemanticStructure = {
+    hasStateTransition: true,
+    hasEquivalentTransformation: false,
+    hasWaveformEvolution: false,
+    requiresMultiFigure: true,
+  };
+  const ruleSet = resolveRules({
+    subject: "digital_logic",
+    topicKey: "fsm",
+    semantic,
+    circuitType: cls.type,
+    circuitTypeParams: cls.params,
+  });
+  check("ruleSet: implementation_circuit 요구 안 함",
+    !ruleSet.requiredFigureRoles.includes("implementation_circuit"),
+    ruleSet.requiredFigureRoles.join(", "));
+  check("ruleSet: 상태도 + 상태표 요구",
+    ruleSet.requiredFigureRoles.includes("state_diagram") && ruleSet.requiredFigureRoles.includes("truth_table"));
+  const validation = validateProblem({
+    problem: p,
+    expected: { subject: "digital_logic", topicKey: "fsm", ruleSet },
+  });
+  check("validateProblem 통과 (이슈 0)", validation.ok,
+    validation.ok ? undefined : validation.issues.map((i) => `${i.rule}: ${i.message}`).join(" / "));
 
   console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
   process.exit(fail > 0 ? 1 : 0);
