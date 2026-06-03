@@ -31,6 +31,42 @@ export function classifyCircuitType(
   analysis: AnalysisResult,
   subject: SubjectKey,
 ): CircuitTypeClassification {
+  // ── ★ PRE-SUBJECT — 디지털 순서논리(FF + 상태도/상태표) 교정 ─────────
+  //   subject가 회로이론/전자로 잘못 선택·분석돼도 "플립플롭 + 상태도/상태표"는 명백한
+  //   디지털 순서논리 문제다. (실제 사례: J-K 플립플롭 상태도 문제가 topicKey=switching_circuit
+  //   으로 분석돼 switched_dc로 오분류 → digital dispatch 미매치 → GPT free generation으로
+  //   추락해 D-FF·빈 상태도 문제가 생성됨.)
+  //   아날로그 소자(R/V/I/C/L)가 실제 inventory에 있으면 교정하지 않음 (mixed_signal 가능성).
+  if (subject !== "digital_logic" && subject !== "mixed_signal") {
+    const preText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? [])
+        .map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`)
+        .join(" "),
+    ].join(" ");
+    const ffKw = matchesKeyword(preText, [
+      "플립플롭", "플립 플롭", "flip-flop", "flipflop",
+      "J-K 플립", "JK 플립", "JK-FF", "D-FF", "T-FF",
+    ]);
+    const stateKw = matchesKeyword(preText, [
+      "상태도", "상태 전이도", "상태천이도", "상태표", "상태 표",
+      "state diagram", "state table", "순서논리", "순차 논리", "순차논리",
+    ]);
+    const preCounts = aggregateComponentCounts(analysis);
+    const hasAnalogInventory =
+      preCounts.R + preCounts.V + preCounts.I + preCounts.C + preCounts.L > 0;
+    if (ffKw && stateKw && !hasAnalogInventory) {
+      classifierLog.info("pre_subject_digital_correction", {
+        from: subject,
+        to: "digital_logic",
+        reason: "FF + 상태도/상태표 시그니처 (아날로그 inventory 없음)",
+      });
+      subject = "digital_logic";
+    }
+  }
+
   // ── ★ PRE-SUBJECT — Universal AC PWL (다이오드+SW+AC) ─────────
   //   임용 6번 형식: 다이오드+SW+AC clamp/정류 회로. subject(circuit_theory·electronics)와
   //   무관하게 component 시그니처로 라우팅. counts.D ≥ 1 + SW(inferred) + AC source signal.
@@ -410,13 +446,24 @@ export function classifyCircuitType(
 
     // 추가 트리거: 2개 이상의 output (F, G) + K-map → universal_digital
     const multiOutput = outputsAll.length >= 2;
+    // ★ 순서논리(FF + 상태도/상태표) 가드 — 플립플롭 기반 순서논리 문제는 universal_digital
+    //   (조합논리 N-var/M-func K-map)이 아니라 아래 FF 계열 분기(fsm·tff_state_table_blank·
+    //   flipflop_mixed_app 등)로 가야 한다. 순서논리 문제도 "K-map 최소화" 개념 + 다중 출력
+    //   (Q_A·Q_B·y)을 가지므로 (multiOutput && kmapKw) 트리거에 잘못 걸리는 것을 방지.
+    const sequentialLogicSignature =
+      matchesKeyword(text, ["플립플롭", "플립 플롭", "flip-flop", "flipflop"]) &&
+      matchesKeyword(text, [
+        "상태도", "상태 전이도", "상태천이도", "상태표", "상태 표",
+        "state diagram", "state table", "순서논리", "순차 논리", "순차논리",
+      ]);
     if (
-      has4PlusVars ||
-      hasMultiFunctions ||
-      sigmaMintermKw ||
-      (multiFuncKw && kmapKw) ||
-      (multiOutput && kmapKw) ||
-      (singleZOutput && kmapKw && combineKw)
+      !sequentialLogicSignature &&
+      (has4PlusVars ||
+        hasMultiFunctions ||
+        sigmaMintermKw ||
+        (multiFuncKw && kmapKw) ||
+        (multiOutput && kmapKw) ||
+        (singleZOutput && kmapKw && combineKw))
     ) {
       const triggered: string[] = [];
       if (has4PlusVars) triggered.push(`N=${inputsAll.length}≥4`);
@@ -544,7 +591,12 @@ export function classifyCircuitType(
     const trigB = hasBlankMarkers && (dffKw || dffInventoryCount >= 2);
     const trigC = analysis.topicKey === "sequence_detector";
     const trigD = hasQuotedPattern && (dffKw || dffInventoryCount >= 2);
-    if (trigA || trigB || trigC || trigD) {
+    // ★ J-K 플립플롭 가드 — JK-FF 기반 상태도/상태표 문제(임용 9번 전자)는 sequence_detector가 아님.
+    //   Vision이 JK-FF를 DFF로 오추출(inventory)해도 텍스트에 J-K 키워드가 있으면 제외.
+    const jkFfGuard = matchesKeyword(text, [
+      "JK 플립플롭", "J-K 플립플롭", "JK-FF", "J-K 플립", "JK 플립",
+    ]) && !dffKw;
+    if ((trigA || trigB || trigC || trigD) && !jkFfGuard) {
       // 시퀀스 패턴 추출 — text에 '110'/'101'/'011' 등이 quoted로 있으면 그것 사용, 없으면 기본 '110'
       const seqMatch = text.match(/['"](1[01]+|0[01]+)['"]/);
       const pattern = seqMatch ? seqMatch[1] : "110";
@@ -556,19 +608,36 @@ export function classifyCircuitType(
         reasoning: `digital_logic + sequence_detector → 패턴 '${pattern}' (트리거: ${triggers})`,
       };
     }
-    if (analysis.topicKey === "fsm" || matchesKeyword(text, ["FSM", "유한 상태", "유한상태", "Mealy", "Moore", "상태 기계", "상태 머신", "상태 전이도", "상태천이도"])) {
+    // FF 종류·상태표 키워드 — fsm 분기와 flipflop_mixed_app 분기가 공유.
+    const hasTFf = matchesKeyword(text, ["T 플립플롭", "T-FF", "T 플립", "T-플립", "T flip-flop", "T flipflop"]);
+    const hasJkFf = matchesKeyword(text, [
+      "JK 플립플롭", "JK-FF", "JK 플립", "JK-플립", "JK flip-flop", "JK flipflop",
+      "J-K 플립플롭", "J-K 플립", "J-K flip-flop", "J-K FF",
+    ]);
+    const hasStateTableKw = matchesKeyword(text, ["상태표", "상태 표", "다음 상태", "현재 상태", "차기 상태", "state table"]);
+    const hasWaveformKw = matchesKeyword(text, ["파형", "타이밍도", "timing diagram", "waveform", "출력 파형"]);
+    const hasStateDiagramKw = matchesKeyword(text, ["상태도", "상태 전이도", "상태천이도", "state diagram"]);
+
+    // ★ JK 상태표 형식 (임용 9번 전자) — JK-FF + 상태도 + 상태표.
+    //   fsm으로 분류하되 params로 JK 상태표 모드를 신호 → runFsmPipeline이
+    //   D-FF+MUX 형식 대신 원본 방향(상태표 빈칸 → y 논리식 → J_A·J_B 식)으로 생성.
+    const isJkStateTableFormat = hasJkFf && hasStateDiagramKw && !hasTFf;
+    if (
+      analysis.topicKey === "fsm" ||
+      matchesKeyword(text, ["FSM", "유한 상태", "유한상태", "Mealy", "Moore", "상태 기계", "상태 머신", "상태 전이도", "상태천이도"]) ||
+      isJkStateTableFormat
+    ) {
+      // JK + 상태표 시그니처면 JK 상태표 모드 params 전달 (topicKey=fsm으로 와도 동일 적용)
+      const jkStateTable = hasJkFf && (hasStateTableKw || hasStateDiagramKw) && !hasTFf;
       return {
         type: "fsm",
-        params: {},
+        params: jkStateTable ? { ffTypes: ["JK"], hasStateTable: true } : {},
         confidence: "high",
-        reasoning: "digital_logic + FSM 키워드/topic",
+        reasoning: jkStateTable
+          ? "digital_logic + J-K 플립플롭 + 상태도/상태표 → fsm (JK 상태표 모드)"
+          : "digital_logic + FSM 키워드/topic",
       };
     }
-    // T·JK 또는 둘 이상 FF 타입 혼합 + 상태표/파형이 있는 응용회로는 flipflop_mixed_app로 분류 (flipflop_counter보다 우선)
-    const hasTFf = matchesKeyword(text, ["T 플립플롭", "T-FF", "T 플립", "T-플립", "T flip-flop", "T flipflop"]);
-    const hasJkFf = matchesKeyword(text, ["JK 플립플롭", "JK-FF", "JK 플립", "JK-플립", "JK flip-flop", "JK flipflop"]);
-    const hasStateTableKw = matchesKeyword(text, ["상태표", "상태 표", "다음 상태", "현재 상태", "state table"]);
-    const hasWaveformKw = matchesKeyword(text, ["파형", "타이밍도", "timing diagram", "waveform", "출력 파형"]);
 
     // ★ 임용 7번 정보과 형식 (tff_state_table_blank) — flipflop_mixed_app 보다 위 매치.
     //   원본: (가) T-FF 2개(T_A·T_B) + 조합부 + 입력 C — (나) 상태표 + 빈칸 ㉠~㉧ —

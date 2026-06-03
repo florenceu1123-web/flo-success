@@ -1,8 +1,10 @@
 import type {
   CircuitTypeParams,
   ConceptDiagram,
+  GenerationMode,
   LogicGate,
   LogicNetworkDiagram,
+  TruthTableDiagram,
 } from "@/types";
 import {
   sopToString,
@@ -380,4 +382,265 @@ function buildMooreDiagram(nextState: number[], output: number[]): ConceptDiagra
     }
   }
   return diagram;
+}
+
+// =====================================================================
+// JK 상태표 형식 (임용 9번 전자) — JK-FF 2개(A·B) Mealy 상태도 + 상태표 빈칸 ㉠~㉥
+//
+//  원본 형식:
+//   - (가) 상태도: 노드 = 상태 비트(00/01/11/10), 에지 = "x/y" (Mealy)
+//   - (나) 상태표: 현재상태(A,B) | 차기상태(x=0: A·B, x=1: A·B) | 출력(x=0: y, x=1: y)
+//     일부 행의 6개 셀이 ㉠~㉥ 빈칸 (학생이 상태도에서 읽어 채움)
+//   - 풀이: [단계 1] 빈칸 → [단계 2] y 논리식 → [단계 3] J_A·J_B 최소 논리식 (JK excitation)
+//
+//  생성 원리 (규칙 적용 — 원본 전이 값 복사 아님):
+//   1) 8 transition Mealy FSM 무작위 생성 (모든 상태 도달 가능)
+//   2) JK excitation 도출 — 상태 전이에서 J/K minterm + don't-care:
+//      Q(t)=0→Q(t+1)=1 ⟹ J=1 / Q(t)=1→Q(t+1)=0 ⟹ K=1 / Q(t)=1 ⟹ J=dc / Q(t)=0 ⟹ K=dc
+//   3) 품질 검증: J_A·J_B·y 식이 자명(0/1/단일변수)하지 않은 전이만 채택 (rejection)
+//   4) 상태표 한 행(무작위)의 6개 셀을 ㉠~㉥ 빈칸 처리
+// =====================================================================
+
+export type JkStateTableFsmGeneration = {
+  /** 8 transition: nextState[(state<<1)|x] = 차기 상태 (state = (A<<1)|B) */
+  nextState: number[];
+  /** Mealy 출력 y (8 transition별) */
+  output: number[];
+  /** (가) 상태도 — 비트 라벨 노드 + x/y 에지 */
+  stateDiagram: ConceptDiagram;
+  /** (나) 상태표 — 빈칸 ㉠~㉥ 포함 */
+  stateTable: TruthTableDiagram;
+  /** 풀이용 — 모든 셀 채워진 상태표 */
+  solutionStateTable: TruthTableDiagram;
+  /** 빈칸 정답 (㉠~㉥ → 값) */
+  blankAnswers: Array<{ symbol: string; answer: string }>;
+  /** 출력 y 최소 SOP 식 */
+  yExpression: string;
+  /** JK excitation 최소 식 */
+  jkExpressions: { JA: string; KA: string; JB: string; KB: string };
+  /** 이름 앵커 (원본: 상태 A·B, 입력 x, 출력 y) */
+  names: { stateVars: [string, string]; input: string; output: string };
+};
+
+const JK_BLANK_SYMBOLS = ["㉠", "㉡", "㉢", "㉣", "㉤", "㉥"];
+const JK_MAX_ATTEMPTS = 200;
+
+export function generateJkStateTableFsm(args: {
+  seed?: number;
+  mode?: GenerationMode;
+  /** 원본 이름 앵커 — 기본 상태 A·B, 입력 x, 출력 y */
+  names?: { stateVars?: [string, string]; input?: string; output?: string };
+}): JkStateTableFsmGeneration {
+  const rand = makeRand(args.seed);
+  // RNG warm-up (tffStateTableBlank와 동일 — 작은 seed 편향 방지)
+  for (let i = 0; i < 8; i++) rand();
+
+  const stateVars: [string, string] = args.names?.stateVars ?? ["A", "B"];
+  const inputName = args.names?.input ?? "x";
+  const outputName = args.names?.output ?? "y";
+  const varNames = [stateVars[0], stateVars[1], inputName];
+
+  // ── 전이·출력 샘플링 + 품질 검증 (rejection) ──
+  for (let attempt = 0; attempt < JK_MAX_ATTEMPTS; attempt++) {
+    // 8 transition Mealy
+    const nextState: number[] = [];
+    for (let i = 0; i < 8; i++) nextState.push(Math.floor(rand() * 4));
+    ensureAllStatesReachable(nextState, rand);
+    const output: number[] = [];
+    for (let i = 0; i < 8; i++) output.push(Math.floor(rand() * 2));
+
+    // JK excitation + y 도출
+    const derived = deriveJkExcitation(nextState, output, varNames);
+    if (!derived) continue;
+
+    // 품질: J_A·J_B·y 식이 자명하지 않아야 [단계 2]·[단계 3]이 의미 있음
+    if (isTrivialExpression(derived.jaExpr, varNames)) continue;
+    if (isTrivialExpression(derived.jbExpr, varNames)) continue;
+    if (isTrivialExpression(derived.yExpr, varNames)) continue;
+
+    return assembleJkStateTable({
+      nextState,
+      output,
+      derived,
+      rand,
+      stateVars,
+      inputName,
+      outputName,
+    });
+  }
+  throw new Error("generateJkStateTableFsm: 전이 샘플링 실패 (모든 시도 소진)");
+}
+
+/**
+ * 자명한 식인지 — 상수(0/1) 또는 변수 1개짜리 literal (예: "A", "x'").
+ * "AB'" 같은 단일 곱항(변수 2개+)은 정상적인 답이므로 trivial 아님.
+ */
+function isTrivialExpression(expr: string, varNames: string[]): boolean {
+  if (expr === "0" || expr === "1") return true;
+  let varCount = 0;
+  for (const v of varNames) {
+    varCount += expr.split(v).length - 1;
+  }
+  return varCount <= 1;
+}
+
+/** 상태 전이/출력 → JK excitation (don't-care 포함 최소화) + y SOP. */
+function deriveJkExcitation(
+  nextState: number[],
+  output: number[],
+  varNames: string[],
+): {
+  jaExpr: string; kaExpr: string; jbExpr: string; kbExpr: string; yExpr: string;
+} | null {
+  // minterm 인덱스 = (A<<2)|(B<<1)|x. 전이 인덱스 = (state<<1)|x, state = (A<<1)|B.
+  const jaM: number[] = []; const jaD: number[] = [];
+  const kaM: number[] = []; const kaD: number[] = [];
+  const jbM: number[] = []; const jbD: number[] = [];
+  const kbM: number[] = []; const kbD: number[] = [];
+  const yM: number[] = [];
+
+  for (let m = 0; m < 8; m++) {
+    const a = (m >> 2) & 1;
+    const b = (m >> 1) & 1;
+    const x = m & 1;
+    const s = (a << 1) | b;
+    const tIdx = (s << 1) | x;
+    const next = nextState[tIdx];
+    const aNext = (next >> 1) & 1;
+    const bNext = next & 1;
+
+    // FF A excitation
+    if (a === 0) {
+      kaD.push(m);                  // Q=0 → K don't-care
+      if (aNext === 1) jaM.push(m); // 0→1: J=1
+    } else {
+      jaD.push(m);                  // Q=1 → J don't-care
+      if (aNext === 0) kaM.push(m); // 1→0: K=1
+    }
+    // FF B excitation
+    if (b === 0) {
+      kbD.push(m);
+      if (bNext === 1) jbM.push(m);
+    } else {
+      jbD.push(m);
+      if (bNext === 0) kbM.push(m);
+    }
+    // 출력 y
+    if (output[tIdx] === 1) yM.push(m);
+  }
+
+  const mkExpr = (minterms: number[], dontCares: number[]): string => {
+    const fn: BooleanFunction = { vars: 3, varNames, minterms, dontCares };
+    return sopToString(minimizeSop(fn), varNames);
+  };
+
+  return {
+    jaExpr: mkExpr(jaM, jaD),
+    kaExpr: mkExpr(kaM, kaD),
+    jbExpr: mkExpr(jbM, jbD),
+    kbExpr: mkExpr(kbM, kbD),
+    yExpr: mkExpr(yM, []),
+  };
+}
+
+/** 전이·excitation → figure·빈칸·정답 조립. */
+function assembleJkStateTable(args: {
+  nextState: number[];
+  output: number[];
+  derived: { jaExpr: string; kaExpr: string; jbExpr: string; kbExpr: string; yExpr: string };
+  rand: () => number;
+  stateVars: [string, string];
+  inputName: string;
+  outputName: string;
+}): JkStateTableFsmGeneration {
+  const { nextState, output, derived, rand, stateVars, inputName, outputName } = args;
+  const [A, B] = stateVars;
+  const x = inputName;
+  const y = outputName;
+
+  // ── (가) 상태도 — 노드 라벨은 상태 비트(00/01/11/10), 에지 라벨 "x/y" (Mealy) ──
+  const bitLabel = (s: number): string => `${(s >> 1) & 1}${s & 1}`;
+  const stateDiagram: ConceptDiagram = {
+    nodes: [0, 1, 3, 2].map((s) => ({ id: `s${s}`, label: bitLabel(s) })),
+    edges: [],
+  };
+  for (let s = 0; s < 4; s++) {
+    for (let xi = 0; xi < 2; xi++) {
+      const tIdx = (s << 1) | xi;
+      stateDiagram.edges.push({
+        from: `s${s}`,
+        to: `s${nextState[tIdx]}`,
+        label: `${xi}/${output[tIdx]}`,
+      });
+    }
+  }
+
+  // ── (나) 상태표 — 4행 (현재상태 00·01·10·11), 6 출력 컬럼 ──
+  //   컬럼: 차기상태 x=0 (A,B) | 차기상태 x=1 (A,B) | 출력 x=0 (y) | x=1 (y)
+  type Row = {
+    a: number; b: number;
+    a0: number; b0: number;   // x=0 차기상태
+    a1: number; b1: number;   // x=1 차기상태
+    y0: number; y1: number;   // 출력
+  };
+  const rows: Row[] = [];
+  for (let s = 0; s < 4; s++) {
+    const a = (s >> 1) & 1;
+    const b = s & 1;
+    const n0 = nextState[(s << 1) | 0];
+    const n1 = nextState[(s << 1) | 1];
+    rows.push({
+      a, b,
+      a0: (n0 >> 1) & 1, b0: n0 & 1,
+      a1: (n1 >> 1) & 1, b1: n1 & 1,
+      y0: output[(s << 1) | 0], y1: output[(s << 1) | 1],
+    });
+  }
+
+  // 빈칸 — 무작위 행 1개의 6개 셀 전부 ㉠~㉥ (원본: "1 0" 행)
+  const blankRowIdx = Math.floor(rand() * 4);
+  const blankAnswers: Array<{ symbol: string; answer: string }> = [];
+  const rowCells = (r: Row): number[] => [r.a0, r.b0, r.a1, r.b1, r.y0, r.y1];
+
+  const outputLabels = [
+    `${A}(${x}=0)`, `${B}(${x}=0)`,
+    `${A}(${x}=1)`, `${B}(${x}=1)`,
+    `${y}(${x}=0)`, `${y}(${x}=1)`,
+  ];
+  const buildTable = (withBlanks: boolean): TruthTableDiagram => ({
+    variables: [A, B],
+    outputLabels,
+    inputGroups: [{ label: "현재 상태", span: 2 }],
+    outputGroups: [
+      { label: "차기 상태", span: 4 },
+      { label: "출력", span: 2 },
+    ],
+    rows: rows.map((r, rowIdx) => ({
+      inputs: [r.a, r.b],
+      outputs: rowCells(r).map((v, col) =>
+        withBlanks && rowIdx === blankRowIdx ? JK_BLANK_SYMBOLS[col] : v,
+      ),
+    })),
+  });
+
+  rowCells(rows[blankRowIdx]).forEach((v, col) => {
+    blankAnswers.push({ symbol: JK_BLANK_SYMBOLS[col], answer: String(v) });
+  });
+
+  return {
+    nextState,
+    output,
+    stateDiagram,
+    stateTable: buildTable(true),
+    solutionStateTable: buildTable(false),
+    blankAnswers,
+    yExpression: derived.yExpr,
+    jkExpressions: {
+      JA: derived.jaExpr,
+      KA: derived.kaExpr,
+      JB: derived.jbExpr,
+      KB: derived.kbExpr,
+    },
+    names: { stateVars, input: inputName, output: outputName },
+  };
 }

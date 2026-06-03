@@ -698,6 +698,60 @@ K-map 문제를 분석할 때 ★ K-map 개수와 차원을 정확히 카운트 
   - outputs를 ["F","G"] 같은 임의 라벨로 → Q_A·Q_B 상태 변수.
   - 빈칸 마커 ㉠~㉧을 누락 → 학생 채울 자리 없어짐.
 
+【★ digital_logic J-K 플립플롭 상태도 + 상태표 빈칸 — 절대 추출 규칙 (fsm JK 상태표 모드 라우팅 핵심, 임용 9번 전자)】
+
+다음 시각 단서 ★ 두 가지 이상 ★ 보이면 J-K 플립플롭 상태도 형식이다:
+  (1) (가) figure가 ★ 상태도(state diagram) ★ — 원(동그라미) 노드 4개, 각 노드 안에 2비트 상태(00·01·11·10),
+      노드 사이 화살표에 "x/y" 형식 전이 라벨 (Mealy)
+  (2) 본문에 ★ "J-K 플립플롭" (또는 JK 플립플롭) ★ 명시 — 출력 A·B를 갖는 두 개의 J-K 플립플롭
+  (3) (나) figure가 ★ 상태표 ★ — 컬럼: [현재 상태 A·B] [차기 상태 x=0·x=1] [출력 y]
+      일부 행의 셀에 ★ 빈칸 마커 ㉠~㉥ ★
+  (4) [해석 절차] 박스 + 3단계:
+      [단계 1] 상태표 빈칸 ㉠~㉥ 채우기 → [단계 2] 출력 y의 논리식 → [단계 3] J_A·J_B의 최소화된 논리식
+
+이 경우 ★ 반드시 ★ 다음을 만족:
+
+(A) topicKey = "fsm" 명시 ★ 강제 ★
+    ❌ "switching_circuit" ★ 절대 금지 ★ — 순서논리회로의 "상태 전이"는 회로이론의 "스위칭"이 아니다.
+    ❌ "flipflop_counter"·"sequence_detector"도 금지 — 카운터/검출기가 아니라 일반 FSM 상태도 해석.
+
+(B) topic 또는 interpretation에 ★ "J-K 플립플롭" + "상태도" + "상태표" 단어 명시 ★
+    예: "J-K 플립플롭 2개(출력 A·B)로 구성된 순서논리회로의 상태도와 상태표 해석"
+    ★ 절대 금지 ★: "스위칭 회로"·"상태 변화 회로" 같은 회로이론 표현 사용.
+
+(C) relatedConcepts 배열에 ★ 최소 4개 ★ 포함:
+    "J-K 플립플롭", "상태도", "상태표", "Mealy", "순서논리회로", "여기표(excitation table)",
+    "K-map 최소화", "플립플롭 입력식" 중 4개 이상.
+
+(D) interpretation 또는 fillInTheBlanks에 ★ 해석 절차 단계 원문 transcribe ★
+    특히 "출력 y의 논리식"과 "입력 J_A와 입력 J_B의 최소화된 논리식" 문구 그대로.
+    빈칸 마커 ㉠~㉥도 원문 그대로 (○1·○2 등으로 바꾸지 말 것).
+
+(E) signals에:
+    "signals": { "inputs": ["x", "CLK"], "outputs": ["A", "B", "y"] }   // 원본 라벨 그대로
+    ★ 절대 금지 ★: 상태 변수를 Q1·Q0로 임의 개명.
+
+(F) componentInventory에 ★ JK-FF 정확히 2개 ★:
+    [{ "id": "JKFF_A", "type": "JKFF" }, { "id": "JKFF_B", "type": "JKFF" }]
+    ❌ "DFF"·"TFF" 절대 금지 — type="JKFF". R·V·SW 같은 아날로그 소자 inventory 금지.
+
+(G) figureRequirements에 2개 figure 명시:
+    [
+      { "role": "state_diagram", "diagramType": "concept_diagram", "scope": "single", "required": true },
+      { "role": "truth_table",   "diagramType": "truth_table",     "scope": "single", "required": true }
+    ]
+    ⚠️ implementation_circuit(회로도)·waveform은 절대 추가하지 마라 — 원본에 회로도 figure 없음.
+
+★ 잘못된 추출 (절대 금지) ★:
+  - topicKey="switching_circuit" → 분류기가 회로이론 switched_dc로 오분류 → 디지털 dispatch 실패 →
+    GPT 자유 생성으로 추락해 D 플립플롭·빈 상태도 문제가 생성됨 (사용자가 실제 신고함).
+  - J-K 플립플롭을 D 플립플롭으로 바꾸기 → 원본의 학습 목표(JK 여기표 적용)가 소실됨.
+  - 상태도를 "스위치 상태 변화"로 해석 → semantic.hasStateTransition은 디지털 순서논리의 상태 전이를 의미.
+  - 빈칸 마커 ㉠~㉥ 누락 또는 ○1~○6으로 변형.
+
+(이 케이스는 분류기가 fsm + ffTypes=["JK"]·hasStateTable=true params로 라우팅하여
+(가) 상태도 + (나) 상태표(빈칸 ㉠~㉥)가 원본의 "빈칸 → y 논리식 → J_A·J_B 식" 방향 그대로 생성된다.)
+
 (이 케이스는 분류기가 tff_state_table_blank path로 라우팅하여 (가) T-FF 2개 회로 + (나) 상태표(빈칸) 2 figure만 생성된다. K-map은 풀이 [단계 3] 산출물.)
 
 【★ circuit_theory AC + 인덕터 임피던스 표기 — 절대 추출 규칙 (universal_ac 라우팅 핵심, 임용 8번 정보과 RL 응용회로)】
