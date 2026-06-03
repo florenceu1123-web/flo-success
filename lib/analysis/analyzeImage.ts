@@ -603,6 +603,48 @@ K-map 문제를 분석할 때 ★ K-map 개수와 차원을 정확히 카운트 
 
 (이 케이스는 분류기가 kmap_sop path with truthTableBlank=true 로 라우팅하여 (가) 진리표 + (나) ㉠ 빈칸 회로 2 figure만 생성된다.)
 
+【★ digital_logic 다중 함수 Σm 정의 + 빈 K-map + 회로 입력 ㉠㉡㉢ 빈칸 — 절대 추출 규칙 (universal_digital sharedTermInputBlank 라우팅 핵심, 임용 7번 다중함수 공유항 형식)】
+
+다음 시각 단서 ★ 두 가지 이상 ★ 보이면 다중 함수 공유항·입력결정 형식이다:
+  (1) 식 (가)가 ★ 2~3개의 불 함수가 Σm 표기로 주어짐 ★ — 예: F(X,Y,Z) = Σm(2,4,5), G(X,Y,Z) = Σm(2,6,7)
+      ★ K-map이 채워져 주어지는 게 아니라 함수가 "식"으로 주어진다 ★
+  (2) (나) figure가 ★ 빈 K-map ★ — 셀이 채워져 있지 않은 카르노 도 템플릿 (학생이 채움)
+  (3) (다) figure가 조합논리회로 — ★ 입력 라인에 ㉠·㉡·㉢ 빈칸 마커 ★ (게이트가 아니라 ★ 입력 ★이 빈칸)
+      게이트(NOT·AND·OR)는 모두 그려져 있고, 어느 입력변수가 어느 라인인지가 미정
+  (4) [해석 절차] 박스 + 3단계:
+      [단계 1] 각 함수의 카르노 도 작성 → [단계 2] 중복되는 논리식 항 → [단계 3] ㉠㉡㉢에 들어갈 입력변수 결정
+
+이 경우 ★ 반드시 ★ 다음을 만족:
+
+(A) interpretation에 ★ 함수 정의식 원문 그대로 transcribe ★
+    "F(X, Y, Z) = Σm(2, 4, 5)" 형식 — Σ·m·괄호·minterm 숫자 모두 보존. 의역 금지.
+
+(B) interpretation 또는 fillInTheBlanks에 ★ 해석 절차 단계 원문 transcribe ★
+    특히 "중복되는 논리식 항"과 "㉠, ㉡, ㉢에 들어갈 입력변수" 문구를 ★ 원문 그대로 ★.
+    예: { "sentence": "[단계 3] (다)의 ㉠, ㉡, ㉢에 들어갈 입력변수를 순서대로 구한다.", "answer": "..." }
+
+(C) 빈칸 마커는 원본 그대로 (㉠㉡㉢). ⓐⓑⓒ로 바꾸지 말 것.
+    ★ 절대 금지 ★: "들어갈 게이트를 결정"으로 쓰기 — 이 형식은 ★ 입력변수 ★를 결정하는 문제다.
+
+(D) signals에:
+    "signals": { "inputs": ["X","Y","Z"], "outputs": ["F","G"] }   // 함수 시그니처의 변수·함수명 그대로
+
+(E) figureRequirements에 2개 figure 명시:
+    [
+      { "role": "kmap",                   "diagramType": "kmap",          "scope": "single", "required": true },
+      { "role": "implementation_circuit", "diagramType": "logic_network", "scope": "single", "required": true }
+    ]
+
+★ 잘못된 추출 (절대 금지) ★:
+  - "㉠㉡㉢에 들어갈 게이트를 결정" — 게이트가 아니라 ★ 입력변수 ★. 회로의 게이트는 모두 그려져 있다.
+  - 함수 정의 Σm 표기 누락/의역 → 분류기가 sharedTermInputBlank 라우팅 못 함.
+  - 함수 2개를 4개로 늘리거나(f_1~f_4) 변수 3개를 4개로 늘리기(A,B,C,D).
+  - "중복되는" 단어를 다른 말로 의역 — 원문 그대로 보존.
+  - 이 형식을 "multi-stage 결합 → 최종 출력 Z 계산" 문제로 해석 — 방향이 반대다.
+
+(이 케이스는 분류기가 universal_digital + sharedTermInputBlank param으로 라우팅하여
+(나) 빈 K-map + (다) 입력 ㉠㉡㉢ 빈칸 회로가 원본의 "입력 결정" 방향 그대로 생성된다.)
+
 【★ digital_logic T-FF 2개 + 상태표 빈칸 + K-map 도출 — 절대 추출 규칙 (tff_state_table_blank 라우팅 핵심, 임용 7번 정보과)】
 
 다음 시각 단서 ★ 두 가지 이상 ★ 보이면 임용 7번 정보과 형식이다:

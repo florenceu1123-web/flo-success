@@ -424,9 +424,38 @@ export function classifyCircuitType(
       if (sigmaMintermKw) triggered.push("Σm");
       if (multiFuncKw && kmapKw) triggered.push("multi-func kw + kmap");
       if (singleZOutput && kmapKw && combineKw) triggered.push("single Z + kmap + 결합");
+
+      // ★ 공유항·입력결정 형식 감지 (임용 7번 정보과 등) — 생성 "방향" 파라미터.
+      //   원본이 "M개 함수가 Σm/식으로 주어지고 + 빈 K-map + 회로 입력 ㉠/ⓐ 빈칸 + 중복(공유) 항 도출"
+      //   형식이면 출력 합성(정방향)이 아니라 입력 결정(역방향) 문제다.
+      //   universal_digital pipeline이 이 param으로 sharedTermInputBlank 모드로 분기한다.
+      //   (combinational_gate의 "빈칸 게이트(ⓐⓑ) 종류 결정" 형식과 구분 — 그쪽은 K-map이 채워져
+      //   주어지고 게이트를 구하므로 공유항/Σm/입력변수 시그니처가 없다.)
+      const funcSignatureCount = new Set(
+        Array.from(text.matchAll(/([A-Z])\s*\(\s*[A-Z](?:\s*,\s*[A-Z])+\s*\)/g)).map((m) => m[1]),
+      ).size;
+      const multiFunc = multiOutput || hasMultiFunctions || funcSignatureCount >= 2;
+      const blankMarkerKw = matchesKeyword(text, [...BLANK_CIRCLE_MARKERS, "ⓐ", "ⓑ", "ⓒ"]);
+      const sharedTermKw = matchesKeyword(text, [
+        "중복되는", "중복 항", "중복된", "중복항",
+        "공유 항", "공유되는", "공유항",
+        "공통 항", "공통되는", "공통 곱항", "공통항",
+        "shared term",
+      ]);
+      const inputVarBlankKw = matchesKeyword(text, [
+        "들어갈 입력변수", "들어갈 입력 변수",
+        "입력변수를 결정", "입력 변수를 결정",
+        "입력변수를 순서대로", "입력 변수를 순서대로",
+      ]);
+      const sharedTermInputBlank =
+        kmapKw && multiFunc && blankMarkerKw && (sharedTermKw || inputVarBlankKw || sigmaMintermKw);
+      if (sharedTermInputBlank) {
+        triggered.push("공유항·입력결정 (sharedTermInputBlank)");
+      }
+
       return {
         type: "universal_digital",
-        params: {},
+        params: sharedTermInputBlank ? { sharedTermInputBlank: true } : {},
         confidence: "high",
         reasoning: `digital N-var/M-func — ${triggered.join(", ")} → universal_digital path`,
       };

@@ -962,8 +962,8 @@ export type SchematicDiagram = CircuitNetlist & {
   wires?: Array<[number, number, number, number]>; // x1,y1,x2,y2
 };
 
-/** Karnaugh map cell value */
-export type KmapValue = 0 | 1 | "X";
+/** Karnaugh map cell value — ""는 빈 셀 (학생이 채우는 빈 K-map 템플릿용) */
+export type KmapValue = 0 | 1 | "X" | "";
 
 /** K-map diagram 권장 shape (신규 — rowVars/colVars/rows 구조) */
 export type KmapDiagram = {

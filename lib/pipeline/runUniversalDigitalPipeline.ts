@@ -20,6 +20,7 @@
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { generateKmapSop, type KmapSopArchetype } from "@/lib/generation/topologies/kmapSop";
+import { generateSharedTermInputBlank } from "@/lib/generation/topologies/sharedTermInputBlank";
 import { buildContextHint, generateInParallel } from "./_common";
 import type { GateOp, LogicDAG, LogicDAGNode } from "@/lib/graph/digitalSemantic";
 import { validateLogicDAG, intermediateSignalsOf } from "@/lib/graph/digitalSemantic";
@@ -46,15 +47,27 @@ export async function runUniversalDigitalPipeline(args: {
   const { analysis, mode, count, topicKey } = args;
   const topicLabel = topicKey ? TOPIC_LABEL[topicKey] : undefined;
   const contextHint = buildContextHint(analysis);
+  const analysisText = collectAnalysisText(analysis);
 
-  // 변수 개수 — signals.inputs.length를 우선, 없으면 interpretation에서 키워드 검색.
+  // ★ 공유항·입력결정 모드 (임용 7번 정보과 형식 등) — 원본이 "함수가 Σm으로 주어지고 +
+  //   회로 입력 ㉠㉡㉢ 빈칸 + 중복(공유) 항 도출" 방향이면, 출력 합성(정방향)이 아니라
+  //   입력 결정(역방향) 문제로 생성해야 학습 목표가 보존된다.
+  const params = analysis?.circuitType?.params;
+  if (params?.sharedTermInputBlank) {
+    return runSharedTermInputBlankMode({ analysis, analysisText, mode, count, topicKey });
+  }
+
+  // 텍스트에서 함수 시그니처 파싱 — "F(X, Y, Z)" 패턴. signals 누락 시 N·M 앵커 안전망.
+  const parsedSignatures = parseFunctionSignatures(analysisText);
+
+  // 변수 개수 — signals.inputs.length를 우선, 없으면 함수 시그니처에서, 그래도 없으면 기본 4.
   const inputs = analysis?.signals?.inputs ?? [];
-  const detectedVars = inputs.length;
+  const detectedVars = inputs.length || (parsedSignatures[0]?.vars.length ?? 0);
   // 임용 8번처럼 ABCD 4-변수가 표준. 2~5 범위로 clamp.
   const N = Math.min(5, Math.max(2, detectedVars || 4));
 
-  // 함수 개수 — signals.outputs 또는 interpretation에서 f_1·f_2·... 패턴 카운트.
-  const M = inferFunctionCount(analysis, N);
+  // 함수 개수 — signals.outputs / 함수 시그니처 / interpretation의 f_1·f_2·... 패턴 카운트.
+  const M = inferFunctionCount(analysis, N, parsedSignatures.length);
 
   // 결합 gate (fallback 기본값) — interpretation에서 "OR로 결합"·"합 형태" 등 키워드 검색.
   // analysis.signals.intermediateGates가 제공되면 그쪽 per-stage op 우선.
@@ -168,8 +181,12 @@ export async function runUniversalDigitalPipeline(args: {
   void mode;  // exam_similar/variant는 향후 perturb 강도 조정에 사용
 }
 
-/** 함수 개수 추론 — signals.outputs 또는 interpretation의 f_숫자 패턴. */
-function inferFunctionCount(analysis: AnalysisResult | null | undefined, n: number): number {
+/** 함수 개수 추론 — signals.outputs / 함수 시그니처 / interpretation의 f_숫자 패턴. */
+function inferFunctionCount(
+  analysis: AnalysisResult | null | undefined,
+  n: number,
+  parsedSignatureCount: number = 0,
+): number {
   if (!analysis) return 2;
   const text = [
     analysis.topic ?? "",
@@ -188,8 +205,211 @@ function inferFunctionCount(analysis: AnalysisResult | null | undefined, n: numb
   // signals.outputs 활용
   const outputs = analysis.signals?.outputs ?? [];
   if (outputs.length >= 2 && outputs.length <= 6) return outputs.length;
+  // 텍스트 함수 시그니처 (F(X,Y,Z)·G(X,Y,Z) 등) — signals 누락 안전망
+  if (parsedSignatureCount >= 2 && parsedSignatureCount <= 6) return parsedSignatureCount;
   // 기본: 변수 개수와 비슷한 함수 수
   return Math.min(4, Math.max(2, n));
+}
+
+// =====================================================================
+// 공유항·입력결정 모드 (sharedTermInputBlank) — 임용 7번 정보과 형식
+// =====================================================================
+
+/**
+ * 원본 방향 보존: "M개 함수가 Σm으로 주어짐 → 빈 K-map → 중복(공유) 항 → 회로 입력 ㉠㉡㉢ 결정".
+ *
+ *  원본 앵커 (텍스트 rule-based 파싱, GPT 재호출 없음):
+ *   - 함수 시그니처 "F(X, Y, Z)" → 함수명·변수명
+ *   - "Σm(2, 4, 5)" → 원본 minterm 셋 (공유/개별 구조 크기 앵커링용 — 값 복사 아님)
+ */
+async function runSharedTermInputBlankMode(args: {
+  analysis: AnalysisResult | null | undefined;
+  analysisText: string;
+  mode: GenerationMode;
+  count: number;
+  topicKey?: TopicKey;
+}): Promise<GeneratedProblem[]> {
+  const { analysis, analysisText, mode, count, topicKey } = args;
+
+  // ── 원본 앵커 파싱 ──
+  const signatures = parseFunctionSignatures(analysisText);
+  const mintermSets = parseMintermSets(analysisText);
+
+  // 변수명: 함수 시그니처 → signals.inputs → 기본 X,Y,Z
+  const signalInputs = (analysis?.signals?.inputs ?? []).filter((s) => /^[A-Z]$/.test(s));
+  const varNames =
+    signatures[0]?.vars && signatures[0].vars.length >= 3
+      ? signatures[0].vars.slice(0, 4)
+      : signalInputs.length >= 3
+        ? signalInputs.slice(0, 4)
+        : undefined;
+
+  // 함수명: 함수 시그니처 → signals.outputs → 기본 F,G
+  const signalOutputs = (analysis?.signals?.outputs ?? []).filter((s) => /^[A-Z]$/.test(s));
+  const funcNames =
+    signatures.length >= 2
+      ? signatures.map((s) => s.name).slice(0, 3)
+      : signalOutputs.length >= 2
+        ? signalOutputs.slice(0, 3)
+        : undefined;
+
+  // 원본 minterm 셋 (구조 앵커) — 함수명 순서대로
+  const originalMinterms =
+    funcNames && funcNames.every((n) => mintermSets[n])
+      ? funcNames.map((n) => mintermSets[n])
+      : Object.values(mintermSets);
+
+  log.info("shared_term_input_blank_config", {
+    varNames,
+    funcNames,
+    originalMinterms,
+    mode,
+  });
+
+  return generateInParallel(count, async (i, seed) => {
+    const gen = generateSharedTermInputBlank({
+      seed,
+      varNames,
+      funcNames,
+      originalMinterms: originalMinterms.length >= 2 ? originalMinterms : undefined,
+      mode,
+    });
+    if (!gen.uniqueAssignment) {
+      log.warn("shared_term_non_unique_assignment", { minterms: gen.mintermExpressions });
+    }
+
+    const V = gen.varNames;
+    const FN = gen.funcNames;
+    const markers = gen.markerAssignment.map((m) => m.marker);
+    const markerList = markers.join(", ");
+    const funcDefs = FN.map((n, fi) => `${n}(${V.join(", ")}) = ${gen.mintermExpressions[fi]}`);
+    const funcList = FN.map((n) => `${n}(${V.join(", ")})`).join("와 ");
+
+    // ── 문제 텍스트 (원본 해석 절차 방향 그대로) ──
+    const content = [
+      `식 (가)는 ${V.length}개의 입력변수(${V.join(", ")})를 공통으로 갖는 ${FN.length}개의 불 함수(Boolean function)이고,`,
+      `그림 (나)는 ${V.length}입력변수 카르노 도(Karnaugh map)에 대한 표현이다.`,
+      `그림 (다)는 (가)를 1개의 조합논리회로로 구성한 것이다.`,
+      `제시된 <해석 절차>에 따라 각 단계별로 풀이 과정과 함께 결과를 서술하시오.`,
+      `(단, 모든 소자는 이상적으로 동작한다.)`,
+    ].join(" ");
+
+    const conditions = [
+      `(가) ${funcDefs.join(",  ")}`,
+      `입력 변수: ${V.length}개 (${V.join(", ")})`,
+      `함수 개수: ${FN.length}`,
+      `(다)의 입력 ${markerList}은 빈칸 — 학생이 결정`,
+    ];
+
+    const question = [
+      `[단계 1] (나)를 이용하여 ${funcList}의 카르노 도를 각각 순서대로 구한다.`,
+      `[단계 2] [단계 1]의 카르노 도에서 중복되는 논리식 항을 구한다.`,
+      `[단계 3] [단계 1]과 [단계 2]의 결과를 이용하여 (다)의 ${markerList}에 들어갈 입력변수를 순서대로 구한다.`,
+    ].join("\n");
+
+    const answer = [
+      `[단계 1] ${FN.map((n, fi) => `${n} = ${gen.sopExpressions[fi]}`).join(",  ")}`,
+      `[단계 2] 중복되는 항: ${gen.sharedExpression}`,
+      `[단계 3] ${gen.markerAssignment.map((m) => `${m.marker} = ${m.variable}`).join(",  ")}`,
+    ].join("\n");
+
+    const solution = [
+      `[단계 1] 각 함수의 minterm을 카르노 도에 표시하고 인접 셀을 묶어 최소화한다.`,
+      ...FN.map((n, fi) => {
+        const solo = gen.soloExpressions[fi];
+        const impl = gen.sopExpressions[fi];
+        return solo === impl
+          ? `  · ${n} = ${impl}`
+          : `  · ${n} = ${impl}  (단독 최소화 시 ${solo} — 공유항 ${gen.sharedExpression}을 재사용하는 구현)`;
+      }),
+      `[단계 2] 두 카르노 도에서 공통으로 1인 셀을 묶으면 중복되는 항은 ${gen.sharedExpression}이다.`,
+      `  이 항은 (다)에서 1개의 AND 게이트로 구현되어 ${FN.join("·")} 출력 OR 게이트에 모두 연결된다.`,
+      `[단계 3] (다)의 게이트 구조(NOT 위치·AND 입력 구성)와 [단계 1]·[단계 2]의 논리식을 대조하면`,
+      `  ${gen.markerAssignment.map((m) => `${m.marker} = ${m.variable}`).join(", ")}이다.`,
+    ].join("\n");
+
+    // ── Figures: 문제 영역 (나)·(다) + 풀이 영역 채워진 K-map ──
+    const figureVariants: FigureVariant[] = [
+      {
+        id: `fig_blank_kmap_${i + 1}`,
+        label: `(나) ${V.length}입력변수 카르노 도`,
+        role: "kmap",
+        diagramType: "kmap",
+        diagram: gen.blankKmapDiagram,
+      },
+      {
+        id: `fig_circuit_${i + 1}`,
+        label: `(다) 조합논리회로 (입력 ${markerList})`,
+        role: "implementation_circuit",
+        diagramType: "logic_network",
+        diagram: gen.logicNetworkDiagram,
+      },
+    ];
+    const solutionFigures: FigureVariant[] = gen.solutionKmaps.map((km, fi) => ({
+      id: `fig_solution_kmap_${i + 1}_${fi + 1}`,
+      label: `[풀이] ${FN[fi]} 카르노 도`,
+      role: "kmap",
+      diagramType: "kmap",
+      diagram: km,
+    }));
+
+    return {
+      id: randomUUID(),
+      content,
+      conditions,
+      question,
+      answer,
+      solution,
+      topicKey,
+      figureVariants,
+      solutionFigures,
+    };
+  });
+}
+
+// ── 텍스트 rule-based 파싱 helpers ──────────────────────────────────────
+
+/** analysis의 모든 텍스트 필드 수집 (classifier와 동일 풀). */
+function collectAnalysisText(analysis: AnalysisResult | null | undefined): string {
+  if (!analysis) return "";
+  const blanksText = (analysis.fillInTheBlanks ?? [])
+    .map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`)
+    .join(" ");
+  return [
+    analysis.topic ?? "",
+    analysis.interpretation ?? "",
+    (analysis.relatedConcepts ?? []).join(" "),
+    blanksText,
+  ].join(" ");
+}
+
+/** 함수 시그니처 파싱 — "F(X, Y, Z)" → { name: "F", vars: ["X","Y","Z"] }. 중복 함수명 제거. */
+function parseFunctionSignatures(text: string): Array<{ name: string; vars: string[] }> {
+  const out: Array<{ name: string; vars: string[] }> = [];
+  const seen = new Set<string>();
+  const re = /([A-Z])\s*\(\s*([A-Z](?:\s*,\s*[A-Z])+)\s*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (seen.has(m[1])) continue;
+    seen.add(m[1]);
+    out.push({ name: m[1], vars: m[2].split(",").map((v) => v.trim()) });
+  }
+  return out;
+}
+
+/** Σm minterm 셋 파싱 — "F(X,Y,Z) = Σm(2, 4, 5)" → { F: [2,4,5] }. */
+function parseMintermSets(text: string): Record<string, number[]> {
+  const out: Record<string, number[]> = {};
+  const re = /([A-Z])\s*(?:\([^)]*\))?\s*=\s*[Σ∑]\s*m\s*\(([\d,\s]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const nums = m[2]
+      .split(",")
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n));
+    if (nums.length > 0) out[m[1]] = nums;
+  }
+  return out;
 }
 
 /** 결합 gate 추론 — interpretation 키워드 기반. */

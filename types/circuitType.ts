@@ -141,6 +141,16 @@ export type CircuitTypeParams = {
    *   - 풀이 단계: [단계 1] K-map 도출 → [단계 2] ㉠ 게이트 식별 → [단계 3] 점선 부분 게이트 식별
    */
   truthTableBlank?: boolean;
+  // ── universal_digital 공유항·입력결정 variant (임용 7번 정보과 형식) ──────
+  /**
+   * 다중 출력 공유항(multi-output shared term) + 입력변수 빈칸 형식.
+   * 원본이 "함수가 Σm으로 주어지고 + 빈 K-map + 회로 입력 ㉠㉡㉢ 빈칸" 형식이면 true.
+   * true면 universal_digital pipeline이 출력 합성(정방향) 대신:
+   *   - 공유 prime implicant를 갖는 M개 함수 minterm 셋 생성
+   *   - figure: (나) 빈 K-map + (다) 공유항 회로 (입력 ㉠㉡㉢ 빈칸)
+   *   - 풀이 방향: [단계 1] K-map 도출 → [단계 2] 중복(공유) 항 → [단계 3] 입력변수 결정
+   */
+  sharedTermInputBlank?: boolean;
 };
 
 /**
