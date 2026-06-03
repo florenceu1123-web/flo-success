@@ -118,6 +118,10 @@ export async function POST(req: NextRequest) {
     const isRlcResonanceMaxPower = analysis?.circuitType?.type === "rlc_resonance_max_power";
     // universal_ac: phasor 정상상태 query (componentAvgPower·maxAvgPower·resonanceFreq 등). 시간영역 waveform 불필요.
     const isUniversalAc = analysis?.circuitType?.type === "universal_ac";
+    // universal_ac DC+AC 중첩 모드: 스위치는 전원 선택용(단자 연결) — 상태 전이(t<0/t>0) 문제가 아님.
+    //  → waveform 뿐 아니라 state_before/state_after figure 요구도 면제.
+    const isAcDcSuperposition =
+      isUniversalAc && Boolean(analysis?.circuitType?.params?.acDcSuperposition);
     // switched_rlc_*는 v_C(t) 응답이 학생 도출 정답이라 waveform figure를 안 만듦 (학습 의도).
     //  → state_before/state_after figure로 시간 변화 표현 → hasWaveformEvolution=false 강제로 waveform required 면제.
     const isSwitchedRlc =
@@ -135,30 +139,39 @@ export async function POST(req: NextRequest) {
     // rlc_resonance_max_power는 phasor 정상상태 — waveform 면제
     const expectedSemantic: SemanticStructure = isCharacteristicCurve
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, requiresMultiFigure: false }
-      : isRlcResonanceMaxPower
-        ? { ...rawSemantic, hasWaveformEvolution: false }
-        : isUniversalAc
+      : isAcDcSuperposition
+        ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false }
+        : isRlcResonanceMaxPower
           ? { ...rawSemantic, hasWaveformEvolution: false }
-          : isSwStatePair || (rawSemantic.hasWaveformEvolution && (isAcSuperposition || isSwitchedRlc))
+          : isUniversalAc
             ? { ...rawSemantic, hasWaveformEvolution: false }
-            : rawSemantic;
+            : isSwStatePair || (rawSemantic.hasWaveformEvolution && (isAcSuperposition || isSwitchedRlc))
+              ? { ...rawSemantic, hasWaveformEvolution: false }
+              : rawSemantic;
     if (expectedSemantic !== rawSemantic) {
       log.info("semantic_normalized", {
         reason: isCharacteristicCurve
           ? "bjt_characteristic_curve (개념·도식 해석형) → all multi-figure flags off"
-          : isUniversalAc
-            ? "universal_ac (phasor 정상상태 query) → hasWaveformEvolution=false"
-            : isAcSuperposition
-              ? "ac_superposition (phasor 정상상태) → hasWaveformEvolution=false"
-              : isSwitchedRlc
-                ? "switched_rlc_* (v_C(t)는 학생 도출 정답) → hasWaveformEvolution=false"
-                : "SW state pair without C/L → hasWaveformEvolution=false",
+          : isAcDcSuperposition
+            ? "universal_ac DC+AC 중첩 (스위치는 전원 선택용) → waveform·state transition 모두 false"
+            : isUniversalAc
+              ? "universal_ac (phasor 정상상태 query) → hasWaveformEvolution=false"
+              : isAcSuperposition
+                ? "ac_superposition (phasor 정상상태) → hasWaveformEvolution=false"
+                : isSwitchedRlc
+                  ? "switched_rlc_* (v_C(t)는 학생 도출 정답) → hasWaveformEvolution=false"
+                  : "SW state pair without C/L → hasWaveformEvolution=false",
       });
     }
 
+    // ★ DC+AC 중첩 모드는 topicKey가 switching_circuit이어도 state pair figure를 요구하지 않는다.
+    //   (roleTriggers는 switching_circuit topic을 무조건 state 문제로 보므로, ruleSet 결정에서만
+    //    topicKey를 비움 — 생성 pipeline·validator family check에는 expectedTopicKey 그대로 사용.)
+    const ruleTopicKey =
+      isAcDcSuperposition && expectedTopicKey === "switching_circuit" ? undefined : expectedTopicKey;
     const ruleSet = resolveRules({
       subject: subjectKey,
-      topicKey: expectedTopicKey,
+      topicKey: ruleTopicKey,
       semantic: expectedSemantic,
       circuitType: analysis?.circuitType?.type,
       circuitTypeParams: analysis?.circuitType?.params,
@@ -248,8 +261,14 @@ export async function POST(req: NextRequest) {
         topicKey: expectedTopicKey,
       });
     } else if (circuitType === "universal_ac" && subjectKey === "circuit_theory") {
-      log.info("dispatch", { route: "universal_ac_pipeline", count: n, mode });
-      if (!analysis?.topologySignature) {
+      log.info("dispatch", {
+        route: "universal_ac_pipeline",
+        count: n,
+        mode,
+        acDcSuperposition: Boolean(analysis?.circuitType?.params?.acDcSuperposition),
+      });
+      // DC+AC 중첩 모드는 결정론 generator 사용 — topologySignature 불필요.
+      if (!analysis?.topologySignature && !analysis?.circuitType?.params?.acDcSuperposition) {
         return NextResponse.json({ error: "universal_ac는 topologySignature 필수" }, { status: 400 });
       }
       problems = await runUniversalAcPipeline({

@@ -812,6 +812,36 @@ K-map 문제를 분석할 때 ★ K-map 개수와 차원을 정확히 카운트 
 
 (이 케이스는 분류기가 universal_ac path with maxAvgPower query로 라우팅하여 phasor MNA로 평균전력 3개 도출.)
 
+【★ circuit_theory 직류+교류 전압원 + 스위치 단자 + 정상상태 중첩 — 절대 추출 규칙 (universal_ac acDcSuperposition 라우팅 핵심, 임용 2022 B-6 RL 응용회로)】
+
+다음 시각 단서 ★ 두 가지 이상 ★ 보이면 직류+교류 중첩 형식이다:
+  (1) ★ 직류 전압원 ★ (+/− 표기, 예 "10V") 과 ★ 교류 전압원 ★ (∿ 심볼, 예 "10√2 sin4000t V") 둘 다 존재
+  (2) 스위치 SW₁·SW₂ + 단자1·단자2·단자3·단자4 라벨 (각 전원을 연결/분리하는 단자 선택 스위치)
+  (3) 본문/해석절차에 "정상 상태 응답(steady state response)" 명시
+  (4) [해석 절차] 박스 + 단계: [단계 1] 직류만 연결 I_DC, [단계 2] 교류만 연결 i_ac(t), [단계 3] 둘 다 연결 (중첩)
+  (5) 인덕터 2개 병렬 (예 1H ∥ 1/9H) 또는 단일 인덕터 + 저항들
+
+이 경우 ★ 반드시 ★ 다음을 만족:
+
+(A) topic·interpretation에 ★ "교류" 와 "정상 상태" 두 단어를 반드시 포함 ★ 하라.
+    예: "직류·교류 전압원이 스위치로 연결된 RL 회로의 정상 상태 응답 중첩 해석"
+    ❌ "스위치가 있는 RL 회로" 처럼 교류 언급을 빠뜨리는 것 절대 금지 — 분류기가 과도응답으로 오분류함.
+
+(B) componentInventory 추출 ★ 절대 규칙 ★:
+    - 직류 전압원: { "type":"V", "value":"10V" }
+    - 교류 전압원: { "type":"V", "value":"10√2 sin4000t V" } — ★ sin 식 원문 그대로 ★ (환산·생략 금지)
+    - 스위치: { "type":"SW" } 각각 별도 entry (SW₁, SW₂)
+    - 인덕터: H 단위 원문 그대로 ("1H", "1/9H" — 분수 표기 보존)
+
+(C) 이 형식은 ★ 과도응답(transient)이 아니다 ★ — 스위치는 전원 선택용(단자 연결)이다.
+    semantic.hasWaveformEvolution = false, semantic.hasStateTransition = false 로 마킹하라.
+    ❌ "스위치가 있으니 과도응답/스위칭 회로"로 해석하는 것 절대 금지.
+
+(D) 해석 절차 박스의 [단계 1]·[단계 2]·[단계 3] 텍스트를 interpretation 또는 fillInTheBlanks에 transcribe하라
+    (특히 "I_DC", "i_ac(t)", "정상 상태" 같은 기호·용어 원문 보존).
+
+(이 케이스는 분류기가 universal_ac acDcSuperposition 모드로 라우팅하여 DC 패스 + AC 패스 + 중첩으로 해석.)
+
 【★ circuit_theory Thevenin + Switched RC + 다단계 — 절대 추출 규칙 (thevenin_switched_rc 라우팅 핵심)】
 
 다음 시각 단서 ★ 두 가지 이상 ★ 보이면 imyong 9 정보과 형식 (Thevenin + Switched RC)이다:

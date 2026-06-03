@@ -12,8 +12,10 @@ import { validateAcResult } from "@/lib/solver/validateAcResult";
 import { addLoadResistor } from "@/lib/generation/topologyDriven/addLoadResistor";
 import { writeUniversalAcText } from "@/lib/generation/topologies/universalAcTextWriter";
 import { applyRlExamVariant, applySourceReactiveSwapVariant } from "@/lib/analysis/topologyRecovery";
+import { generateAcDcSuperposition } from "@/lib/generation/topologies/acDcSuperposition";
+import { writeAcDcSuperpositionText } from "@/lib/generation/topologies/acDcSuperpositionTextWriter";
 import { GenerateError } from "@/lib/generation/_core";
-import { buildContextHint, generateInParallel } from "./_common";
+import { assembleProblem, buildContextHint, generateInParallel } from "./_common";
 import {
   TOPIC_LABEL,
   type AnalysisResult,
@@ -45,6 +47,41 @@ export async function runUniversalAcPipeline(args: {
   const { analysis, mode, count, topicKey } = args;
   const topicLabel = topicKey ? TOPIC_LABEL[topicKey] : undefined;
   const contextHint = buildContextHint(analysis);
+
+  // ★ DC+AC 중첩 모드 (params.acDcSuperposition) — 임용 2022 B-6 형식.
+  //   직류·교류 전원이 스위치(단자 선택)로 연결된 정상상태 중첩 문제.
+  //   phasor 단일 해석 대신 결정론 generator의 닫힌형 해:
+  //     [단계 1] DC 패스(L 단락) → I_DC, [단계 2] AC 패스(페이저·전류 분배) → i_ac(t),
+  //     [단계 3] 중첩 i(t) = I_DC + i_ac(t).
+  //   텍스트도 결정론 (GPT 호출 없음 — 그림·수식·풀이 불일치 원천 차단).
+  if (analysis.circuitType?.params?.acDcSuperposition) {
+    log.info("ac_dc_superposition_mode", { mode, count });
+    return generateInParallel(count, async (i, seed) => {
+      const gen = generateAcDcSuperposition({
+        params: analysis.circuitType?.params,
+        mode,
+        seed,
+      });
+      log.info("ac_dc_superposition_generated", {
+        Vdc: gen.values.Vdc,
+        Vac: gen.values.VacLabel,
+        rTotal: gen.values.rTotal,
+        reactives: gen.values.reactives.map((r) => r.label),
+        iDcMilli: gen.solution.iDcMilli,
+        iAcPeakMilli: gen.solution.iAcPeakMilli,
+      });
+      const text = writeAcDcSuperpositionText({ generation: gen, mode });
+      return assembleProblem({
+        text,
+        netlist: gen.netlist,
+        figureLabel: "주어진 회로 (직류·교류 전원 + 스위치)",
+        figureRole: "original_circuit",
+        figureIdSuffix: i + 1,
+        topicKey,
+      });
+    });
+  }
+
   let baseTopology = analysis.topologySignature;
   if (!baseTopology) {
     throw new Error("runUniversalAcPipeline: analysis.topologySignature 누락");

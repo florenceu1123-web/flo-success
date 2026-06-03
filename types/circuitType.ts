@@ -151,6 +151,16 @@ export type CircuitTypeParams = {
    *   - 풀이 방향: [단계 1] K-map 도출 → [단계 2] 중복(공유) 항 → [단계 3] 입력변수 결정
    */
   sharedTermInputBlank?: boolean;
+  // ── universal_ac DC+AC 중첩 모드 (임용 2022 B-6 형식) ──────
+  /**
+   * 직류 전원 + 교류 전원이 스위치(단자 선택)로 연결된 정상상태 중첩 문제.
+   * true면 universal_ac pipeline이 phasor 단일 해석 대신:
+   *   - DC 패스(교류 전원 제거, L=단락) → I_DC
+   *   - AC 패스(직류 전원 제거, 페이저 해석) → i_ac(t) + 인덕터 전류 분배
+   *   - 중첩: i(t) = I_DC + i_ac(t)
+   *   - figure: 단일 회로 (DC·AC 전원 + SW + R + 병렬 L) — waveform·state pair 면제
+   */
+  acDcSuperposition?: boolean;
 };
 
 /**

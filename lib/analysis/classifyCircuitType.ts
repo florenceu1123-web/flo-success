@@ -821,11 +821,13 @@ export function classifyCircuitType(
 
   // inventory의 V·I value/label에 phasor 패턴(∠, j숫자) 있는지 — GPT 텍스트 키워드가
   // 부족할 때를 위한 안전망. 임용 10번처럼 텍스트에 키워드가 빠지더라도 inventory에서 매치.
+  // ★ sin/cos 시간함수는 괄호 유무 무관하게 AC ("10√2 sin4000t V", "20cos(ωt-90°)" 모두).
+  //   임용 기출은 괄호 없는 "sin4000t" 표기가 흔함 — 괄호 필수 정규식은 AC 감지를 놓침.
   const inv = analysis.componentInventory ?? [];
   const hasACInventory = inv.some((c) => {
     if (c.type !== "V" && c.type !== "I" && c.type !== "L" && c.type !== "C") return false;
     const v = String(c.value ?? "");
-    return /∠|\bj\s*\d|페이저|phasor|cos\s*\(|sin\s*\(|ωt/i.test(v);
+    return /∠|\bj\s*\d|페이저|phasor|cos|sin|ωt|√2/i.test(v);
   });
 
   const decision = decideType({
@@ -1022,6 +1024,45 @@ function decideType(args: DecideArgs): DecideResult {
         hasACSource: true,
         capacitorCount: counts.C,
         resistorCount: counts.R,
+      },
+    };
+  }
+
+  // 0-PRE-AC-DC-SUPER. 직류+교류 다중 전압원 + 정상상태 중첩 (임용 2022 B-6 형식) — universal_ac 흡수.
+  //   트리거: 전압원 ≥ 2 (직류·교류 혼합) + L/C 존재 + AC 신호(inventory sin·cos/텍스트 교류 키워드)
+  //          + 정상상태(steady state) 키워드 + 강한 과도(transient) 키워드 없음.
+  //   ★ 스위치가 있어도 이 분기 우선 — 이 형식의 스위치는 전원 선택용(단자 연결)이지
+  //     t=0 과도 스위칭이 아님. switched_rl(과도응답) 오분류를 여기서 차단.
+  //   → universal_ac + params.acDcSuperposition (방향: 단계별 정상상태 해석 + 중첩 보존).
+  const steadyStateKw = matchesKeyword(text, [
+    "정상 상태", "정상상태", "steady state", "steady-state",
+  ]);
+  const strongTransientKw = matchesKeyword(text, [
+    "과도 응답", "과도응답", "과도 해석", "transient",
+    "시정수", "time constant", "시상수",
+    "t=0에서", "t = 0에서", "t<0", "t > 0에서",
+  ]);
+  if (
+    counts.V >= 2 &&
+    (counts.L > 0 || counts.C > 0) &&
+    hasAcSourceSignal &&
+    steadyStateKw &&
+    !strongTransientKw
+  ) {
+    return {
+      type: "universal_ac",
+      confidence: "high",
+      reasoning:
+        `DC+AC 다중 전압원(V=${counts.V}) + L/C(L=${counts.L},C=${counts.C}) + 정상상태 키워드 ` +
+        `→ 중첩 모드 (스위치는 전원 선택용 — 과도응답 아님)`,
+      params: {
+        acDcSuperposition: true,
+        hasACSource: true,
+        hasSwitch: hasSwitchInferred,
+        resistorCount: counts.R,
+        inductorCount: counts.L,
+        capacitorCount: counts.C,
+        switchCount: counts.SW,
       },
     };
   }
