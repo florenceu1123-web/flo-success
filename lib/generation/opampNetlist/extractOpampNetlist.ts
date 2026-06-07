@@ -76,7 +76,8 @@ function findStructuralDefects(netlist: CircuitNetlist): string[] {
   const isGnd = (n: string) => n === ground || GND_SET.has(n);
   const opampOut = new Set<string>();
   const opampIn = new Set<string>();
-  const rviDegree = new Map<string, number>();   // R/V/I/WIRE 닿는 수
+  const rwDegree = new Map<string, number>();    // R/WIRE 닿는 수
+  const srcDegree = new Map<string, number>();   // V/I 전원 닿는 수
   const allNodes = new Set<string>();
 
   for (const c of netlist.components) {
@@ -90,9 +91,8 @@ function findStructuralDefects(netlist: CircuitNetlist): string[] {
       for (const pin of c.pins) {
         if (!pin.node) continue;
         allNodes.add(pin.node);
-        if (["R", "V", "I", "WIRE"].includes(c.type)) {
-          rviDegree.set(pin.node, (rviDegree.get(pin.node) ?? 0) + 1);
-        }
+        if (c.type === "R" || c.type === "WIRE") rwDegree.set(pin.node, (rwDegree.get(pin.node) ?? 0) + 1);
+        else if (c.type === "V" || c.type === "I") srcDegree.set(pin.node, (srcDegree.get(pin.node) ?? 0) + 1);
       }
     }
   }
@@ -103,12 +103,15 @@ function findStructuralDefects(netlist: CircuitNetlist): string[] {
   for (const n of allNodes) {
     if (isGnd(n)) continue;
     if (opampOut.has(n)) continue;            // OPAMP 출력이 전압 고정
-    if (terminals.has(n)) continue;           // 외부 단자는 degree-1 허용
-    const deg = rviDegree.get(n) ?? 0;
-    // 하드 결함은 floating OPAMP 입력핀(R/V/I 연결 0)만 — 가장 잦은 특이행렬 원인이고 명확한 피드백.
-    //   그 외 degree-1 등은 MNA가 판정(직렬 R 통한 단자는 정상이므로 여기서 막지 않음 — 오탐 방지).
-    if (deg === 0 && opampIn.has(n)) {
+    if (terminals.has(n)) continue;           // 외부 단자(V_o)는 직렬 R 하나만으로도 정상
+    const rw = rwDegree.get(n) ?? 0;
+    const src = srcDegree.get(n) ?? 0;
+    if (rw + src === 0 && opampIn.has(n)) {
       defects.push(`노드 "${n}": OPAMP 입력핀이 floating (전원/저항 연결 필요 — 특히 차동단 +입력에 기준전원)`);
+    } else if (rw + src === 1 && src === 0) {
+      // degree-1이 저항/와이어 하나뿐(전원 없음) = 내부 dead-end. 입력저항이 전원 없이 끝남
+      //   (1단 가산 입력 전원 누락 시 발생). 전원 직결(src≥1) degree-1은 정상(전원이 전압 고정).
+      defects.push(`노드 "${n}": 저항 1개에만 연결된 dead-end — 입력저항 끝에 입력 전압원을 연결하라 (1단 가산 입력 누락 의심)`);
     }
   }
   return defects;
@@ -249,6 +252,9 @@ const SYSTEM = `너는 전자 임용시험 OPAMP(연산증폭기) 회로를 구�
 - OPAMP 비반전입력을 접지할 거면 그 핀 node를 그냥 "GND"로 둔다 (떠 있는 새 노드 만들지 말 것).
 - 한 OPAMP의 출력 노드는 반드시 그 OPAMP의 피드백 저항 + (다음 단 입력저항 또는 측정단자)에 연결한다.
 - 입력 전원 노드(예 "A")는 [V원 한쪽] + [입력저항 한쪽] 두 개가 닿아야 한다 (전원만 달랑 두지 말 것).
+- ★ 1단 가산단의 **각 입력저항은 반대쪽 끝에 반드시 입력 전압원**이 달려야 한다. 입력저항이
+  전원 없이 dead-end로 끝나면 안 된다 ("opamp1에 전압원이 없다" 오류 방지). 인벤토리의
+  입력 전원 개수만큼 (입력저항+전원) 쌍을 1단 반전입력에 연결하라.
 - 인벤토리의 전원 개수만큼 V를 넣되, 각 V는 반드시 회로의 어딘가(입력저항 또는 OPAMP + 입력)에 연결한다.
 
 [예시 — 2단 가산기+차동 (구조 참고; 값·노드명은 새로):]
