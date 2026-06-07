@@ -97,13 +97,19 @@ function findStructuralDefects(netlist: CircuitNetlist): string[] {
     }
   }
 
+  // 외부 단자(V_o=a 등)는 직렬 R 하나로만 연결돼도 정상(degree-1) — MNA가 결정.
+  const terminals = new Set((netlist.nodeAnnotations ?? []).map((a) => a.node));
   const defects: string[] = [];
   for (const n of allNodes) {
     if (isGnd(n)) continue;
     if (opampOut.has(n)) continue;            // OPAMP 출력이 전압 고정
+    if (terminals.has(n)) continue;           // 외부 단자는 degree-1 허용
     const deg = rviDegree.get(n) ?? 0;
-    if (deg === 0) defects.push(`노드 "${n}": R/V/I 연결 0 (floating — OPAMP 핀에만 연결)`);
-    else if (deg < 2 && !opampIn.has(n)) defects.push(`노드 "${n}": 연결 1개뿐 (dangling)`);
+    // 하드 결함은 floating OPAMP 입력핀(R/V/I 연결 0)만 — 가장 잦은 특이행렬 원인이고 명확한 피드백.
+    //   그 외 degree-1 등은 MNA가 판정(직렬 R 통한 단자는 정상이므로 여기서 막지 않음 — 오탐 방지).
+    if (deg === 0 && opampIn.has(n)) {
+      defects.push(`노드 "${n}": OPAMP 입력핀이 floating (전원/저항 연결 필요 — 특히 차동단 +입력에 기준전원)`);
+    }
   }
   return defects;
 }
