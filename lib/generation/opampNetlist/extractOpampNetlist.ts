@@ -138,6 +138,57 @@ function checkCascadeCoupling(netlist: CircuitNetlist): string[] {
   return defects;
 }
 
+/**
+ * 차동단(2단+) 기준전원 검증 — OPAMP[k≥1]의 비반전입력(+)이 기준 전압원(V)에 R/WIRE 통해
+ *   도달해야 한다. +가 GND에만 닿거나(접지 분압) 어떤 V원에도 못 닿으면 기준전원 누락
+ *   (사용자 신고: "차동단 기준전원 연결"). U1(가산단)의 +=GND는 정상이므로 k=0은 검사 안 함.
+ */
+function checkDifferenceReference(netlist: CircuitNetlist): string[] {
+  const opamps = netlist.components.filter((c) => c.type === "OPAMP");
+  if (opamps.length < 2) return [];
+  const isGnd = (n: string) => n === netlist.ground || GND_SET.has(n);
+  // V/I 전원의 non-ground 단자 = 전원 구동 노드
+  const sourceNodes = new Set<string>();
+  for (const c of netlist.components) {
+    if ((c.type === "V" || c.type === "I") && c.pins?.length === 2) {
+      for (const p of c.pins) if (p.node && !isGnd(p.node)) sourceNodes.add(p.node);
+    }
+  }
+  // R/WIRE/closed-SW 인접
+  const adj = new Map<string, string[]>();
+  for (const c of netlist.components) {
+    if (!(c.type === "R" || c.type === "WIRE" || (c.type === "SW" && c.state === "closed"))) continue;
+    if (!c.pins || c.pins.length !== 2) continue;
+    const a = c.pins[0].node, b = c.pins[1].node;
+    if (!adj.has(a)) adj.set(a, []);
+    if (!adj.has(b)) adj.set(b, []);
+    adj.get(a)!.push(b); adj.get(b)!.push(a);
+  }
+  const reachesSource = (start: string): boolean => {
+    if (sourceNodes.has(start)) return true;
+    const seen = new Set([start]);
+    const q = [start];
+    while (q.length) {
+      const cur = q.shift()!;
+      for (const nx of adj.get(cur) ?? []) {
+        if (seen.has(nx) || isGnd(nx)) continue;   // GND는 막다른 길 (기준전원 아님)
+        if (sourceNodes.has(nx)) return true;
+        seen.add(nx); q.push(nx);
+      }
+    }
+    return false;
+  };
+  const defects: string[] = [];
+  for (let k = 1; k < opamps.length; k++) {
+    const vp = opamps[k].pins?.[0]?.node;
+    if (!vp) continue;
+    if (!reachesSource(vp)) {
+      defects.push(`${opamps[k].id} 비반전입력(+)이 기준 전압원에 연결 안 됨 (GND 분압만) — 차동단 +입력에 인벤토리 기준전원(V)을 직접/저항 통해 연결하라`);
+    }
+  }
+  return defects;
+}
+
 function defaultPins(type: string, nodes: string[], id: string): ComponentPin[] {
   // OPAMP: plus(left)/minus(left)/out(right). 2-pin: left/right.
   const sideFor = (i: number): PinSide => {
@@ -331,6 +382,13 @@ export async function extractOpampNetlist(args: {
     if (couplingDefects.length > 0) {
       lastErr = `결합 오배선 — ${couplingDefects.join("; ")}`;
       log.warn("extract_coupling_defect", { attempt, couplingDefects });
+      continue;
+    }
+
+    const refDefects = checkDifferenceReference(netlist);
+    if (refDefects.length > 0) {
+      lastErr = `기준전원 누락 — ${refDefects.join("; ")}`;
+      log.warn("extract_reference_defect", { attempt, refDefects });
       continue;
     }
 
