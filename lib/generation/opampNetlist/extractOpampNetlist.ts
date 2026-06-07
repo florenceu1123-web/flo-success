@@ -141,7 +141,9 @@ function adaptNetlist(raw: RawNetlist): CircuitNetlist {
     components,
     ground: raw.ground,
     nodeAnnotations: (raw.terminals ?? []).map((t) => ({
-      node: t.node, label: t.label, style: "terminal_dot" as const,
+      // label_only = 외부 단자 → validateFigures/validateAnalogClosure의 degree≥2 검사 면제
+      //   (출력 단자 V_o는 직렬 R 하나로만 연결돼도 정상).
+      node: t.node, label: t.label, style: "label_only" as const,
     })),
   };
 }
@@ -186,6 +188,8 @@ const SYSTEM = `너는 전자 임용시험 OPAMP(연산증폭기) 회로를 구�
   그 저항에도 반드시 실제 숫자값을 넣는다 (코드가 그 값으로 회로를 풀어 정답·제시 출력전압을 만든다).
   outputNode = 학생에게 주어지는 출력 전압의 노드.
 - "출력 전압을 구하라"형이면 unknownComponentId 생략, outputNode만 지정.
+- ★ outputNode(V_o 단자)는 **마지막 OPAMP의 출력 노드 자체**로 둔다. 출력과 단자 사이에
+  직렬 저항을 넣어 단자를 따로 만들지 마라 (그러면 단자가 떠 보인다). terminals의 출력 단자도 같은 노드.
 
 [출력 JSON] (이 키만, 코드펜스 금지)
 {
