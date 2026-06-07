@@ -114,6 +114,30 @@ function findStructuralDefects(netlist: CircuitNetlist): string[] {
   return defects;
 }
 
+/**
+ * 2단+ cascade 결합 검증 — 각 OPAMP[k]의 출력이 OPAMP[k+1]의 입력핀에 2-pin 소자(결합저항)로
+ *   직접 연결돼야 한다. 안 되면 GPT가 결합을 오배선한 것(사용자 신고: "결합저항 잘못 연결").
+ */
+function checkCascadeCoupling(netlist: CircuitNetlist): string[] {
+  const opamps = netlist.components.filter((c) => c.type === "OPAMP");
+  if (opamps.length < 2) return [];
+  const defects: string[] = [];
+  for (let k = 0; k < opamps.length - 1; k++) {
+    const outNode = opamps[k].pins?.[2]?.node;
+    const nextIn = new Set([opamps[k + 1].pins?.[0]?.node, opamps[k + 1].pins?.[1]?.node].filter(Boolean));
+    if (!outNode) continue;
+    const coupled = netlist.components.some((c) => {
+      if (c.type === "OPAMP" || !c.pins || c.pins.length !== 2) return false;
+      const a = c.pins[0].node, b = c.pins[1].node;
+      return (a === outNode && nextIn.has(b)) || (b === outNode && nextIn.has(a));
+    });
+    if (!coupled) {
+      defects.push(`${opamps[k].id} 출력이 ${opamps[k + 1].id} 입력에 결합저항으로 연결 안 됨 — 1단 출력 노드를 결합저항(미지 R) 통해 2단 반전입력에 연결하라`);
+    }
+  }
+  return defects;
+}
+
 function defaultPins(type: string, nodes: string[], id: string): ComponentPin[] {
   // OPAMP: plus(left)/minus(left)/out(right). 2-pin: left/right.
   const sideFor = (i: number): PinSide => {
@@ -182,6 +206,12 @@ const SYSTEM = `너는 전자 임용시험 OPAMP(연산증폭기) 회로를 구�
   2단 차동: O1 → Rx(미지) → M2(U2 반전입력), Rf2: M2↔O2(피드백),
     V2(3V) → Rp → P2(U2 비반전입력), Rg: P2↔GND (분배), U2 출력=O2(=a, V_o).
     components 예: U1[P0... 실제론 GND, M1, O1], U2[P2, M2, O2], 각 R·V는 위 연결대로.
+
+[★ 2단 cascade 결합 — 매우 중요 (자주 틀림)]
+- 1단 OPAMP(U1)의 **출력 노드**는 결합 저항(보통 미지 R)을 통해 2단 OPAMP(U2)의 **반전입력**에
+  연결한다. 즉 결합저항: [한쪽 = U1 출력 노드] ↔ [다른쪽 = U2 반전입력 노드].
+- ❌ 금지: 결합저항을 U1의 입력(반전입력/가산노드)에 붙이거나, U2의 비반전입력(+)에 붙이는 것.
+  (1단 출력 → 2단 반전입력만 올바름.)
 
 [미지수]
 - 원본이 "특정 저항 R을 구하라"형이면 그 저항을 unknownComponentId로 지정하고,
@@ -294,6 +324,13 @@ export async function extractOpampNetlist(args: {
     if (defects.length > 0) {
       lastErr = `구조 결함 — ${defects.join("; ")}`;
       log.warn("extract_structural_defect", { attempt, defects });
+      continue;
+    }
+
+    const couplingDefects = checkCascadeCoupling(netlist);
+    if (couplingDefects.length > 0) {
+      lastErr = `결합 오배선 — ${couplingDefects.join("; ")}`;
+      log.warn("extract_coupling_defect", { attempt, couplingDefects });
       continue;
     }
 
