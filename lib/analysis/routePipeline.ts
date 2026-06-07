@@ -37,7 +37,8 @@ export function routePipeline(input: RouteInput): RouteResult {
     has("opamp") &&
     (has("oscillator") || has("transfer_function")) &&
     circuitType !== "opamp" &&
-    circuitType !== "opamp_cascade_voltage_divider"
+    circuitType !== "opamp_cascade_voltage_divider" &&
+    circuitType !== "opamp_generic"
   ) {
     return { circuitType: "opamp", reason: "tags.opamp + (oscillator|transfer_function) → OPAMP path" };
   }

@@ -36,6 +36,7 @@ _gen_test.json
 scripts/*.html
 /acdc.png
 /acdc.svg
+/opamp_generic.svg
 
 # env files (can opt-in for committing if needed)
 .env*

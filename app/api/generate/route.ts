@@ -43,6 +43,7 @@ import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
 import { runTheveninSwitchedRcPipeline } from "@/lib/pipeline/runTheveninSwitchedRcPipeline";
 import { runOpampCascadePipeline } from "@/lib/pipeline/runOpampCascadePipeline";
+import { runOpampGenericPipeline } from "@/lib/pipeline/runOpampGenericPipeline";
 import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
 import { runMuxImplementationPipeline } from "@/lib/pipeline/runMuxImplementationPipeline";
 import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipeline";
@@ -477,6 +478,15 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (circuitType === "opamp_generic" && subjectKey === "electronics") {
+      // 범용 OPAMP — GPT 구조추출 netlist + MNA 결정론 풀이 + generic 렌더 (예시 하드코딩 없음).
+      log.info("dispatch", { route: "opamp_generic_pipeline", count: n, mode });
+      problems = await runOpampGenericPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else if (circuitType === "opamp" && subjectKey === "electronics") {
       // 정책: OPAMP family 검출 시 archetype 기반 dispatch만 허용. free generation 금지.
       // 외부 텍스트 보강 — interpretation 외에 topic·conditions·answer·fillInTheBlanks 문장도 scoring 대상.
@@ -753,6 +763,8 @@ function shouldUseTopologyDriven(
   if (circuitType === "universal_ac_pwl") return false;
   // opamp_cascade_voltage_divider도 전용 2-OPAMP renderer (imyong 10번). topology-driven 우회.
   if (circuitType === "opamp_cascade_voltage_divider") return false;
+  // opamp_generic은 GPT 구조추출 netlist 경로 — topology-driven 우회.
+  if (circuitType === "opamp_generic") return false;
 
   const archetypeSupportsSwitch =
     circuitType === "switched_rc" || circuitType === "switched_rl" || circuitType === "switched_dc";

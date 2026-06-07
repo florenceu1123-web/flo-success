@@ -122,6 +122,24 @@ export function classifyCircuitType(
     // OPAMP가 1개로 잘못 카운트돼도 cascade 텍스트 + 충분한 R + multi-OPAMP 키워드면 매치
     const multiOpampTextPS = /두 번째|첫 번째|두번째|첫번째|2단|두 단|cascade|캐스케이드|u[_ ]?1.*u[_ ]?2/i.test(textPS);
     const opampQualifies = opampPS >= 2 || (opampPS >= 1 && multiOpampTextPS && rPS >= 5);
+    // ★ 범용 OPAMP (임용 8번류: 가산기+차동, 미지 저항 R 역산) — cascade 전달함수와 구분.
+    //   시그니처: OPAMP≥2 + (독립 DC전원 ≥3 OR 저항값 역산 키워드) + 전달함수(V_o/V_i) 키워드 없음.
+    //   → 고정 archetype 대신 GPT 구조추출 netlist + MNA generic 경로 (opamp_generic).
+    const vCountPS = invPS.filter((c) => String(c.type ?? "").toUpperCase() === "V").length;
+    const transferFnKw = /v_o\s*\/\s*v_i|v_s\s*\/\s*v_o|v_s\s*\/\s*v_i|전달함수|transfer function|이득을 구|gain/.test(textPS);
+    const solveResistorKw = /저항.*구하|미지.*저항|저항값.*구|r\s*\[?\s*k?\s*Ω?\s*\]?\s*을?를?\s*구|r을 구|r를 구/.test(textPS);
+    if (opampPS >= 2 && (vCountPS >= 3 || solveResistorKw) && !transferFnKw) {
+      classifierLog.info("classify_result", {
+        type: "opamp_generic", route: "pre_subject_opamp_generic",
+        opampCount: opampPS, vCount: vCountPS, rCount: rPS, solveResistorKw, subject,
+      });
+      return {
+        type: "opamp_generic",
+        params: {},
+        confidence: "high",
+        reasoning: `[PRE-SUBJECT] OPAMP ${opampPS}개 + DC전원 ${vCountPS}개${solveResistorKw ? " + 저항역산 키워드" : ""} + 전달함수 아님 → 범용 netlist 경로 (opamp_generic)`,
+      };
+    }
     if (opampQualifies && rPS >= 4 && cascadePS) {
       classifierLog.info("classify_result", {
         type: "opamp_cascade_voltage_divider",

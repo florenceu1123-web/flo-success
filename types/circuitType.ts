@@ -58,6 +58,7 @@ export type CircuitType =
   | "waveform_analysis"     // 디지털 입력 파형 → 출력 파형 분석
   | "thevenin_switched_rc"  // SW + RC + 점선박스(Thevenin 대상) 다단계 (임용 9번 정보과)
   | "opamp_cascade_voltage_divider"  // 2-OPAMP cascade + 5R + V_o/V_i 전달함수 (임용 10번)
+  | "opamp_generic"          // 범용 OPAMP — GPT 구조추출 netlist + MNA (가산기+차동 R역산 등, 임용 8번)
   // ── Universal (rule-based) ───────────────────
   | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
   | "universal_ac"          // 임의 AC 회로(R/L/C/V/I) + phasor/공진/최대전력 query — archetype-free
