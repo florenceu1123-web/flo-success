@@ -182,7 +182,7 @@ const DETOUR_GAP = LANE * 3;
 const LANE_DETOUR_Y = LANE * 2;
 const COLUMN_SHIFT = LANE * 38;
 const SOURCE_OFFSET_X = LANE * 28;
-const SOURCE_X_GAP = Math.round(LANE * 4.5);
+const SOURCE_X_GAP = LANE * 6;        // 다중 입력 전원 column 간격 (전원 심볼+라벨 겹침 방지)
 const REF_FIRST_OFFSET = Math.round(LANE * 2.5);
 const FB_LAT_OFFSET = LANE * 5;
 const FB_VERT_OFFSET = LANE * 3 - 3;
@@ -222,11 +222,12 @@ export function renderOpAmpCircuit(netlist: CircuitNetlist): string | null {
   const pinAnchor = new Map<string, Anchor>();
   opamps.forEach((op, k) => {
     const pins = op.pins!;
-    pinInfo.set(pins[0].node, { opIdx: k, role: "plus" });
-    pinInfo.set(pins[1].node, { opIdx: k, role: "minus" });
+    // ★ 접지에 직접 연결된 OPAMP 입력핀(node==="GND")은 pinInfo에 등록하지 않는다.
+    //   등록하면 GND에 닿는 일반 소자(전원·다른 단의 ref 등)가 이 OPAMP의 입력으로 오분류되어
+    //   전원이 입력저항처럼 그려지고 ground가 엉킨다. 접지된 핀 자체는 4-5.b에서 ground stub로 렌더.
+    if (!isGnd(pins[0].node)) { pinInfo.set(pins[0].node, { opIdx: k, role: "plus" }); pinAnchor.set(pins[0].node, anchors[k].plus); }
+    if (!isGnd(pins[1].node)) { pinInfo.set(pins[1].node, { opIdx: k, role: "minus" }); pinAnchor.set(pins[1].node, anchors[k].minus); }
     pinInfo.set(pins[2].node, { opIdx: k, role: "out" });
-    pinAnchor.set(pins[0].node, anchors[k].plus);
-    pinAnchor.set(pins[1].node, anchors[k].minus);
     pinAnchor.set(pins[2].node, anchors[k].out);
   });
 
@@ -313,23 +314,60 @@ export function renderOpAmpCircuit(netlist: CircuitNetlist): string | null {
   // 각 OPAMP 좌측 column에 분산 배치 — 같은 level 다중 ext는 좌측으로 추가 분산
   const noninvCounts = new Map<number, number>();
   const invCounts = new Map<number, number>();
+  // ★ 본문(임용 8번) 가산기 스타일 — 다중 입력은 저항을 세로 행으로 쌓고(첫 입력=맨 위),
+  //   전원은 공통 하단 레벨에 X만 fan, 우측은 공통 bus로 입력 핀에 수렴. (위로 꺾는 detour 제거)
+  const INPUT_ROW_GAP = LANE * 3;   // 입력 저항 행 간격 (세로 stack)
+  const SOURCE_DROP = LANE * 5;     // 가장 아래 행 → 전원 심볼 하강
+  const extGroupKey = new Map<string, string>();   // node → `${opIdx}:${level}`
+  // 그룹별 입력 수 선계산 — 전원 X를 역순(첫 입력 Va가 가장 왼쪽)으로 fan하기 위함.
+  const groupCount = new Map<string, number>();
+  {
+    const seenForCount = new Set<string>();
+    for (const item of extItems) {
+      if (seenForCount.has(item.node)) continue;
+      seenForCount.add(item.node);
+      const k = `${item.opIdx}:${item.level}`;
+      groupCount.set(k, (groupCount.get(k) ?? 0) + 1);
+    }
+  }
   for (const item of extItems) {
     if (seenExts.has(item.node)) continue;
     seenExts.add(item.node);
     const opAnc = anchors[item.opIdx];
     if (!opAnc) continue;
+    const key = `${item.opIdx}:${item.level}`;
+    extGroupKey.set(item.node, key);
+    const total = groupCount.get(key) ?? 1;
     if (item.level === "plus") {
       const i = noninvCounts.get(item.opIdx) ?? 0;
-      nodePos.set(item.node, { x: opAnc.plus.x - SOURCE_OFFSET_X - i * SOURCE_X_GAP, y: opAnc.plus.y });
+      const revI = total - 1 - i;   // 첫 입력이 가장 왼쪽(큰 offset)
+      nodePos.set(item.node, { x: opAnc.plus.x - SOURCE_OFFSET_X - revI * SOURCE_X_GAP, y: opAnc.plus.y + i * INPUT_ROW_GAP });
       noninvCounts.set(item.opIdx, i + 1);
     } else {
       const i = invCounts.get(item.opIdx) ?? 0;
+      const revI = total - 1 - i;
       // input_inv의 source column은 input_noninv와 다른 base offset (LANE*12.5 ≈ 200)으로 분리.
       const invBase = SOURCE_OFFSET_X - LANE * 12.5;
-      nodePos.set(item.node, { x: opAnc.minus.x - invBase - i * SOURCE_X_GAP, y: opAnc.minus.y });
+      nodePos.set(item.node, { x: opAnc.minus.x - invBase - revI * SOURCE_X_GAP, y: opAnc.minus.y + i * INPUT_ROW_GAP });
       invCounts.set(item.opIdx, i + 1);
     }
   }
+  const extGroupTotal = (key: string): number => {
+    const [opStr, level] = key.split(":");
+    const op = Number(opStr);
+    return (level === "plus" ? noninvCounts.get(op) : invCounts.get(op)) ?? 1;
+  };
+  // 그룹별 전원 공통 하단 Y — 모든 입력 전원을 같은 하단 레벨에 두고 X만 fan (본문처럼).
+  const sourceBottomY = (node: string): number | undefined => {
+    const key = extGroupKey.get(node);
+    if (!key) return undefined;
+    const [opStr, level] = key.split(":");
+    const op = Number(opStr);
+    const anc = anchors[op];
+    if (!anc) return undefined;
+    const pinY = level === "plus" ? anc.plus.y : anc.minus.y;
+    return pinY + (extGroupTotal(key) - 1) * INPUT_ROW_GAP + SOURCE_DROP;
+  };
 
   // 4. SVG 빌드
   let svg = "";
@@ -361,18 +399,20 @@ export function renderOpAmpCircuit(netlist: CircuitNetlist): string | null {
     if (!ext) continue;
     const cx = ext.x;
     const topY = ext.y;
-    const symY = topY + 70;
-    const gndY = topY + 130;
+    // 다중 입력은 전원을 공통 하단 레벨에 두고 X만 fan (본문 가산기처럼). 단일 입력은 ext 바로 아래.
+    const gkey = extGroupKey.get(extNode);
+    const total = gkey ? extGroupTotal(gkey) : 1;
+    const symY = total > 1 ? (sourceBottomY(extNode) ?? topY + 70) : topY + 70;
+    const gndY = symY + 60;
     svg += `<path d="M ${cx} ${topY} L ${cx} ${symY - 22}" stroke="black" fill="none" stroke-width="2"/>`;
     svg += renderComponentOnEdge(c, { x: cx, y: symY }, "vertical");
     svg += `<path d="M ${cx} ${symY + 22} L ${cx} ${gndY}" stroke="black" fill="none" stroke-width="2"/>`;
     localGndPoints.push({ x: cx, y: gndY, up: false });
   }
 
-  // 4-4. Input branches — ext → input pin (horizontal at opPin.y; ext.y 다르면 vertical+horizontal orthogonal)
-  //   같은 OPAMP의 같은 level(plus/minus)에 다중 input이면 R 위치를 stack offset으로 분리.
-  const inputInvCounts = new Map<number, number>();
-  const inputNoninvCounts = new Map<number, number>();
+  // 4-4. Input branches — 본문(가산기)처럼: 각 입력 저항을 자기 행(ext.y)에 두고,
+  //   우측 끝을 핀 바로 왼쪽 공통 bus(busX)로 모아 수직 bus로 입력 핀에 수렴. (위로 꺾는 detour 제거)
+  const busJunctions = new Map<number, { x: number; y: number }>(); // opamp별 bus-핀 접합 dot
   for (const b of branches) {
     if (b.kind !== "input_noninv" && b.kind !== "input_inv") continue;
     if (!b.externalNodeId) continue;
@@ -382,32 +422,26 @@ export function renderOpAmpCircuit(netlist: CircuitNetlist): string | null {
     if (!opAnc) continue;
     const isNoninv = b.kind === "input_noninv";
     const opPin = isNoninv ? opAnc.plus : opAnc.minus;
-    const counts = isNoninv ? inputNoninvCounts : inputInvCounts;
-    const i = counts.get(b.opampIndex) ?? 0;
-    counts.set(b.opampIndex, i + 1);
-    // midX = base midpoint - stack offset, ext.x+R 안 침범하게 clamp (Rule-3 lane separation)
-    let midX = (ext.x + opPin.x) / 2 - i * STACK_GAP_R;
-    const lo = Math.min(ext.x, opPin.x) + HALF_R + LANE;
-    const hi = Math.max(ext.x, opPin.x) - HALF_R - LANE;
+    const rowY = ext.y;
+    const busX = opPin.x - Math.round(LANE * 1.5);
+    let midX = (ext.x + busX) / 2;
+    const lo = ext.x + HALF_R + LANE;
+    const hi = busX - HALF_R - LANE;
     if (lo <= hi) midX = Math.max(lo, Math.min(hi, midX));
-    // 좌측 wire: ext.y와 opPin.y 다르면 vertical → horizontal
-    if (Math.abs(ext.y - opPin.y) > 1) {
-      svg += `<path d="M ${ext.x} ${ext.y} L ${ext.x} ${opPin.y}" stroke="black" fill="none" stroke-width="2"/>`;
+    // 좌측 wire: ext(전원 lead 상단) → 저항 좌단 (같은 행)
+    svg += `<path d="M ${ext.x} ${rowY} L ${midX - HALF_R} ${rowY}" stroke="black" fill="none" stroke-width="2"/>`;
+    svg += renderComponentOnEdge(b.component, { x: midX, y: rowY }, "horizontal");
+    // 우측 wire: 저항 우단 → busX (행 수평), 그리고 busX 수직 bus로 핀까지 (여러 행이 겹쳐 단일 bus)
+    svg += `<path d="M ${midX + HALF_R} ${rowY} L ${busX} ${rowY}" stroke="black" fill="none" stroke-width="2"/>`;
+    if (Math.abs(rowY - opPin.y) > 1) {
+      svg += `<path d="M ${busX} ${rowY} L ${busX} ${opPin.y}" stroke="black" fill="none" stroke-width="2"/>`;
     }
-    svg += `<path d="M ${ext.x} ${opPin.y} L ${midX - HALF_R} ${opPin.y}" stroke="black" fill="none" stroke-width="2"/>`;
-    svg += renderComponentOnEdge(b.component, { x: midX, y: opPin.y }, "horizontal");
-    // 우측 wire — Rule-2 (wireAvoidsComponentBody): i>0이면 다른 R body 회피용 lane offset.
-    if (i === 0 || !CONNECTION_LAYOUT_RULES.wireAvoidsComponentBody) {
-      svg += `<path d="M ${midX + HALF_R} ${opPin.y} L ${opPin.x} ${opPin.y}" stroke="black" fill="none" stroke-width="2"/>`;
-    } else {
-      // inv level(V−위쪽 anchor): 위 lane 우회 / noninv level(V+아래쪽): 아래 lane 우회
-      const laneY = isNoninv
-        ? opPin.y + LANE_DETOUR_Y + (i - 1) * LANE
-        : opPin.y - LANE_DETOUR_Y - (i - 1) * LANE;
-      const exitX = midX + HALF_R + Math.round(LANE / 2);
-      const entryX = opPin.x - Math.round(LANE * 0.75);
-      svg += `<path d="M ${midX + HALF_R} ${opPin.y} L ${exitX} ${opPin.y} L ${exitX} ${laneY} L ${entryX} ${laneY} L ${entryX} ${opPin.y} L ${opPin.x} ${opPin.y}" stroke="black" fill="none" stroke-width="2"/>`;
-    }
+    svg += `<path d="M ${busX} ${opPin.y} L ${opPin.x} ${opPin.y}" stroke="black" fill="none" stroke-width="2"/>`;
+    busJunctions.set(b.opampIndex, { x: busX, y: opPin.y });
+  }
+  // bus 접합 dot (다중 입력이 모이는 junction)
+  for (const j of busJunctions.values()) {
+    svg += `<circle cx="${j.x}" cy="${j.y}" r="3" fill="black"/>`;
   }
 
   // 4-5. Reference branches — vp/vn → GND, 좌측 detour vertical
@@ -444,13 +478,13 @@ export function renderOpAmpCircuit(netlist: CircuitNetlist): string | null {
   }
 
   // 4-5.b OPAMP vp/vn pin이 GND에 직접 연결된 경우 (component 없는 short) — stub + ground symbol
-  //   branchTemplate가 OPAMP pins에 role "non_inverting"/"inverting"을 설정하므로 그것으로 식별.
+  //   pins 순서 [비반전(+), 반전(−), 출력]로 위치 식별 (role 미설정 netlist도 지원).
   for (let opIdx = 0; opIdx < opamps.length; opIdx++) {
     const op = opamps[opIdx];
     const anc = anchors[opIdx];
     if (!anc) continue;
-    const vpPin = op.pins?.find((p) => p.role === "non_inverting");
-    const vnPin = op.pins?.find((p) => p.role === "inverting");
+    const vpPin = op.pins?.[0];
+    const vnPin = op.pins?.[1];
     if (vpPin && isGnd(vpPin.node)) {
       const pinX = anc.plus.x;
       const pinY = anc.plus.y;
