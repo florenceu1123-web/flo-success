@@ -18,6 +18,10 @@ import { hasSwitchedRlc5leg, renderSwitchedRlc5legCircuit } from "./switchedRlc5
 import { hasAcParallelBranches, renderAcParallelBranchesCircuit } from "./acParallelBranchesCircuitRenderer";
 import { detectCrossPattern, renderCrossLayout } from "./crossLayoutCircuitRenderer";
 import { detectFourNodeImyong, renderFourNodeImyong } from "./fourNodeImyongRenderer";
+import { detectAcDcSuperposition, renderAcDcSuperpositionCircuit } from "./acDcSuperpositionCircuitRenderer";
+import { detectAcDcSuperpositionDual, renderAcDcSuperpositionDualCircuit } from "./acDcSuperpositionDualCircuitRenderer";
+import { detectAcTheveninMaxPower, renderAcTheveninMaxPowerCircuit } from "./acTheveninMaxPowerCircuitRenderer";
+import { detectSwitchedRlDependent, renderSwitchedRlDependentCircuit } from "./switchedRlDependentCircuitRenderer";
 
 // =====================================================================
 // analog mesh renderer — 2-rail layout
@@ -152,11 +156,45 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     }
   }
 
+  // 0.078 AC+DC 중첩 (임용 2022 B-6 류) — 좌측 leg에 전원·스위치 직렬 chain.
+  //   crossLayout(grid 빌더)이 4-소자 직렬 leg를 표현 못 해 V·+↔GND wire-only short를
+  //   내는 버그를 우회하는 dedicated 경로. fourNodeImyong과 동일한 패턴.
+  if (detectAcDcSuperposition(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=acDcSuperposition");
+    const svg = renderAcDcSuperpositionCircuit(netlist);
+    if (svg) return svg;
+  }
+
+  // 0.0784 스위치 RL + 종속전원(2i_A) 과도응답 (임용 7번).
+  if (detectSwitchedRlDependent(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=switchedRlDependent");
+    const svg = renderSwitchedRlDependentCircuit(netlist);
+    if (svg) return svg;
+  }
+
+  // 0.0785 2전원 테브난 최대전력 (임용 10번) — V원망 + I원망 + R_L 부하.
+  if (detectAcTheveninMaxPower(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=acTheveninMaxPower");
+    const svg = renderAcTheveninMaxPowerCircuit(netlist);
+    if (svg) return svg;
+  }
+
+  // 0.079 AC+DC 중첩 쌍대(dual) 회로 (기출변형유형) — 전류원·병렬 R·직렬 C·v 측정.
+  if (detectAcDcSuperpositionDual(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=acDcSuperpositionDual");
+    const svg = renderAcDcSuperpositionDualCircuit(netlist);
+    if (svg) return svg;
+  }
+
   // 0.08 Cross pattern (외곽 perimeter + 내부 십자 cross) — 임용 10번 같은 4-mesh DC.
   //   trigger: 내부 노드 간 평행 가지 + inner top node에 vertical leg.
   if (detectCrossPattern(netlist)) {
     if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=crossLayout");
-    return renderCrossLayout(netlist);
+    const svg = renderCrossLayout(netlist);
+    if (svg) return svg;
+    // crossLayout 검증 실패(wire-short 등) → positions-respecting edge 렌더러로 fallback.
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] crossLayout 실패 → renderNetlistEdgeSVG fallback");
+    return renderNetlistEdgeSVG(netlist);
   }
 
   // 0.1 3-pin 이상이면 mesh layout 적용 불가 — fallback

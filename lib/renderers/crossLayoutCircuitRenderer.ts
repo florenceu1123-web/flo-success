@@ -53,14 +53,21 @@ export function detectCrossPattern(netlist: CircuitNetlist): boolean {
 
 /**
  * 메인 — netlist를 받아 CircuitGraph 구축 → 검증 → SVG.
+ *
+ *  ★ 검증 실패(예: buildCellGrid가 직렬 leg를 격자에 못 담아 생기는 V·+↔GND wire-only short)
+ *    시 raw 에러 <pre>를 사용자에게 보이지 않고 **null 반환** → 호출측(analogMeshRenderer)이
+ *    positions-respecting 렌더러(renderNetlistEdgeSVG)로 graceful fallback. (2026-06-04)
  */
-export function renderCrossLayout(netlist: CircuitNetlist): string {
+export function renderCrossLayout(netlist: CircuitNetlist): string | null {
   const graph = buildCircuitGraph(netlist);
   try {
     validateCircuitGraph(graph);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return `<pre>CircuitGraph validation 실패: ${escapeXml(msg)}</pre>`;
+    if (typeof console !== "undefined") {
+      console.warn(`[crossLayout] validation 실패 → fallback: ${msg}`);
+    }
+    return null;
   }
   return renderFromGraph(graph, netlist);
 }

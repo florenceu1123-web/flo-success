@@ -34,6 +34,8 @@ dev.log
 # local test artifacts
 _gen_test.json
 scripts/*.html
+/acdc.png
+/acdc.svg
 
 # env files (can opt-in for committing if needed)
 .env*

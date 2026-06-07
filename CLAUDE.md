@@ -65,6 +65,13 @@ Image/Prompt
 **Do not** use free auto-routing for known exam archetypes.
 If an archetype is detected, dispatch to its **fixed renderer before universal_dc**.
 
+## ★ crossLayout 검증 실패 시 graceful fallback (2026-06-04)
+`renderCrossLayout`는 buildCellGrid가 직렬 leg를 격자에 못 담아 생기는 **"V·+↔GND wire-only short"**
+검증 실패 시 raw `<pre>` 에러를 사용자에게 보이지 않고 **null 반환** → `analogMeshRenderer`가
+`renderNetlistEdgeSVG`(positions/BFS edge 렌더러)로 fallback. universal_ac/dc가 만든 임의 회로는
+전용 렌더러로 일일이 못 막으므로(예: 임용 10번 2전원 최대전력) 이 fallback이 에러 노출 차단.
+※ fallback figure는 깔끔하지 않을 수 있음 — 빈출 형식은 전용 fixed-slot 렌더러 추가가 정석.
+
 ## 작업 원칙 (Do / Don't)
 
 - ❌ 자동 라우터 계속 수정
@@ -541,6 +548,34 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - 입력 전원 표기는 phasor 형식(`20∠-90°V`, `4∠0°A`) 또는 시간영역(`v_s(t)=20cos(ωt-90°)`) 둘 다 가능.
 - 리액티브 소자는 임피던스 표기(`j15Ω`, `-j5Ω`)로 표시.
 - 단자 a·b는 수직 평행 정렬 (Thevenin 단자 같이 같은 vertical line).
+
+## AC+DC 중첩 정상상태 (예: 임용 2022 B-6 — 직류·교류 전원 + 스위치로 연결된 RL, i(t) 중첩)
+- 직류 전압원 + 교류 전압원(`A√2 sin ωt`)이 **스위치(단자 선택)로 연결된 단일 루프** + 상단 R + 우측 병렬 리액티브 블록(L∥L 또는 C) + 하단 R.
+- 해석: [단계 1] DC만(L 단락) → I_DC, [단계 2] AC만(페이저·전류 분배) → i_ac(t), [단계 3] 중첩 i(t)=I_DC+i_ac(t). 모두 정상상태 (과도응답 아님 → waveform·state transition figure 면제).
+- 분류: `universal_ac` + `params.acDcSuperposition=true` (스위치는 전원 선택용 — 과도응답으로 오분류 금지). 생성·텍스트 모두 결정론 (`generateAcDcSuperposition` + `acDcSuperpositionTextWriter`, GPT 호출 없음).
+- ★ **렌더링은 전용 fixed-slot renderer 필수**: `acDcSuperpositionCircuitRenderer.ts` (`detectAcDcSuperposition` → `renderAcDcSuperpositionCircuit`). `analogMeshRenderer`에서 `crossLayout` **앞에** 디스패치.
+  - 이유: 좌측 leg에 전원·스위치 4개가 직렬로 쌓인 구조라 generic grid 빌더(`crossLayout`→`buildCellGrid`)가 한 column에 직렬 소자 4개를 표현 못 해 **"V·+단자↔GND wire-only short" 검증 실패**를 낸다. fourNodeImyong과 동일한 short 우회 패턴.
+  - detector는 특정 id가 아니라 **구조 signature**(V 2개 + SW≥1이 GND 끝나는 단일 직렬 chain + 리액티브≥1)로 인식 → exam_variant의 전원 위치 교환도 자동 처리.
+  - **레이아웃**: 직사각 단일 루프. 좌측 leg = 위 전원(vertical) + **SPDT 선택 스위치(점선 박스 + 단자N 라벨 + arm)** 스택 + 아래 전원, 전원과 스위치망 접점에 노드 dot. 단자 번호는 아래 스위치부터 1·2, 그 위 3·4. 상단 R / 우측 병렬 리액티브 / 하단 R로 루프 폐합.
+  - **단자 배선 (사용자 확정, 임용 2022 B-6)**: 직렬 경로는 우측 단자(단자4·단자2)를 통해 두 전원 직렬 연결(단계3 config). 좌측 단자는 **최상단 스위치 단자(단자3) → 상단 노드(TL), 최하단 스위치 단자(단자1) → 하단 노드(GND)** 로 좌측 lane 라우팅. (단자3↔단자4·단자1↔단자2 선택으로 DC만/AC만/둘다 전환.)
+- ★ **기출변형유형(exam_variant)은 쌍대(dual) 회로**: 원본(전압원·직렬 R·병렬 L·i 측정)의 정확한 dual = **전류원·병렬 R·직렬 C·v 측정** (V↔I, R↔G, L↔C, 직렬↔병렬, i↔v, KVL↔KCL).
+  - 파일: `lib/generation/topologies/acDcSuperpositionDual.ts` (generator), `acDcSuperpositionDualTextWriter.ts` (텍스트), `lib/renderers/acDcSuperpositionDualCircuitRenderer.ts` (전용 렌더러, `detectAcDcSuperpositionDual` → `analogMeshRenderer`에서 crossLayout 앞 dispatch). 파이프라인 `runUniversalAcPipeline`에서 `mode==="exam_variant"`면 dual 경로.
+  - 닫힌형 해: 조건 1/(ωC_eq)=R(45°). [단계1] C 개방 → V_DC=I_dc·R. [단계2] Y=(1+j)/R → v_ac=I_ac·R∠−45°, 전압분배 v_1ac/v_ac=C_eq/C_1(직렬 C). [단계3] 중첩 v(t)=V_DC+v_ac(t). 값은 원본 nice-number를 I↔V로 재사용(I[mA]·R[Ω]/1000=정수 V).
+  - 레이아웃: 두 rail 사이 병렬 가지 [I_ac+SW₂]‖[I_dc+SW₁]‖[R]‖[C_1─N_MID─C_2 직렬]. SW는 활성 단자→rail, 개방 단자(단자3·단자1)는 stub. v(t)·v₁(t)는 우측 +/− 화살표.
+
+## 2전원 테브난 최대전력 (임용 10번 — AC 전압원 + 전류원 + RLC + R_L 최대평균전력)
+- 전압원 V(∠0°) + 전류원 I(∠0°) + RLC + 부하 R_L. [단계1] Z_th(a-b), [단계2] V_th(중첩), [단계3] R_L=|Z_th|·P_max.
+- ★ generic universal_ac 토폴로지 추출은 두 전원망의 **공통 부하 단자 연결을 잃어** figure·물리 모두 깨짐 → **고정 토폴로지 archetype** 필수.
+- 파일: `lib/generation/topologies/acTheveninMaxPower.ts` (generator — **복소 MNA solver로 Z_th·V_th 계산**, ω=1·L=X·C=1/X 규약, PARAM_SETS는 정수 R_L 사전검증), `acTheveninMaxPowerTextWriter.ts`, `lib/renderers/acTheveninMaxPowerCircuitRenderer.ts` (전용 fixed-slot: 상단 V망 / 하단 I망 / 우측 R_L, 단자 a-b).
+- classifier `classifyCircuitType` 0-PRE-AC-THEVENIN-MAXPOWER: V≥1 + I≥1 + 리액티브 + (테브난 OR 최대전력) → `universal_ac` + `params.theveninMaxPower`. pipeline `runUniversalAcPipeline`에서 분기, route는 topologySignature 불필요(결정론 generator).
+- 토폴로지: V망 e—R_top—m—L_s—a, C_v: m↓GND / I망 I1↑p, R_i: p→a, C_i: p↓GND / 부하 R_L: a↓GND(b). 두 전원망 병렬@a-GND.
+
+## 스위치 RL + 종속전원(2i_A) 과도응답 (임용 2022 B-7) — 전용 archetype
+- 2 독립 직류전원(40V·12V) + 종속전압원 CCVS(2i_A) + SW(단자1/단자2, t=0) + RL. [단계1] 단자1 정상상태 → i_L·v_o, [단계2] t=0 단자1→단자2 → i_L(t)·v_o(t).
+- ★ generic/topology-driven은 **종속전원(CCVS)을 떨어뜨려** 회로가 깨짐 → **고정 토폴로지 archetype 필수**.
+- 파일: `lib/generation/topologies/switchedRlDependent.ts` (generator — CCVS 2i_A는 i_A가 4Ω 전류 → VCVS(gain=k/Ra)로 변환 가능하나 닫힌형 해 사용; 정상상태 KCL + 1차 RL 과도 τ=L/Ro), `switchedRlDependentTextWriter.ts`, `lib/renderers/switchedRlDependentCircuitRenderer.ts` (전용 렌더러: 40V·2Ω·SW / 12V / 4Ω(i_A) / 3H(i_L) / 6Ω(v_o) / 2i_A 다이아몬드).
+- 라우팅: route.ts에서 `circuitType∈{switched_rl,rl_step}` + inventory에 종속원(CCVS/CCCS/VCVS/VCCS) → `runSwitchedRlDependentPipeline` (**topology_driven보다 우선**). hasWaveformEvolution·hasStateTransition=false 강제(v_o(t)는 학생 도출, waveform figure 면제). `analogMeshRenderer`에서 detect dispatch.
+- 닫힌형 해 (값 R1=2,Ra=4,Ro=6,L=3,k=2 고정 + V1·V2 가변): 예 V1=60·V2=12 → i_L 3→1A, v_o 18→6V, τ=0.5s, i_L(t)=1+2e^(−2t).
 
 ## OPAMP finite open-loop gain + 블록도 (예: 임용 11번)
 - (가) 회로: V_in 외부 핀(전압원 박스 없이) + R_1(입력) + A(s) OPAMP + R_2(피드백). V+=GND, V_out 단자.

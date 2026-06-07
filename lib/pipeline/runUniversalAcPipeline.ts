@@ -14,6 +14,10 @@ import { writeUniversalAcText } from "@/lib/generation/topologies/universalAcTex
 import { applyRlExamVariant, applySourceReactiveSwapVariant } from "@/lib/analysis/topologyRecovery";
 import { generateAcDcSuperposition } from "@/lib/generation/topologies/acDcSuperposition";
 import { writeAcDcSuperpositionText } from "@/lib/generation/topologies/acDcSuperpositionTextWriter";
+import { generateAcDcSuperpositionDual } from "@/lib/generation/topologies/acDcSuperpositionDual";
+import { writeAcDcSuperpositionDualText } from "@/lib/generation/topologies/acDcSuperpositionDualTextWriter";
+import { generateAcTheveninMaxPower } from "@/lib/generation/topologies/acTheveninMaxPower";
+import { writeAcTheveninMaxPowerText } from "@/lib/generation/topologies/acTheveninMaxPowerTextWriter";
 import { GenerateError } from "@/lib/generation/_core";
 import { assembleProblem, buildContextHint, generateInParallel } from "./_common";
 import {
@@ -54,8 +58,53 @@ export async function runUniversalAcPipeline(args: {
   //     [단계 1] DC 패스(L 단락) → I_DC, [단계 2] AC 패스(페이저·전류 분배) → i_ac(t),
   //     [단계 3] 중첩 i(t) = I_DC + i_ac(t).
   //   텍스트도 결정론 (GPT 호출 없음 — 그림·수식·풀이 불일치 원천 차단).
+  // ★ 2전원 테브난 최대전력 (임용 10번) — 고정 토폴로지 archetype.
+  if (analysis.circuitType?.params?.theveninMaxPower) {
+    log.info("thevenin_max_power_mode", { mode, count });
+    return generateInParallel(count, async (i, seed) => {
+      const gen = generateAcTheveninMaxPower({ seed });
+      log.info("thevenin_max_power_generated", {
+        Vs: gen.values.VsLabel, Is: gen.values.IsLabel,
+        Zth: gen.solution.ZthLabel, Vth: gen.solution.VthLabel,
+        RL: gen.solution.RL, Pmax: gen.solution.PmaxLabel,
+      });
+      const text = writeAcTheveninMaxPowerText({ generation: gen });
+      return assembleProblem({
+        text,
+        netlist: gen.netlist,
+        figureLabel: "주어진 회로 (2 교류전원 + RLC + 부하 R_L)",
+        figureRole: "original_circuit",
+        figureIdSuffix: i + 1,
+        topicKey,
+      });
+    });
+  }
+
   if (analysis.circuitType?.params?.acDcSuperposition) {
     log.info("ac_dc_superposition_mode", { mode, count });
+    // ★ 기출변형유형 — 쌍대(dual) 회로: 전류원·병렬 R·직렬 C·v 측정 (V↔I, L↔C, 직렬↔병렬, i↔v).
+    if (mode === "exam_variant") {
+      return generateInParallel(count, async (i, seed) => {
+        const gen = generateAcDcSuperpositionDual({ seed });
+        log.info("ac_dc_superposition_dual_generated", {
+          Idc: gen.values.IdcMilli,
+          Iac: gen.values.IacLabel,
+          R: gen.values.R,
+          caps: gen.values.caps.map((c) => c.label),
+          vDcVolts: gen.solution.vDcVolts,
+          vAcPeakVolts: gen.solution.vAcPeakVolts,
+        });
+        const text = writeAcDcSuperpositionDualText({ generation: gen });
+        return assembleProblem({
+          text,
+          netlist: gen.netlist,
+          figureLabel: "주어진 회로 (직류·교류 전류원 + 스위치, 쌍대)",
+          figureRole: "original_circuit",
+          figureIdSuffix: i + 1,
+          topicKey,
+        });
+      });
+    }
     return generateInParallel(count, async (i, seed) => {
       const gen = generateAcDcSuperposition({
         params: analysis.circuitType?.params,

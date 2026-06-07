@@ -23,6 +23,7 @@ import { runAcSuperpositionPipeline } from "@/lib/pipeline/runAcSuperpositionPip
 import { runAcParallelBranchesPipeline } from "@/lib/pipeline/runAcParallelBranchesPipeline";
 import { runMaxPowerTransferPipeline } from "@/lib/pipeline/runMaxPowerTransferPipeline";
 import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitPipeline";
+import { runSwitchedRlDependentPipeline } from "@/lib/pipeline/runSwitchedRlDependentPipeline";
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
 import { runOpampTimeDomainPipeline } from "@/lib/pipeline/runOpampTimeDomainPipeline";
 import { runBjtSmallSignalPipeline } from "@/lib/pipeline/runBjtSmallSignalPipeline";
@@ -127,6 +128,10 @@ export async function POST(req: NextRequest) {
     const isSwitchedRlc =
       analysis?.circuitType?.type === "switched_rlc_5leg" ||
       analysis?.circuitType?.type === "switched_rlc_step";
+    // 스위치 RL + 종속전원(2i_A) 과도응답 (임용 7번) — v_o(t)는 학생 도출 정답 → waveform figure 불필요.
+    const isSwitchedRlDep =
+      (analysis?.circuitType?.type === "switched_rl" || analysis?.circuitType?.type === "rl_step") &&
+      (analysis?.componentInventory ?? []).some((c) => ["CCVS", "CCCS", "VCVS", "VCCS"].includes(String(c.type)));
     // bjt_characteristic_curve는 개념·도식 해석형 — 시간영역 파형 없음, 회로 netlist 없음.
     //  단일 characteristic_curve figure 1장으로 충분.
     const isCharacteristicCurve = analysis?.circuitType?.type === "bjt_characteristic_curve";
@@ -145,9 +150,11 @@ export async function POST(req: NextRequest) {
           ? { ...rawSemantic, hasWaveformEvolution: false }
           : isUniversalAc
             ? { ...rawSemantic, hasWaveformEvolution: false }
-            : isSwStatePair || (rawSemantic.hasWaveformEvolution && (isAcSuperposition || isSwitchedRlc))
-              ? { ...rawSemantic, hasWaveformEvolution: false }
-              : rawSemantic;
+            : isSwitchedRlDep
+              ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false }
+              : isSwStatePair || (rawSemantic.hasWaveformEvolution && (isAcSuperposition || isSwitchedRlc))
+                ? { ...rawSemantic, hasWaveformEvolution: false }
+                : rawSemantic;
     if (expectedSemantic !== rawSemantic) {
       log.info("semantic_normalized", {
         reason: isCharacteristicCurve
@@ -167,8 +174,11 @@ export async function POST(req: NextRequest) {
     // ★ DC+AC 중첩 모드는 topicKey가 switching_circuit이어도 state pair figure를 요구하지 않는다.
     //   (roleTriggers는 switching_circuit topic을 무조건 state 문제로 보므로, ruleSet 결정에서만
     //    topicKey를 비움 — 생성 pipeline·validator family check에는 expectedTopicKey 그대로 사용.)
+    //   switched_rl + 종속전원(임용7)도 스위치는 전원 선택용 — state_before/after figure 요구 면제.
     const ruleTopicKey =
-      isAcDcSuperposition && expectedTopicKey === "switching_circuit" ? undefined : expectedTopicKey;
+      (isAcDcSuperposition || isSwitchedRlDep) && expectedTopicKey === "switching_circuit"
+        ? undefined
+        : expectedTopicKey;
     const ruleSet = resolveRules({
       subject: subjectKey,
       topicKey: ruleTopicKey,
@@ -197,6 +207,23 @@ export async function POST(req: NextRequest) {
       circuitType = routed.circuitType as typeof circuitType;
     }
     let problems: GeneratedProblem[];
+    // ★ 스위치 RL + 종속전원(2i_A) 과도응답 (임용 2022 B-7) — 전용 archetype.
+    //   종속전원(CCVS)·스위치 상태전이를 generic/topology-driven이 잃는 문제 회피 (topology_driven보다 우선).
+    const invSrl = analysis?.componentInventory ?? [];
+    const isSwitchedRlDependent =
+      subjectKey === "circuit_theory" &&
+      (circuitType === "switched_rl" || circuitType === "rl_step") &&
+      invSrl.some((c) => ["CCVS", "CCCS", "VCVS", "VCCS"].includes(String(c.type))) &&
+      invSrl.some((c) => c.type === "L") &&
+      invSrl.some((c) => c.type === "SW");
+    if (isSwitchedRlDependent) {
+      log.info("dispatch", { route: "switched_rl_dependent_pipeline", count: n, mode });
+      problems = await runSwitchedRlDependentPipeline({
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else
     // ★ Topology-driven fallback — 회로이론에서 archetype의 가정과 원본 topology가 어긋나는
     //   hybrid 케이스(예: supermesh + SW + 종속전원 동시)는 generic topology-driven 파이프라인으로.
     //   archetype hardcoded 생성기는 SW/종속전원을 못 다루므로 원본 구조를 잃음.
@@ -267,8 +294,12 @@ export async function POST(req: NextRequest) {
         mode,
         acDcSuperposition: Boolean(analysis?.circuitType?.params?.acDcSuperposition),
       });
-      // DC+AC 중첩 모드는 결정론 generator 사용 — topologySignature 불필요.
-      if (!analysis?.topologySignature && !analysis?.circuitType?.params?.acDcSuperposition) {
+      // DC+AC 중첩·테브난 최대전력 모드는 결정론 archetype generator 사용 — topologySignature 불필요.
+      if (
+        !analysis?.topologySignature &&
+        !analysis?.circuitType?.params?.acDcSuperposition &&
+        !analysis?.circuitType?.params?.theveninMaxPower
+      ) {
         return NextResponse.json({ error: "universal_ac는 topologySignature 필수" }, { status: 400 });
       }
       problems = await runUniversalAcPipeline({

@@ -1042,19 +1042,24 @@ function decideType(args: DecideArgs): DecideResult {
     "시정수", "time constant", "시상수",
     "t=0에서", "t = 0에서", "t<0", "t > 0에서",
   ]);
+  //   ★ 트리거 안정화 (2026-06-04): steadyStateKw 단독 의존은 Vision 문구 변동에 flaky해
+  //     같은 회로가 ac_superposition으로 새는 문제 발생. 이 패턴의 정의적 시그니처로 교체:
+  //     전압원 ≥ 2 + 전류원 0(= ac_superposition과 구분) + 리액티브 + AC 신호 + 스위치(전원 선택)
+  //     + 강한 과도 키워드 없음. (정상상태 키워드는 보조 — 있으면 신뢰 ↑, 없어도 트리거.)
   if (
     counts.V >= 2 &&
+    counts.I === 0 &&
     (counts.L > 0 || counts.C > 0) &&
     hasAcSourceSignal &&
-    steadyStateKw &&
+    hasSwitchInferred &&
     !strongTransientKw
   ) {
     return {
       type: "universal_ac",
       confidence: "high",
       reasoning:
-        `DC+AC 다중 전압원(V=${counts.V}) + L/C(L=${counts.L},C=${counts.C}) + 정상상태 키워드 ` +
-        `→ 중첩 모드 (스위치는 전원 선택용 — 과도응답 아님)`,
+        `DC+AC 다중 전압원(V=${counts.V}, I=0) + L/C(L=${counts.L},C=${counts.C}) + 스위치(전원 선택)` +
+        `${steadyStateKw ? " + 정상상태 키워드" : ""} → 중첩 모드 (과도응답 아님)`,
       params: {
         acDcSuperposition: true,
         hasACSource: true,
@@ -1063,6 +1068,32 @@ function decideType(args: DecideArgs): DecideResult {
         inductorCount: counts.L,
         capacitorCount: counts.C,
         switchCount: counts.SW,
+      },
+    };
+  }
+
+  // 0-PRE-AC-THEVENIN-MAXPOWER. 2전원(전압원+전류원) 테브난 최대전력 (임용 10번 형식).
+  //   고정 토폴로지 archetype — generic topology 추출이 두 전원망의 공통 부하 단자 연결을 잃어
+  //   figure·물리 모두 깨지는 문제를 회피. V≥1 + I≥1 + 리액티브 + (테브난 OR 최대전력) 키워드.
+  const isMaxPowerKwT = matchesKeyword(text, MAX_POWER_KEYWORDS);
+  const isTheveninKwT =
+    matchesKeyword(text, EQUIVALENT_KEYWORDS) ||
+    matchesKeyword(text, ["테브난", "thevenin", "등가 임피던스", "등가임피던스", "등가 전압"]);
+  if (
+    counts.V >= 1 && counts.I >= 1 &&
+    (counts.L > 0 || counts.C > 0) &&
+    (isMaxPowerKwT || isTheveninKwT)
+  ) {
+    return {
+      type: "universal_ac",
+      confidence: "high",
+      reasoning: `2전원(V=${counts.V},I=${counts.I}) + 리액티브 + 테브난/최대전력 → 고정 archetype (theveninMaxPower)`,
+      params: {
+        theveninMaxPower: true,
+        hasACSource: true,
+        resistorCount: counts.R,
+        inductorCount: counts.L,
+        capacitorCount: counts.C,
       },
     };
   }

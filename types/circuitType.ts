@@ -161,6 +161,13 @@ export type CircuitTypeParams = {
    *   - figure: 단일 회로 (DC·AC 전원 + SW + R + 병렬 L) — waveform·state pair 면제
    */
   acDcSuperposition?: boolean;
+  /**
+   * 2개의 교류 전원(전압원 + 전류원) + RLC + 부하 R_L 최대 평균 전력 (임용 10번 형식).
+   * true면 universal_ac pipeline이 buildFromTopology 대신 고정 토폴로지 archetype generator
+   * (generateAcTheveninMaxPower)를 사용 — generic topology 추출이 부하 단자 연결을 잃는 문제 회피.
+   *   - [단계 1] Z_th  [단계 2] V_th(중첩)  [단계 3] R_L=|Z_th|, P_max
+   */
+  theveninMaxPower?: boolean;
 };
 
 /**
