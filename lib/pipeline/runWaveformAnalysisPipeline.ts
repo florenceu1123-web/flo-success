@@ -47,6 +47,13 @@ export async function runWaveformAnalysisPipeline(args: {
         diagramType: "waveform",
         diagram: gen.waveformDiagram,
       },
+      {
+        id: `fig_kmap_${i + 1}`,
+        label: "출력 F 카르노맵 (빈칸)",
+        role: "kmap",
+        diagramType: "kmap",
+        diagram: gen.kmapDiagram,
+      },
     ];
 
     return {

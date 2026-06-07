@@ -633,6 +633,15 @@ generate → minterms 생성 → kmap 생성 → LogicDAG 생성 → validateLog
 
 system prompt에도 동일 규칙 박힘: `lib/prompts/system.ts`의 `[LOGIC_DAG_INTERMEDIATE_CONTRACT]` + `[디지털 생성 파이프라인 — 고정 순서]` 섹션.
 
+## waveform_analysis (임용 5번 — 조합회로 + 타이밍 도표 + 카르노맵) 절대 규칙
+- ★ **디지털 파형 신호는 반드시 `shape: "step"`** (구형파). 미지정 시 renderer가 linear(경사형)로 그림 — 디지털 신호엔 틀림. (`lib/generation/topologies/waveformAnalysis.ts`)
+- ★ **빈칸 ㉠은 출력 게이트(마지막)** (`blanks=[{symbol:"㉠", gateIds:[output 게이트], answer:종류}]`). 중간 게이트 아님(원본 구조).
+- ★ **중간신호 Y blank 트랙** — 첫 AND 출력을 "Y"로 명명(`signalLabels`), 파형에 `{name:"Y", blank:true, vRange:{0,1}}` 트랙 추가. 학생이 단계1에서 Y 파형 도출. `ySequence`가 정답.
+- minterm 4~6개, **SOP ≥ 3항 선호**(재시도) — 회로가 너무 단순(2항)하지 않게, ㉠이 여러 AND 결합.
+- ★ **figure 3개 필수**: (가) logic_network, (나) waveform, **(다) kmap(빈칸, 학생이 채움)**. kmap 누락 시 `missing_figure_variant` 에러. `runWaveformAnalysisPipeline`이 `gen.kmapDiagram`(빈 셀 "") 추가. 정답은 `gen.kmapAnswer`.
+- 문제 3단계(`waveformAnalysisTextWriter`): [1] Y 파형 그리기, [2] ㉠ 게이트 도출(F와 일치), [3] F 카르노맵·부울함수. figure(Y blank·㉠ blank·kmap blank)와 질문 일관성 필수.
+- 렌더러: AND 게이트 입력핀 간격 — gate height `inputCount*40+28`, rowGap 175 (입력 wire 겹침 방지). 입력 stub는 핀별 stagger(`gateInputStub`), **각 입력핀에 신호 이름 라벨**(primary 변수·보수 또는 signalLabels) — 어느 node가 어느 입력인지 구분.
+
 # Important Notes
 1. **AI 모델**: OpenAI GPT-4o (`lib/openai.ts` 싱글톤, `DEFAULT_MODEL`)
 2. **디자인**: 흰 배경 + 파란 글씨(indigo/blue 계열), 모던·미니멀

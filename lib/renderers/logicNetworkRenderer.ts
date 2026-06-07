@@ -325,7 +325,7 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
   const blankIdx = buildBlankMap(diagram.blanks ?? []);
   for (const node of nodes) {
     svg += renderGateNode(node, blankIdx);
-    svg += renderGatePins(node, usedSignals);
+    svg += renderGatePins(node, usedSignals, diagram.signalLabels);
     // MUX의 경우 핀 옆 신호 라벨(또는 ㄱ/ㄴ/ㄷ/ㄹ 빈칸 박스)을 추가로 그린다.
     // 단, gate 전체가 whole-blank로 치환된 경우는 핀 라벨 생략.
     if (isMux(node.type) && !blankIdx.whole.has(node.gate.id)) {
@@ -440,7 +440,7 @@ function layoutLogicGates(levels: LogicGate[][]): GateNode[] {
   const nodes: GateNode[] = [];
   const baseX = 180;
   const levelGap = 160;
-  const rowGap = 130;
+  const rowGap = 175;   // 게이트 height ↑에 맞춰 행 간격도 확대 (게이트 박스 겹침 방지)
 
   levels.forEach((level, li) => {
     level.forEach((gate, ri) => {
@@ -455,7 +455,8 @@ function layoutLogicGates(levels: LogicGate[][]): GateNode[] {
         height = 80;
       } else {
         const inputCount = Math.max(1, gate.inputs.length);
-        height = Math.max(56, inputCount * 28 + 24);
+        // 입력핀 y 간격을 넉넉히 (입력 wire가 핀 부근에서 겹쳐 구분 안 되는 문제 방지).
+        height = Math.max(64, inputCount * 40 + 28);
       }
       nodes.push({
         id: gate.id,
@@ -521,7 +522,14 @@ function getGateInputPoint(node: GateNode, idx: number, count: number): Point {
     return { x: node.x - stub, y: node.y + gap * (idx + 1) };
   }
   const gap = node.height / (count + 1);
-  return { x: node.x - PIN_STUB, y: node.y + gap * (idx + 1) };
+  return { x: node.x - gateInputStub(idx, count), y: node.y + gap * (idx + 1) };
+}
+
+/** 일반 게이트 입력 stub — 핀별로 길이를 stagger해 입력 wire의 vertical jog가 서로 다른 x에
+ *  오게 한다 (입력 wire가 겹쳐 어느 게 어느 입력인지 모호한 문제 방지). */
+function gateInputStub(idx: number, count: number): number {
+  // 가운데에서 멀수록 길게 — 바깥 입력 wire가 안쪽 핀 stub을 가로지르지 않게.
+  return PIN_STUB + Math.abs(idx - (count - 1) / 2) * 18;
 }
 
 function getGateOutputPoint(node: GateNode): Point {
@@ -534,7 +542,7 @@ function getGateOutputPoint(node: GateNode): Point {
  *  output 신호가 어디에도 사용되지 않으면(usedSignals에 없으면) output 핀 stub은 그리지 않음 → dangling 방지.
  *  MUX의 경우 좌측 두 핀(I0, I1) + 하단 한 핀(S)으로 분리 처리.
  */
-function renderGatePins(node: GateNode, usedSignals?: Set<string>): string {
+function renderGatePins(node: GateNode, usedSignals?: Set<string>, signalLabels?: Record<string, string>): string {
   const inputCount = Math.max(1, node.gate.inputs?.length ?? 0);
   let svg = "";
 
@@ -567,11 +575,23 @@ function renderGatePins(node: GateNode, usedSignals?: Set<string>): string {
     }
   } else {
     const gap = node.height / (inputCount + 1);
+    const inputs = node.gate.inputs ?? [];
     for (let i = 0; i < inputCount; i++) {
       const py = node.y + gap * (i + 1);
-      const startX = node.x - PIN_STUB;
+      const startX = node.x - gateInputStub(i, inputCount);
       svg += `<path d="M ${startX} ${py} L ${node.x} ${py}" stroke="black" fill="none" stroke-width="2"/>`;
       svg += `<circle cx="${startX}" cy="${py}" r="2" fill="black"/>`;
+      // 입력 신호 이름 라벨 — 2입력 이상 게이트. signalLabels(예 Y) 우선, 없으면 기본 변수(A/B/C·보수)만.
+      //   내부 게이트 출력(and1 등, 라벨 없음)은 생략해 clutter 방지.
+      if (inputCount >= 2 && inputs[i]) {
+        const sig = inputs[i];
+        const labeled = signalLabels?.[sig];
+        const isPrimary = /^[A-Za-z](_n)?$/.test(sig);
+        const text = labeled ?? (isPrimary ? formatSignalLabel(sig) : "");
+        if (text) {
+          svg += `<text x="${startX + 4}" y="${py - 4}" font-size="10" fill="#1e3a8a">${escapeSvg(text)}</text>`;
+        }
+      }
     }
   }
 
