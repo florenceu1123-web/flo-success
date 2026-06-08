@@ -439,24 +439,24 @@ function levelizeLogicGates(diagram: LogicNetworkDiagram): LogicGate[][] {
 function layoutLogicGates(levels: LogicGate[][]): GateNode[] {
   const nodes: GateNode[] = [];
   const baseX = 180;
-  const levelGap = 160;
-  const rowGap = 175;   // 게이트 height ↑에 맞춰 행 간격도 확대 (게이트 박스 겹침 방지)
+  const levelGap = 138;
+  const rowGap = 144;   // 게이트 크기 축소에 맞춰 행 간격도 비례 축소 (겹침 방지 유지)
 
   levels.forEach((level, li) => {
     level.forEach((gate, ri) => {
-      let width = 72;
+      let width = 58;   // 게이트 크기 약 20% 축소 (사용자 요청)
       let height: number;
       if (isMux(gate.type)) {
-        width = 80;
-        height = 90;
-      } else if (isFlipFlop(gate.type)) {
-        // FF는 T/J/K 라벨 + Q 라벨 + ▷ CLK indicator를 충분히 분리하기 위해 고정 80
         width = 64;
-        height = 80;
+        height = 74;
+      } else if (isFlipFlop(gate.type)) {
+        // FF는 T/J/K 라벨 + Q 라벨 + ▷ CLK indicator 분리용 — 약간 축소.
+        width = 56;
+        height = 66;
       } else {
         const inputCount = Math.max(1, gate.inputs.length);
-        // 입력핀 y 간격을 넉넉히 (입력 wire가 핀 부근에서 겹쳐 구분 안 되는 문제 방지).
-        height = Math.max(64, inputCount * 40 + 28);
+        // 입력핀 y 간격 (입력 wire 겹침 방지) — 축소하되 핀당 간격 유지.
+        height = Math.max(52, inputCount * 32 + 22);
       }
       nodes.push({
         id: gate.id,
