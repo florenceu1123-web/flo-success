@@ -122,6 +122,25 @@ export function netlistToSolverNetwork(netlist: CircuitNetlist): NetlistToSolver
     return null;
   };
 
+  /**
+   * 전류제어 종속전원(CCVS/CCCS)의 제어 저항 해석.
+   *  제어 전류 i_x = 어떤 저항 R_ctrl을 흐르는 전류 = (V(p0) − V(p1)) / R_ctrl.
+   *  따라서 CCVS(k·i_x) = VCVS(gain = k/R_ctrl, control = R_ctrl 두 노드).
+   *  c.control(= 제어 저항 id) 우선, 없으면 value의 controlRef로 저항 id 매칭.
+   */
+  const resolveControlResistor = (c: CircuitComponent): { vca: string; vcb: string; rVal: number } | null => {
+    const ref = c.control ?? parseValue(c.value)?.controlRef;
+    if (!ref) return null;
+    const refLc = String(ref).toLowerCase();
+    const rctrl = components.find((x) =>
+      x.type === "R" && (x.id === ref || x.id.toLowerCase() === refLc),
+    );
+    if (!rctrl || (rctrl.pins?.length ?? 0) < 2) return null;
+    const rVal = numericOf(rctrl);
+    if (rVal === null || rVal <= 0) return null;
+    return { vca: rep(rctrl.pins[0].node), vcb: rep(rctrl.pins[1].node), rVal };
+  };
+
   for (const c of components) {
     const pins = c.pins ?? [];
     switch (c.type) {
@@ -163,9 +182,24 @@ export function netlistToSolverNetwork(netlist: CircuitNetlist): NetlistToSolver
         else net.vccs!.push({ id: c.id, a, b, vca: ctrl.vca, vcb: ctrl.vcb, g: gain });
         break;
       }
+      case "CCVS": case "CCCS": {
+        if (pins.length < 2) { warnings.push(`${c.id}: ${c.type} 핀 부족`); break; }
+        // 이득 k — "2i_x"·"2ix"·"-3 i_x" 등에서 선행 숫자만 추출 (parseValue는 소문자 i 못 읽음).
+        const kMatch = String(c.gain ?? c.value ?? "").match(/^\s*(-?\d+(?:\.\d+)?)/);
+        const k = kMatch ? parseFloat(kMatch[1]) : null;
+        const ctrl = resolveControlResistor(c);
+        if (k === null || !ctrl) { warnings.push(`${c.id}: ${c.type} 제어전류(i_x) 저항 해석 실패 — control에 제어 저항 id 필요(현재 control=${String(c.control)})`); break; }
+        const a = rep(pins[0].node), b = rep(pins[1].node);
+        // i_x = (V(vca)−V(vcb))/R_ctrl → k·i_x = (k/R_ctrl)·(V(vca)−V(vcb))
+        const eqGain = k / ctrl.rVal;
+        if (c.type === "CCVS") net.vcvs!.push({ id: c.id, a, b, vca: ctrl.vca, vcb: ctrl.vcb, k: eqGain });
+        else net.vccs!.push({ id: c.id, a, b, vca: ctrl.vca, vcb: ctrl.vcb, g: eqGain });
+        warnings.push(`${c.id}: ${c.type}(${k}·i_x) → 제어저항(${ctrl.rVal}Ω) 통해 VCVS/VCCS(gain=${eqGain}) 변환`);
+        break;
+      }
       case "WIRE": case "GND": break;        // 병합 처리됨
       case "SW": break;                       // closed=병합, open=개방(무시)
-      case "C": case "L": case "D": case "BJT": case "MOSFET": case "CCCS": case "CCVS":
+      case "C": case "L": case "D": case "BJT": case "MOSFET":
         warnings.push(`${c.id}: ${c.type} 미지원(DC 선형 변환기) — 무시`);
         break;
     }
