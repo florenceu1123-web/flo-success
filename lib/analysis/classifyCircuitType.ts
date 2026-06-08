@@ -855,6 +855,11 @@ export function classifyCircuitType(
     return /∠|\bj\s*\d|페이저|phasor|cos|sin|ωt|√2/i.test(v);
   });
 
+  // 종속전원이 type=V로 잡히고 값만 "2i_x"인 경우(Vision) 검출 — counts.dep는 type 기반이라 0.
+  const hasDependentByValue = (analysis.componentInventory ?? []).some((c) =>
+    /^(VCVS|VCCS|CCVS|CCCS)$/i.test(String(c.type ?? "")) ||
+    /\d*\s*[iv]_?[a-z]/i.test(String(c.value ?? "")),
+  );
   const decision = decideType({
     topicKey,
     features,
@@ -864,6 +869,7 @@ export function classifyCircuitType(
     hasACInventory,
     nodeAnnotations: analysis.nodeAnnotations,
     topicInterpText: `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`,
+    hasDependentByValue,
   });
 
   // decide가 추가 hint params를 줬으면 외부 base params에 merge.
@@ -1006,6 +1012,8 @@ type DecideArgs = {
   topicInterpText?: string;
   /** universal_dc 트리거용 — V_n 라벨 등 노드 어노테이션 */
   nodeAnnotations?: AnalysisResult["nodeAnnotations"];
+  /** 종속전원이 inventory에 값 패턴(예 "2i_x")으로만 있고 type은 V로 잡힌 경우 검출 (counts.dep=0 보완). */
+  hasDependentByValue?: boolean;
 };
 
 type DecideResult = {
@@ -1384,6 +1392,23 @@ function decideType(args: DecideArgs): DecideResult {
   }
   if (topicKey === "supernode" || matchesKeyword(text, SUPERNODE_KEYWORDS)) {
     return { type: "dc_supernode", confidence: "high", reasoning: "supernode 특징 또는 키워드" };
+  }
+
+  // 2.5 ★ 종속전원 + 테브난/최대전력 (DC) → generic netlist 경로 (임용 9번류).
+  //   하드코딩 max_power_transfer(vi_two_source)는 업로드 구조·종속원을 버리므로, 종속원이 있으면
+  //   GPT 구조추출 + V_oc/I_sc 테브난 경로로. (counts.dep + 값패턴 hasDependentByValue 둘 다 인정)
+  {
+    const depPresent = (args.hasDependentByValue ?? false) || counts.dep > 0 || Boolean(features.hasDependentSource);
+    const thevMaxKw = matchesKeyword(text, MAX_POWER_KEYWORDS)
+      || matchesKeyword(text, EQUIVALENT_KEYWORDS) || Boolean(semantic.hasEquivalentTransformation);
+    const isDcResistive = counts.L === 0 && counts.C === 0;
+    if (depPresent && thevMaxKw && isDcResistive) {
+      return {
+        type: "thevenin_dependent_generic",
+        confidence: "high",
+        reasoning: `종속전원(dep=${counts.dep}, byValue=${args.hasDependentByValue}) + 테브난/최대전력(DC) → generic netlist 경로`,
+      };
+    }
   }
 
   // 3. 등가회로 — 텍스트 키워드 + topic 보조.

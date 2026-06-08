@@ -22,6 +22,7 @@ import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourc
 import { runAcSuperpositionPipeline } from "@/lib/pipeline/runAcSuperpositionPipeline";
 import { runAcParallelBranchesPipeline } from "@/lib/pipeline/runAcParallelBranchesPipeline";
 import { runMaxPowerTransferPipeline } from "@/lib/pipeline/runMaxPowerTransferPipeline";
+import { runTheveninMaxPowerGenericPipeline } from "@/lib/pipeline/runTheveninMaxPowerGenericPipeline";
 import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitPipeline";
 import { runSwitchedRlDependentPipeline } from "@/lib/pipeline/runSwitchedRlDependentPipeline";
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
@@ -454,6 +455,15 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (circuitType === "thevenin_dependent_generic" && subjectKey === "circuit_theory") {
+      // 종속전원 테브난+최대전력 — GPT 구조추출 netlist + 종속원 보존 V_oc/I_sc (예시 하드코딩 대체).
+      log.info("dispatch", { route: "thevenin_dependent_generic_pipeline", count: n, mode });
+      problems = await runTheveninMaxPowerGenericPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else if (circuitType === "max_power_transfer" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "max_power_transfer_pipeline", count: n, mode });
       problems = await runMaxPowerTransferPipeline({
@@ -765,6 +775,8 @@ function shouldUseTopologyDriven(
   if (circuitType === "opamp_cascade_voltage_divider") return false;
   // opamp_generic은 GPT 구조추출 netlist 경로 — topology-driven 우회.
   if (circuitType === "opamp_generic") return false;
+  // thevenin_dependent_generic도 GPT 구조추출 + 종속원 보존 경로 — topology-driven 우회.
+  if (circuitType === "thevenin_dependent_generic") return false;
 
   const archetypeSupportsSwitch =
     circuitType === "switched_rc" || circuitType === "switched_rl" || circuitType === "switched_dc";
