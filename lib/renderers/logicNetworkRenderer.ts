@@ -379,62 +379,75 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
 // Levelize / Layout
 // =====================================================================
 function levelizeLogicGates(diagram: LogicNetworkDiagram): LogicGate[][] {
-  // 플립플롭 Q 출력은 초기 produced로 — FSM 피드백 cycle을 끊는다 (규칙 #11 cycle-breaker).
-  const produced = new Set<string>([...diagram.inputs, ...collectFlipFlopOutputs(diagram)]);
-  const remaining = [...diagram.gates];
+  // ★ FF별 staged 배치 — [FF_k의 D 게이트들] → FF_k → [FF_{k+1}의 D 게이트들] → FF_{k+1} ...
+  //   (예: D0 게이트들이 D1(FF1) 뒤·D0(FF0) 앞 column에 오도록). 공유 게이트는 먼저 나온 FF에 배치.
+  //   조합전용 회로는 기존처럼 의존성 levelize.
+  const ffGates = diagram.gates.filter((g) => isFlipFlop(g.type));
+  const combGates = diagram.gates.filter((g) => !isFlipFlop(g.type));
+  const ffOutputs = new Set(ffGates.map((g) => g.output));
+  const gateByOutput = new Map<string, LogicGate>(combGates.map((g) => [g.output, g]));
+  // FF Q 출력은 초기 produced (규칙 #11 cycle-breaker).
+  const produced = new Set<string>([...diagram.inputs, ...ffOutputs]);
+  const placed = new Set<string>();
   const levels: LogicGate[][] = [];
 
-  // 1단계: 비-플립플롭 게이트만 먼저 level별로 채운다.
-  while (remaining.some((g) => !isFlipFlop(g.type))) {
-    const level: LogicGate[] = [];
-    for (let i = remaining.length - 1; i >= 0; i--) {
-      const g = remaining[i];
-      if (isFlipFlop(g.type)) continue;
-      if (g.inputs.every((x) => produced.has(x))) {
-        level.push(g);
-        produced.add(g.output);
-        remaining.splice(i, 1);
-      }
+  /** target 신호들이 (전이적으로) 의존하는 아직 안 놓인 조합게이트를 dependency-levelize해 columns 추가. */
+  const placeGatesFor = (targets: string[]) => {
+    const need = new Set<string>();
+    const stack = [...targets];
+    while (stack.length) {
+      const s = stack.pop()!;
+      const g = gateByOutput.get(s);
+      if (!g || placed.has(g.id) || need.has(g.id)) continue;
+      need.add(g.id);
+      for (const inp of g.inputs) stack.push(inp);
     }
-    if (!level.length) {
-      throw new Error("logic_network cycle 또는 source 누락");
-    }
-    levels.push(level.reverse());
-  }
-
-  // 2단계 (규칙 #11): 플립플롭끼리 의존성 분석해 column 분리.
-  //   한 FF의 inputs/clockSignal이 "다른 FF.output"에 의존하면 의존되는 FF가 먼저 column.
-  //   자기 자신 output 의존(D-FF + NOT(Q) feedback 등)은 cycle-breaker로 인정해 무시.
-  if (remaining.length > 0) {
-    const allFfOutputs = new Set(remaining.map((g) => g.output));
-    const ffProduced = new Set<string>(); // 이번 패스에서 이미 처리된 FF outputs
+    const rem = combGates.filter((g) => need.has(g.id) && !placed.has(g.id));
     let guard = 0;
-    while (remaining.length > 0 && guard < 100) {
-      guard++;
+    while (rem.length && guard++ < 300) {
       const level: LogicGate[] = [];
-      for (let i = remaining.length - 1; i >= 0; i--) {
-        const g = remaining[i];
-        // FF가 의존하는 다른 FF.output들 (자기 자신 제외)
-        const deps = [...g.inputs, ...(g.clockSignal ? [g.clockSignal] : [])];
-        const blockingFfDeps = deps.filter((d) => d !== g.output && allFfOutputs.has(d) && !ffProduced.has(d));
-        if (blockingFfDeps.length === 0) {
-          level.push(g);
-          remaining.splice(i, 1);
+      for (let i = rem.length - 1; i >= 0; i--) {
+        const g = rem[i];
+        if (g.inputs.every((x) => produced.has(x))) {
+          level.push(g); produced.add(g.output); placed.add(g.id); rem.splice(i, 1);
         }
       }
-      if (!level.length) {
-        // 진전 없음 — 남은 FF는 cycle. 안전망으로 각 FF 개별 column에 (수평).
-        for (const g of remaining) levels.push([g]);
-        remaining.length = 0;
-        break;
-      }
-      // 이번 level에 들어간 FF outputs를 ffProduced에 추가
-      for (const g of level) ffProduced.add(g.output);
-      // ★ 각 FF를 개별 column에 배치 → 플립플롭이 수평으로 배열되고 wire로 연결 (수직 stack 방지).
-      for (const g of level.reverse()) levels.push([g]);
+      if (!level.length) break;
+      levels.push(level.reverse());
     }
+  };
+
+  // FF 순서 — 다른 FF.output에 의존하는 FF는 나중 (간단 위상정렬; 병렬이면 diagram 순서).
+  const ffOrder: LogicGate[] = [];
+  const ffRem = [...ffGates];
+  const ffDone = new Set<string>();
+  let g2 = 0;
+  while (ffRem.length && g2++ < 100) {
+    const idx = ffRem.findIndex((ff) => {
+      const deps = [...ff.inputs, ...(ff.clockSignal ? [ff.clockSignal] : [])];
+      return !deps.some((d) => d !== ff.output && ffOutputs.has(d) && !ffDone.has(d));
+    });
+    if (idx < 0) { ffOrder.push(...ffRem); ffRem.length = 0; break; }
+    const [ff] = ffRem.splice(idx, 1);
+    ffOrder.push(ff); ffDone.add(ff.output);
   }
-  return levels;
+
+  // staged: 각 FF의 D 게이트 → 그 FF (개별 column → 수평 배열)
+  for (const ff of ffOrder) {
+    placeGatesFor([...ff.inputs, ...(ff.clockSignal ? [ff.clockSignal] : [])]);
+    levels.push([ff]);
+    produced.add(ff.output);
+  }
+  // 외부 output으로 가는 조합게이트 + 남은 게이트 (조합전용 회로 포함) 마무리.
+  placeGatesFor(diagram.outputs ?? []);
+  const leftover = combGates.filter((g) => !placed.has(g.id));
+  if (leftover.length) {
+    placeGatesFor(leftover.map((g) => g.output));
+    // 그래도 남으면(cycle/누락) 드롭하지 말고 한 level에.
+    const stillLeft = combGates.filter((g) => !placed.has(g.id));
+    if (stillLeft.length) levels.push(stillLeft);
+  }
+  return levels.filter((l) => l.length);
 }
 
 function layoutLogicGates(levels: LogicGate[][]): GateNode[] {
