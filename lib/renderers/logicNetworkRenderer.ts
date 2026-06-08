@@ -423,14 +423,15 @@ function levelizeLogicGates(diagram: LogicNetworkDiagram): LogicGate[][] {
         }
       }
       if (!level.length) {
-        // 진전 없음 — 남은 FF는 cycle. 안전망으로 모두 한 level에.
-        levels.push([...remaining]);
+        // 진전 없음 — 남은 FF는 cycle. 안전망으로 각 FF 개별 column에 (수평).
+        for (const g of remaining) levels.push([g]);
         remaining.length = 0;
         break;
       }
       // 이번 level에 들어간 FF outputs를 ffProduced에 추가
       for (const g of level) ffProduced.add(g.output);
-      levels.push(level.reverse());
+      // ★ 각 FF를 개별 column에 배치 → 플립플롭이 수평으로 배열되고 wire로 연결 (수직 stack 방지).
+      for (const g of level.reverse()) levels.push([g]);
     }
   }
   return levels;
@@ -444,19 +445,18 @@ function layoutLogicGates(levels: LogicGate[][]): GateNode[] {
 
   levels.forEach((level, li) => {
     level.forEach((gate, ri) => {
-      let width = 58;   // 게이트 크기 약 20% 축소 (사용자 요청)
+      let width = 44;   // 게이트 박스 추가 축소 (사용자 요청). wire 간격(per-input 32)은 유지.
       let height: number;
       if (isMux(gate.type)) {
-        width = 64;
-        height = 74;
-      } else if (isFlipFlop(gate.type)) {
-        // FF는 T/J/K 라벨 + Q 라벨 + ▷ CLK indicator 분리용 — 약간 축소.
         width = 56;
-        height = 66;
+        height = 64;
+      } else if (isFlipFlop(gate.type)) {
+        width = 50;
+        height = 58;
       } else {
         const inputCount = Math.max(1, gate.inputs.length);
-        // 입력핀 y 간격 (입력 wire 겹침 방지) — 축소하되 핀당 간격 유지.
-        height = Math.max(52, inputCount * 32 + 22);
+        // ★ per-input 32 = 입력 wire 간격 그대로 유지. base/min만 줄여 박스 축소.
+        height = Math.max(44, inputCount * 32 + 14);
       }
       nodes.push({
         id: gate.id,
