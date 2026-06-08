@@ -126,18 +126,25 @@ export function classifyCircuitType(
     //   시그니처: OPAMP≥2 + (독립 DC전원 ≥3 OR 저항값 역산 키워드) + 전달함수(V_o/V_i) 키워드 없음.
     //   → 고정 archetype 대신 GPT 구조추출 netlist + MNA generic 경로 (opamp_generic).
     const vCountPS = invPS.filter((c) => String(c.type ?? "").toUpperCase() === "V").length;
+    const cCountPS = invPS.filter((c) => String(c.type ?? "").toUpperCase() === "C").length;
     const transferFnKw = /v_o\s*\/\s*v_i|v_s\s*\/\s*v_o|v_s\s*\/\s*v_i|전달함수|transfer function|이득을 구|gain/.test(textPS);
+    const oscillatorKw = /발진|oscillat|wien|윈|반게|barkhausen/.test(textPS);
     const solveResistorKw = /저항.*구하|미지.*저항|저항값.*구|r\s*\[?\s*k?\s*Ω?\s*\]?\s*을?를?\s*구|r을 구|r를 구/.test(textPS);
-    if (opampPS >= 2 && (vCountPS >= 3 || solveResistorKw) && !transferFnKw) {
+    // opamp 맥락 — Vision이 OPAMP 개수를 놓쳐도(0~1개) topicKey·키워드로 인식.
+    const opampContext = opampPS >= 1 || analysis.topicKey === "opamp" || /연산\s*증폭|op[\s.\-]?amp/i.test(textPS);
+    // ★ DC 전원 ≥3 = 가산(summing) 시그니처. Wien 발진기·유한이득은 DC전원 0~1·C 존재이므로 구분됨.
+    //   OPAMP 개수를 Vision이 놓쳐도(0개로 오인) 다중 DC전원+가산이면 generic으로 안정 라우팅.
+    const summingSig = vCountPS >= 3 && cCountPS === 0 && !oscillatorKw;
+    if (opampContext && (summingSig || (opampPS >= 2 && solveResistorKw)) && !transferFnKw) {
       classifierLog.info("classify_result", {
         type: "opamp_generic", route: "pre_subject_opamp_generic",
-        opampCount: opampPS, vCount: vCountPS, rCount: rPS, solveResistorKw, subject,
+        opampCount: opampPS, vCount: vCountPS, cCount: cCountPS, summingSig, solveResistorKw, subject,
       });
       return {
         type: "opamp_generic",
         params: {},
         confidence: "high",
-        reasoning: `[PRE-SUBJECT] OPAMP ${opampPS}개 + DC전원 ${vCountPS}개${solveResistorKw ? " + 저항역산 키워드" : ""} + 전달함수 아님 → 범용 netlist 경로 (opamp_generic)`,
+        reasoning: `[PRE-SUBJECT] opamp 맥락 + DC전원 ${vCountPS}개(C ${cCountPS})${solveResistorKw ? " + 저항역산" : ""} + 전달함수·발진 아님 → 범용 netlist 경로 (opamp_generic)`,
       };
     }
     if (opampQualifies && rPS >= 4 && cascadePS) {
