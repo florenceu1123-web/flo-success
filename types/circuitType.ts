@@ -60,6 +60,7 @@ export type CircuitType =
   | "opamp_cascade_voltage_divider"  // 2-OPAMP cascade + 5R + V_o/V_i 전달함수 (임용 10번)
   | "opamp_generic"          // 범용 OPAMP — GPT 구조추출 netlist + MNA (가산기+차동 R역산 등, 임용 8번)
   | "thevenin_dependent_generic"  // 회로이론 테브난+최대전력+종속전원 — GPT 구조추출 + V_oc/I_sc (임용 9번)
+  | "sequential_dff_generic" // 디지털 순서논리 D-FF+클록+파형 상태분석 — GPT 구조추출 + 상태 시뮬 (임용 12번)
   // ── Universal (rule-based) ───────────────────
   | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
   | "universal_ac"          // 임의 AC 회로(R/L/C/V/I) + phasor/공진/최대전력 query — archetype-free

@@ -46,6 +46,7 @@ import { runTheveninSwitchedRcPipeline } from "@/lib/pipeline/runTheveninSwitche
 import { runOpampCascadePipeline } from "@/lib/pipeline/runOpampCascadePipeline";
 import { runOpampGenericPipeline } from "@/lib/pipeline/runOpampGenericPipeline";
 import { runWaveformAnalysisPipeline } from "@/lib/pipeline/runWaveformAnalysisPipeline";
+import { runSequentialGenericPipeline } from "@/lib/pipeline/runSequentialGenericPipeline";
 import { runMuxImplementationPipeline } from "@/lib/pipeline/runMuxImplementationPipeline";
 import { runTopologyDrivenPipeline } from "@/lib/pipeline/runTopologyDrivenPipeline";
 import { runUniversalDcPipeline } from "@/lib/pipeline/runUniversalDcPipeline";
@@ -322,6 +323,15 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "universal_digital" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "universal_digital_pipeline", count: n, mode });
       problems = await runUniversalDigitalPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "sequential_dff_generic" && subjectKey === "digital_logic") {
+      // 디지털 순서논리 D-FF — GPT 구조추출 + 상태 시뮬레이션 (예시 하드코딩·kmap 오분류 대체).
+      log.info("dispatch", { route: "sequential_dff_generic_pipeline", count: n, mode });
+      problems = await runSequentialGenericPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

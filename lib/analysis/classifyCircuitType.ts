@@ -54,10 +54,13 @@ export function classifyCircuitType(
       "상태도", "상태 전이도", "상태천이도", "상태표", "상태 표",
       "state diagram", "state table", "순서논리", "순차 논리", "순차논리",
     ]);
+    // 임용 12번류: FF + 클록/타이밍/입력파형 + 상태(Q) — 상태도/표 없이도 명백한 순서논리.
+    const seqTimingKw = matchesKeyword(preText, ["클록", "클럭", "clock", "타이밍", "timing", "입력 파형", "출력 파형", "파형"])
+      && (matchesKeyword(preText, ["q값", "q_1", "q1q0", "q_1q_0", "상태"]) || /^Q/i.test((analysis.signals?.outputs ?? [])[0] ?? ""));
     const preCounts = aggregateComponentCounts(analysis);
     const hasAnalogInventory =
       preCounts.R + preCounts.V + preCounts.I + preCounts.C + preCounts.L > 0;
-    if (ffKw && stateKw && !hasAnalogInventory) {
+    if (ffKw && (stateKw || seqTimingKw) && !hasAnalogInventory) {
       classifierLog.info("pre_subject_digital_correction", {
         from: subject,
         to: "digital_logic",
@@ -481,6 +484,24 @@ export function classifyCircuitType(
         "상태도", "상태 전이도", "상태천이도", "상태표", "상태 표",
         "state diagram", "state table", "순서논리", "순차 논리", "순차논리",
       ]);
+    // ★ 순서논리 generic (임용 12번류): D-FF 다중비트 상태(Q1Q0) + 클록/입력파형 + 상태분석(㉠㉡㉢).
+    //   [단계3]의 "최소 AND/OR" 문구가 kmap_sop으로 오분류시키는 것을 차단하고 generic 순서논리로.
+    //   단일 Q·X/Y(임용 8 ffWithWaveform)·조합(FF 없음)과 구분.
+    {
+      const ffKwSeq = matchesKeyword(text, ["플립플롭", "플립 플롭", "flip-flop", "flipflop", "d-ff", "d 플립플롭", "dff"]);
+      const qOuts = (analysis.signals?.outputs ?? []).filter((s) => /^Q/i.test(s)).length;
+      const multiQ = qOuts >= 2 || /q_?1\s*q_?0|q1q0|q_?0q_?1/i.test(text);
+      const wf = matchesKeyword(text, ["입력 파형", "출력 파형", "타이밍", "timing", "파형", "클록", "clock", "클럭"]);
+      const statePt = matchesKeyword(text, ["㉠", "㉡", "㉢", "q값", "q_1q_0", "q1q0", "지점에서", "상태"]);
+      if (ffKwSeq && multiQ && (wf || statePt)) {
+        return {
+          type: "sequential_dff_generic",
+          params: {},
+          confidence: "high",
+          reasoning: `D-FF 다중비트 상태(Q=${qOuts}) + 타이밍/상태분석 → 순서논리 generic (kmap 오분류 차단)`,
+        };
+      }
+    }
     if (
       !sequentialLogicSignature &&
       (has4PlusVars ||

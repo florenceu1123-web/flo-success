@@ -48,3 +48,5 @@ scripts/*.html
 *.tsbuildinfo
 next-env.d.ts
 /thevenin_generic.svg
+/seq_circuit.svg
+/seq_wave.svg

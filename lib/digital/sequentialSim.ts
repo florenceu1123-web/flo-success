@@ -16,6 +16,40 @@ export type SeqSpec = {
   signals?: Array<{ name: string; expr: string }>;
 };
 
+/** LogicNetworkDiagram(게이트 + D-FF)에서 시뮬레이션 SeqSpec 도출 — 렌더 구조와 일관. */
+export function seqSpecFromLogicNetwork(diagram: {
+  inputs: string[];
+  gates: Array<{ id: string; type: string; inputs: string[]; output: string }>;
+}): SeqSpec {
+  const FF = new Set(["DFF", "TFF", "JKFF"]);
+  const ffOutputs = new Set(diagram.gates.filter((g) => FF.has(g.type)).map((g) => g.output));
+  const inputs = diagram.inputs.filter((n) => !/^clk$/i.test(n) && !ffOutputs.has(n));
+  const combine = (type: string, ins: string[]): string => {
+    const a = ins.map((x) => `(${x})`);
+    switch (type) {
+      case "NOT": return `~(${ins[0] ?? "0"})`;
+      case "AND": return a.join(" & ");
+      case "OR": return a.join(" | ");
+      case "NAND": return `~(${a.join(" & ")})`;
+      case "NOR": return `~(${a.join(" | ")})`;
+      case "XOR": return a.join(" ^ ");
+      case "XNOR": return `~(${a.join(" ^ ")})`;
+      default: return a.join(" & ");
+    }
+  };
+  const signals = diagram.gates
+    .filter((g) => !FF.has(g.type))
+    .map((g) => ({ name: g.output, expr: combine(g.type, g.inputs) }));
+  const ffs = diagram.gates
+    .filter((g) => g.type === "DFF")
+    .map((g) => ({ q: g.output, d: g.inputs[0] ?? "0" }));
+  // TFF: Q_next = Q ^ T (T=inputs[0]) — derive expr
+  for (const g of diagram.gates.filter((x) => x.type === "TFF")) {
+    ffs.push({ q: g.output, d: `(${g.output}) ^ (${g.inputs[0] ?? "0"})` });
+  }
+  return { inputs, ffs, signals };
+}
+
 /** 불 식 평가기 (재귀하강). 변수값은 env(0/1)로 제공. */
 function evalBool(expr: string, env: Record<string, number>): number {
   const s = expr.replace(/[!¬]/g, "~").replace(/[·*]/g, "&").replace(/\bAND\b/gi, "&")
