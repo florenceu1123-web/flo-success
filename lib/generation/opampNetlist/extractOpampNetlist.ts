@@ -136,6 +136,14 @@ function checkCascadeCoupling(netlist: CircuitNetlist): string[] {
     });
     if (!coupled) {
       defects.push(`${opamps[k].id} 출력이 ${opamps[k + 1].id} 입력에 결합저항으로 연결 안 됨 — 1단 출력 노드를 결합저항(미지 R) 통해 2단 반전입력에 연결하라`);
+      continue;
+    }
+    // 여분 저항 금지 — 비종단 OPAMP 출력은 [피드백 저항] + [결합 저항] 정확히 2개만 (직렬 R2 등 추가 금지).
+    const rOnOut = netlist.components.filter((c) =>
+      c.type === "R" && (c.pins?.[0]?.node === outNode || c.pins?.[1]?.node === outNode),
+    ).length;
+    if (rOnOut > 2) {
+      defects.push(`${opamps[k].id} 출력에 저항 ${rOnOut}개 — 피드백+결합 2개만 허용 (결합 경로에 여분 직렬 저항 금지, 결합은 미지 R 하나만)`);
     }
   }
   return defects;
@@ -269,6 +277,8 @@ const SYSTEM = `너는 전자 임용시험 OPAMP(연산증폭기) 회로를 구�
   연결한다. 즉 결합저항: [한쪽 = U1 출력 노드] ↔ [다른쪽 = U2 반전입력 노드].
 - ❌ 금지: 결합저항을 U1의 입력(반전입력/가산노드)에 붙이거나, U2의 비반전입력(+)에 붙이는 것.
   (1단 출력 → 2단 반전입력만 올바름.)
+- ★ 결합저항은 **정확히 1개**(미지 R). U1 출력↔U2 반전입력 사이에 직렬로 저항을 2개 이상 두지 마라.
+  U1 출력 노드에 닿는 저항은 [피드백 저항] + [결합 저항] 딱 2개뿐.
 
 [미지수]
 - 원본이 "특정 저항 R을 구하라"형이면 그 저항을 unknownComponentId로 지정하고,
