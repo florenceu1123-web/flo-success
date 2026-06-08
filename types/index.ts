@@ -359,7 +359,8 @@ export type DiagramType =
   | "sequence_state_table"   // 시퀀스 검출기 (다) 상태표 + 빈칸 + don't care
   | "thevenin_original_circuit"   // 임용 9번 정보과 (가) 원본 RC + SW + 점선박스
   | "thevenin_equivalent_circuit" // 임용 9번 정보과 (나) Thevenin 등가 회로
-  | "opamp_cascade";              // 임용 10번 2-OPAMP cascade 회로
+  | "opamp_cascade"               // 임용 10번 2-OPAMP cascade 회로
+  | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
 
 /**
  * 임용 7번 (RLC 공진 + 5R Wheatstone 등가 + R_L 최대전력) 전용 figure.

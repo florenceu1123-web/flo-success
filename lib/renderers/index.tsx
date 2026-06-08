@@ -43,6 +43,7 @@ import {
   renderOpampCascade,
   type OpampCascadeDiagram,
 } from "./opampCascadeRenderer";
+import { renderViLineGraph } from "./viLineGraphRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -98,6 +99,8 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderTheveninEquivalent(figure.diagram as TheveninEquivalentDiagram));
     case "opamp_cascade":
       return wrapSvg(figure, renderOpampCascade(figure.diagram as OpampCascadeDiagram));
+    case "vi_line_graph":
+      return wrapSvg(figure, renderViLineGraph(figure.diagram as Parameters<typeof renderViLineGraph>[0]));
     default:
       return (
         <pre className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">

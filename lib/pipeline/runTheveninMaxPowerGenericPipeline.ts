@@ -11,7 +11,7 @@ import { extractTheveninNetlist, type TheveninExtraction } from "@/lib/generatio
 import { buildContextHint, generateInParallel } from "./_common";
 import {
   type AnalysisResult, type CircuitNetlist, type FigureVariant,
-  type GeneratedProblem, type GenerationMode, type TopicKey, type WaveformDiagram,
+  type GeneratedProblem, type GenerationMode, type TopicKey,
 } from "@/types";
 
 const log = createLogger("lib/pipeline/runTheveninMaxPowerGenericPipeline");
@@ -25,15 +25,9 @@ function blankUnknown(netlist: CircuitNetlist, unknownId?: string): CircuitNetli
   };
 }
 
-/** (나) V_RL–I_RL 테브난 직선: (0, V_th) → (I_sc, 0). */
-function buildViGraph(ex: TheveninExtraction): WaveformDiagram {
-  return {
-    signals: [{ name: "V_RL", shape: "linear", samples: [{ t: 0, v: ex.Vth }, { t: ex.Isc, v: 0 }] }],
-    xAxis: { symbol: "I_RL", unit: "A" },
-    unit: { value: "V" },
-    yMarkers: [{ v: ex.Vth, label: `V_th=${ex.Vth}V` }],
-    markers: [{ t: ex.Isc, label: `I_sc=${ex.Isc}A` }],
-  };
+/** (나) V_RL–I_RL 테브난 직선 — 전용 vi_line_graph (세로 길고 가로 좁게, 절편 명확). */
+function buildViGraph(ex: TheveninExtraction): { Vth: number; Isc: number; vSymbol: string; iSymbol: string; vUnit: string; iUnit: string } {
+  return { Vth: ex.Vth, Isc: ex.Isc, vSymbol: "V_RL", iSymbol: "I_RL", vUnit: "V", iUnit: "A" };
 }
 
 type Txt = { content: string; conditions: string[]; question: string; answer: string; solution: string };
@@ -113,7 +107,7 @@ export async function runTheveninMaxPowerGenericPipeline(args: {
     const renderNetlist = blankUnknown(ex.netlist, ex.unknownId);
     const figureVariants: FigureVariant[] = [
       { id: `fig_main_${i + 1}`, label: "(가) 주어진 회로 (단자 a-b 부하)", role: "original_circuit", diagramType: "analog_netlist", diagram: renderNetlist as unknown as Record<string, unknown> },
-      { id: `fig_vi_${i + 1}`, label: "(나) V_RL–I_RL 그래프", role: "main_graph", diagramType: "waveform", diagram: buildViGraph(ex) as unknown as Record<string, unknown> },
+      { id: `fig_vi_${i + 1}`, label: "(나) V_RL–I_RL 그래프", role: "main_graph", diagramType: "vi_line_graph", diagram: buildViGraph(ex) as unknown as Record<string, unknown> },
     ];
     return {
       id: randomUUID(),
