@@ -607,11 +607,16 @@ export async function POST(req: NextRequest) {
       ];
       const archetype = detectOpampArchetype(analysis, extraText);
       if (!archetype) {
-        throw new GenerateError(
-          "ARCHETYPE_DETECTION_FAILED: OPAMP family detected but archetype uncertain — free OPAMP generation is disabled. " +
-          "원본 이미지/문제 텍스트에 archetype을 식별할 단서가 부족합니다 (예: '반전', '비반전', '발진', '피드백', 'RC 회로망' 등).",
-        );
-      }
+        // ★ archetype 불확실(차동증폭기 등 고정 템플릿 아닌 OPAMP) → 예시 하드코딩 대신
+        //   generic MNA 경로로 처리 (Wien Bridge 오매치·throw 대신 실제 회로 구조추출+풀이).
+        log.info("dispatch", { route: "opamp_generic_pipeline (archetype 불확실 fallback)", count: n, mode });
+        problems = await runOpampGenericPipeline({
+          analysis: analysis ?? null,
+          mode: mode as GenerationMode,
+          count: n,
+          topicKey: expectedTopicKey,
+        });
+      } else {
       log.info("dispatch", { route: "analog_archetype_dispatch", archetype, count: n });
       // N개 problem 각각 별도 generate — generator 내부 seed가 매번 다른 값 생성.
       // 동일 base × N copy 했던 옛 패턴은 결정론 generator에 대해 모두 같은 결과 emit.
@@ -634,6 +639,7 @@ export async function POST(req: NextRequest) {
         problems.push({ ...generated, id: randomUUID() });
       }
       log.info("validate_archetype_outputs", { archetype, count: problems.length });
+      } // end: archetype 매치된 경우
     } else if (circuitType === "opamp_time_domain" && subjectKey === "electronics") {
       log.info("dispatch", { route: "opamp_time_domain_pipeline", count: n, mode });
       problems = await runOpampTimeDomainPipeline({

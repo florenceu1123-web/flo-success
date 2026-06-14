@@ -33,6 +33,13 @@ export function detectOpampArchetype(
   const jsonText = JSON.stringify(analysis ?? {});
   const text = [jsonText, ...extraText].join(" ").toLowerCase();
 
+  // ★ 차동/차이 증폭기(차동모드·공통모드 이득) — 반전/비반전/Wien 같은 고정 archetype이 아니다.
+  //   키워드 scoring이 "되먹임/반전 입력"을 wien·inverting으로 오매치하므로, 차동 신호가 있으면
+  //   null 반환 → 호출부가 generic MNA 경로(opamp_generic)로 보낸다 (규칙 기반 풀이).
+  if (/차동|차이\s*증폭|differential|공통\s*모드|common[\s-]*mode/.test(text)) {
+    return null;
+  }
+
   // ★ Wien Bridge inventory 시그니처 검사 — R=4·C=2·OPAMP=1 (정확한 Wien Bridge layout)
   //   임용 9번(R=2·C=2·OPAMP=1 같은 변형 발진기)이 Wien Bridge로 잘못 잡히는 케이스 방지.
   const inv = (analysis as { componentInventory?: Array<{ type?: string }> })?.componentInventory ?? [];
@@ -93,6 +100,10 @@ export function detectOpampArchetype(
   const entries = Object.entries(score).sort((a, b) => b[1] - a[1]) as Array<[keyof typeof score, number]>;
   const [topKey, topScore] = entries[0];
   if (topScore < 3) return null; // archetype uncertain
+
+  // ★ 발진기(Wien)는 구조적으로 RC(C 2개)가 필수 — 캡 없는 회로를 키워드("되먹임/루프")만으로
+  //   Wien으로 매치하던 버그 차단. C<2면 발진기 아님 → null(→ generic OPAMP 경로).
+  if (topKey === "wien" && nC < 2) return null;
 
   return KEY_TO_ARCHETYPE[topKey];
 }
