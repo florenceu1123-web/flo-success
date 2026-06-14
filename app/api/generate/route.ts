@@ -26,6 +26,7 @@ import { runTheveninMaxPowerGenericPipeline } from "@/lib/pipeline/runTheveninMa
 import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitPipeline";
 import { runSwitchedRlDependentPipeline } from "@/lib/pipeline/runSwitchedRlDependentPipeline";
 import { runSourceTransformRatioPipeline, detectSourceTransformRatio } from "@/lib/pipeline/runSourceTransformRatioPipeline";
+import { runOpampDifferenceAmpPipeline, detectOpampDifferenceAmp } from "@/lib/pipeline/runOpampDifferenceAmpPipeline";
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
 import { runOpampTimeDomainPipeline } from "@/lib/pipeline/runOpampTimeDomainPipeline";
 import { runBjtSmallSignalPipeline } from "@/lib/pipeline/runBjtSmallSignalPipeline";
@@ -575,6 +576,15 @@ export async function POST(req: NextRequest) {
       log.info("dispatch", { route: "switching_circuit_pipeline", count: n, mode });
       problems = await runSwitchingCircuitPipeline({
         analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (subjectKey === "electronics" && detectOpampDifferenceAmp(analysis)) {
+      // ★ OPAMP 차동증폭기 (임용 9번) — 전용 결정론 archetype. generic 추출이 2입력 차동구조
+      //   (노턴 입력 I_n∥R_n + V+ 분배 R_3·R_4)를 단순 반전증폭으로 축소하는 문제 회피. opamp 분기보다 먼저.
+      log.info("dispatch", { route: "opamp_difference_amp_pipeline", count: n, mode });
+      problems = await runOpampDifferenceAmpPipeline({
         mode: mode as GenerationMode,
         count: n,
         topicKey: expectedTopicKey,

@@ -23,6 +23,7 @@ import { detectAcDcSuperpositionDual, renderAcDcSuperpositionDualCircuit } from 
 import { detectAcTheveninMaxPower, renderAcTheveninMaxPowerCircuit } from "./acTheveninMaxPowerCircuitRenderer";
 import { detectSwitchedRlDependent, renderSwitchedRlDependentCircuit } from "./switchedRlDependentCircuitRenderer";
 import { detectSourceTransformCircuit, renderSourceTransformCircuit } from "./sourceTransformRatioCircuitRenderer";
+import { detectOpampDifferenceAmpCircuit, renderOpampDifferenceAmpCircuit } from "./opampDifferenceAmpCircuitRenderer";
 
 // =====================================================================
 // analog mesh renderer — 2-rail layout
@@ -95,6 +96,11 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   //   generic mesh/cross가 3-top-node + 우측 병렬쌍(R_a∥R_x)을 겹쳐 그리는 문제 회피.
   if (detectSourceTransformCircuit(netlist)) {
     const svg = renderSourceTransformCircuit(netlist);
+    if (svg) return svg;
+  }
+  // 0.02 OPAMP 차동증폭기 (임용 9번) — 노턴 입력 + V+ 분배 구조 전용 fixed-slot 렌더러.
+  if (detectOpampDifferenceAmpCircuit(netlist)) {
+    const svg = renderOpampDifferenceAmpCircuit(netlist);
     if (svg) return svg;
   }
 
