@@ -606,6 +606,29 @@ export function classifyCircuitType(
         reasoning: `digital_logic + ${reasons.join(" + ")}`,
       };
     }
+    // ★ 임용 8번 형식 — 타이밍 도표만 given → 학생이 카르노맵·회로·NAND 도출 (임용 5번 역방향).
+    //   discriminator: 타이밍 도표 + "카르노맵 작성"(도출) + (NAND OR 회로 "도시"). 임용 5번은 회로가
+    //   given(㉠ 게이트 식별)이라 "회로를 도시"·NAND가 없음. combinational_gate 오분류 차단.
+    {
+      const inputsABC = ["A", "B", "C"].every((v) => (analysis.signals?.inputs ?? []).includes(v));
+      const outF = (analysis.signals?.outputs ?? []).some((s) => /^F$/i.test(s));
+      const timingGiven =
+        matchesKeyword(text, ["타이밍 도", "타이밍도", "timing diagram", "타이밍 다이어그램", "타이밍 도표", "타이밍도표"]) ||
+        Boolean(analysis.semantic?.hasWaveformEvolution) ||
+        (inputsABC && outF);
+      const deriveKmap = matchesKeyword(text, ["카르노 도", "카르노맵", "카르노도", "karnaugh", "카르노"]);
+      const deriveCircuitOrNand = matchesKeyword(text, [
+        "nand", "논리회로를 도시", "논리 회로를 도시", "회로를 도시", "논리회로로 도시", "회로로 도시", "도시한다", "도시하시오",
+      ]);
+      if (timingGiven && deriveKmap && deriveCircuitOrNand) {
+        return {
+          type: "waveform_analysis",
+          params: { timingGivenDeriveCircuit: true },
+          confidence: "high",
+          reasoning: "digital_logic + 타이밍 도표 given + 카르노맵 작성 + 회로/NAND 도시 (임용 8번 역방향)",
+        };
+      }
+    }
     if (analysis.topicKey === "waveform_analysis" || matchesKeyword(text, ["입력 파형", "출력 파형", "타이밍도", "timing diagram", "사각파", "파형 분석"])) {
       return {
         type: "waveform_analysis",

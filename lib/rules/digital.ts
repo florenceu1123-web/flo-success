@@ -12,6 +12,10 @@ export function resolveDigitalRules(args: {
   circuitTypeParams?: CircuitTypeParams;
 }): RuleSet {
   const required: FigureRole[] = [];
+  // waveform_analysis 타이밍→논리 (임용 8번): 타이밍 도표만 given. 회로·kmap은 학생 도출물(solutionFigures).
+  if (args.circuitType === "waveform_analysis" && args.circuitTypeParams?.timingGivenDeriveCircuit) {
+    required.push("waveform");
+  } else
   // ff_with_waveform: 단일 FF + 조합부 + 파형 (임용 8번 형식) — implementation_circuit + waveform
   if (args.circuitType === "ff_with_waveform") {
     required.push("implementation_circuit", "waveform");

@@ -154,6 +154,16 @@ export type CircuitTypeParams = {
    *   - 풀이 방향: [단계 1] K-map 도출 → [단계 2] 중복(공유) 항 → [단계 3] 입력변수 결정
    */
   sharedTermInputBlank?: boolean;
+  // ── waveform_analysis 타이밍→논리 도출 (임용 8번 형식) ──────
+  /**
+   * 타이밍 도표만 주어지고 학생이 회로를 도출하는 방향 (임용 5번의 역방향).
+   * 원본이 "입력 A·B·C + 출력 F 타이밍 도표만 제시 → ① F의 카르노맵 작성 ② 최소화+논리회로 도시
+   * ③ 2입력 NAND 게이트로 도시" 형식이면 true.
+   * true면 waveform_analysis pipeline이:
+   *   - given figure: 타이밍 도표(waveform) **하나만** (회로·kmap은 학생 도출물 → solutionFigures)
+   *   - 풀이 방향: [단계1] 타이밍→카르노맵 [단계2] 최소화 F + 회로 도시 [단계3] NAND 변환
+   */
+  timingGivenDeriveCircuit?: boolean;
   // ── universal_ac DC+AC 중첩 모드 (임용 2022 B-6 형식) ──────
   /**
    * 직류 전원 + 교류 전원이 스위치(단자 선택)로 연결된 정상상태 중첩 문제.
