@@ -75,9 +75,8 @@ export function renderOpampDifferenceAmpCircuit(netlist: CircuitNetlist): string
   // R_4: V+ → GND (미지 R)
   s += vResistor(X_VNODE, Y_NIN, Y_GND, val(netlist, "R_4"), "R_4", true);
 
-  // ── GND rail ──
-  s += wire(X_IN, Y_GND, X_VNODE, Y_GND);
-  s += ground((X_IN + X_VNODE) / 2, Y_GND);
+  // ── 각 다리 개별 ground (원본처럼 하단을 도선으로 묶지 않음) ──
+  for (const x of [X_IN, X_RN, X_VP, X_VNODE]) s += ground(x, Y_GND);
 
   s += `</svg>`;
   return s;
