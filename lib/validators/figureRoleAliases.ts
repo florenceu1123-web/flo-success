@@ -9,7 +9,9 @@ const ALIAS_GROUPS: string[][] = [
   ["equivalent_circuit", "thevenin_equivalent", "norton_equivalent"],
   ["implementation_circuit", "logic_implementation"],
   ["waveform", "input_waveform", "output_waveform", "measurement_waveform", "frequency_response_curve"],
-  ["truth_table", "state_table"],
+  // kmap·truth_table은 boolean 함수를 정의하는 상호 대체 표현 — 진리표로 준 문제가
+  //   "kmap 필수" 규칙을, 카르노맵으로 준 문제가 "truth_table 필수" 규칙을 서로 충족.
+  ["kmap", "truth_table", "state_table"],
 ];
 
 /** role이 속한 alias 그룹 반환. 없으면 [role] 단일. */

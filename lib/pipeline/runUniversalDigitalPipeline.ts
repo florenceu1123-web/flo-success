@@ -20,6 +20,7 @@
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { generateKmapSop, type KmapSopArchetype } from "@/lib/generation/topologies/kmapSop";
+import type { BooleanFunction } from "@/lib/digital/booleanFunction";
 import { generateSharedTermInputBlank } from "@/lib/generation/topologies/sharedTermInputBlank";
 import { buildContextHint, generateInParallel } from "./_common";
 import type { GateOp, LogicDAG, LogicDAGNode } from "@/lib/graph/digitalSemantic";
@@ -32,6 +33,7 @@ import {
   type GeneratedProblem,
   type GenerationMode,
   type TopicKey,
+  type TruthTableDiagram,
 } from "@/types";
 
 const log = createLogger("lib/pipeline/runUniversalDigitalPipeline");
@@ -86,13 +88,26 @@ export async function runUniversalDigitalPipeline(args: {
     }
 
     // K-map figureVariants — 함수 1개당 1개 figure.
+    //   diagram.title을 함수명(f_1·f_2·…)으로 덮어쓴다 — generateKmapSop 기본 제목이 일괄
+    //   "F(A,B,C,D)"라 3개 K-map이 같은 제목으로 나와 어느 함수인지 구분 불가했음.
     const kmapFigures: FigureVariant[] = funcs.map((f, fi) => ({
       id: `fig_kmap_${i + 1}_${fi + 1}`,
       label: `f_${fi + 1} K-map (${f.func.varNames.join(",")})`,
       role: "kmap",
       diagramType: "kmap",
-      diagram: f.kmapDiagram,
+      diagram: { ...f.kmapDiagram, title: `f_${fi + 1}(${f.func.varNames.join(", ")})` },
     }));
+
+    // ★ 주어진 데이터는 진리표(truth table) — 원본 "주어진 진리표를 기반으로…" 형식 보존.
+    //   입력 A,B,C,D + 출력 f_1·f_2·…를 한 테이블로. 학생은 이 진리표를 카르노맵으로 최소화한다.
+    //   (카르노맵은 학생 풀이물이므로 아래 solutionFigures로 내려보낸다.)
+    const truthTableFigure: FigureVariant = {
+      id: `fig_truth_table_${i + 1}`,
+      label: `진리표 (${funcs[0]?.func.varNames.join(", ") ?? "A, B, C, D"})`,
+      role: "truth_table",
+      diagramType: "truth_table",
+      diagram: buildMultiOutputTruthTable(funcs.map((f) => f.func)),
+    };
 
     // ── LogicDAG 생성 — 파이프라인: minterms → kmap → LogicDAG → validate → render.
     //   ★ 절대 금지: f_1·f_2·f_3·f_4를 하나의 OR/AND 게이트에 직접 연결 (multi-stage 손실).
@@ -124,6 +139,22 @@ export async function runUniversalDigitalPipeline(args: {
     const combination = dagToLogicNetwork(dag, Object.fromEntries(
       funcs.map((_, fi) => [`f${fi + 1}`, `f_${fi + 1}`]),
     ));
+    // ★ 빈칸 게이트(㉠) — 임용 디지털 표준 형식: 출력 게이트를 비워 학생이 종류를 결정한다.
+    //   원본 "(나)의 빈칸에 들어갈 논리 게이트를 결정" 구조 보존. 렌더러가 blanks를 ㉠ 박스로 그린다.
+    //   (단, 출력 게이트가 2입력 이상 실제 결합일 때만 — M=1 trivial buffer는 빈칸 의미 없음.)
+    const blankGateSymbol = "㉠";
+    const outputGateNode = dag.nodes.find(
+      (n): n is Extract<LogicDAGNode, { kind: "gate" }> =>
+        n.kind === "gate" && n.id === dag.outputId,
+    );
+    const hasBlankGate = Boolean(outputGateNode && outputGateNode.inputs.length >= 2);
+    if (outputGateNode && hasBlankGate) {
+      combination.blanks = [{
+        symbol: blankGateSymbol,
+        gateIds: [outputGateNode.id],
+        answer: outputGateNode.gate,
+      }];
+    }
     const combFigure: FigureVariant = {
       id: `fig_combination_${i + 1}`,
       label: `통합 회로 (multi-stage DAG)`,
@@ -155,11 +186,23 @@ export async function runUniversalDigitalPipeline(args: {
     const intermediateSummary = intermediateSignalsOf(dag).join(", ") || "없음";
     const content = [
       `${N}-변수(${inputs.length > 0 ? inputs.join(", ") : "A,B,C,D".slice(0, 2 * N - 1)}) 입력에 대한 ${M}개의 boolean 함수 + multi-stage 결합 문제.`,
-      `각 함수는 minterm 셋으로 정의되며, 중간 신호(${intermediateSummary})를 거쳐 최종 출력 ${dag.outputId}를 만든다.`,
+      `각 함수는 진리표로 주어지며, 중간 신호(${intermediateSummary})를 거쳐 최종 출력 ${dag.outputId}를 만든다.`,
       contextHint || topicLabel || "",
     ].filter(Boolean).join(" ");
-    const question = `[단계 1] 각 함수 f_1 ... f_${M}의 최소 SOP를 구한다.\n[단계 2] multi-stage 결합으로 최종 출력 ${dag.outputId}를 구한다.`;
-    const answer = `[단계 1]\n${sopList}\n[단계 2]\n${stageEqs}`;
+    const question = [
+      `[단계 1] 각 함수 f_1 ... f_${M}의 최소 SOP를 구한다.`,
+      `[단계 2] 중간 신호(${intermediateSummary})를 거쳐 최종 출력 ${dag.outputId}의 논리식을 구한다.`,
+      hasBlankGate
+        ? `[단계 3] 회로도 (나)의 빈칸 ${blankGateSymbol}에 들어갈 논리 게이트의 종류를 결정한다.`
+        : "",
+    ].filter(Boolean).join("\n");
+    const answer = [
+      `[단계 1]\n${sopList}`,
+      `[단계 2]\n${stageEqs}`,
+      hasBlankGate && outputGateNode
+        ? `[단계 3] ${blankGateSymbol} = ${outputGateNode.gate} 게이트`
+        : "",
+    ].filter(Boolean).join("\n");
 
     return {
       id: randomUUID(),
@@ -173,7 +216,9 @@ export async function runUniversalDigitalPipeline(args: {
       answer,
       solution: sopList,
       topicKey,
-      figureVariants: [...kmapFigures, combFigure],
+      // 주어진 figure: 진리표(데이터) + 빈칸 ㉠ 회로. 카르노맵은 학생 풀이물 → solutionFigures.
+      figureVariants: [truthTableFigure, combFigure],
+      solutionFigures: kmapFigures,
     };
   });
 
@@ -368,6 +413,28 @@ async function runSharedTermInputBlankMode(args: {
 }
 
 // ── 텍스트 rule-based 파싱 helpers ──────────────────────────────────────
+
+/**
+ * 다중 boolean 함수 → 단일 진리표(truth table).
+ *   입력 컬럼 = 공통 변수(varNames[0]=MSB), 출력 컬럼 = 함수별 f_1·f_2·…
+ *   행 순서 0..2^N-1, 각 출력은 해당 행 인덱스가 함수의 minterm이면 1.
+ */
+function buildMultiOutputTruthTable(funcs: readonly BooleanFunction[]): TruthTableDiagram {
+  const varNames = funcs[0]?.varNames ?? ["A", "B", "C", "D"];
+  const N = varNames.length;
+  const mintermSets = funcs.map((f) => new Set(f.minterms));
+  const rows: TruthTableDiagram["rows"] = [];
+  for (let r = 0; r < (1 << N); r++) {
+    const inputs: number[] = [];
+    for (let k = 0; k < N; k++) inputs.push((r >> (N - 1 - k)) & 1);
+    rows.push({ inputs, outputs: mintermSets.map((s) => (s.has(r) ? 1 : 0)) });
+  }
+  return {
+    variables: [...varNames],
+    outputLabels: funcs.map((_, fi) => `f_${fi + 1}`),
+    rows,
+  };
+}
 
 /** analysis의 모든 텍스트 필드 수집 (classifier와 동일 풀). */
 function collectAnalysisText(analysis: AnalysisResult | null | undefined): string {

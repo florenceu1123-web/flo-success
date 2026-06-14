@@ -64,6 +64,7 @@ import type { CircuitNetlist } from "@/types";
 import {
   GENERATION_POLICIES,
   SUBJECT_KEYS,
+  TOPIC_TO_SUBJECT,
   type AnalysisResult,
   type GenerationMode,
   type GeneratedProblem,
@@ -105,11 +106,53 @@ export async function POST(req: NextRequest) {
     }
     const n = typeof count === "number" && count > 0 ? Math.min(Math.floor(count), 10) : 1;
 
-    // analysis에서 topicKey/semantic을 우선 활용 (body의 명시 값이 있으면 그것 우선)
-    const expectedTopicKey: TopicKey | undefined = body.topicKey ?? analysis?.topicKey;
-    const rawSemantic: SemanticStructure = body.semantic ?? analysis?.semantic ?? DEFAULT_SEMANTIC;
-
     const subjectKey = subject as SubjectKey;
+
+    // analysis에서 topicKey/semantic을 우선 활용 (body의 명시 값이 있으면 그것 우선)
+    let expectedTopicKey: TopicKey | undefined = body.topicKey ?? analysis?.topicKey;
+    // ★ subject↔topicKey family 일관성 (CLAUDE.md 규칙 #9) — analyzeImage가 디지털 문제에
+    //   회로이론 topicKey(예: dc_resistive)를 잘못 부여하는 등 cross-subject 라벨이 들어오면
+    //   그대로 family check에 쓰면 validator가 항상 family_mismatch를 낸다. 선택된 subject의
+    //   family에 속하지 않는 topicKey는 신뢰 불가로 보고 폐기(undefined)해서, 생성·라우팅을
+    //   subject 기준으로 진행시키고 잘못된 기준에 대한 mismatch를 차단한다.
+    if (expectedTopicKey && TOPIC_TO_SUBJECT[expectedTopicKey] !== subjectKey) {
+      log.warn("topicKey_subject_mismatch_dropped", {
+        topicKey: expectedTopicKey,
+        topicSubject: TOPIC_TO_SUBJECT[expectedTopicKey],
+        selectedSubject: subjectKey,
+      });
+      expectedTopicKey = undefined;
+    }
+
+    // ★ analog subject + 디지털 circuitType 교정 (subject-first) — GPT가 RLC AC 회로에
+    //   waveform_analysis 같은 디지털 circuitType/topicKey를 잘못 부여하면 circuit_theory 분기와
+    //   안 맞아 topology_driven으로 빠지고, hasWaveformEvolution=true가 유지돼 missing_waveform.
+    //   reactive(L/C) 있으면 universal_ac, 없으면 universal_dc로 분석 객체를 직접 보정 →
+    //   semantic 정규화(아래 isUniversalAc)·dispatch가 일관되게 흐른다. (Vision 비결정성 흡수)
+    const DIGITAL_ONLY_TYPES = new Set([
+      "universal_digital", "sequential_dff_generic", "kmap_sop", "kmap_pos",
+      "flipflop_mixed_app", "tff_state_table_blank", "ff_with_waveform",
+      "flipflop_counter", "combinational_gate", "sequence_detector", "fsm",
+      "waveform_analysis", "mux_implementation", "counter_dac_comparator",
+    ]);
+    if (
+      subjectKey === "circuit_theory" &&
+      analysis?.circuitType?.type &&
+      DIGITAL_ONLY_TYPES.has(analysis.circuitType.type)
+    ) {
+      const hasReactive = (analysis.componentInventory ?? []).some(
+        (c) => c.type === "L" || c.type === "C",
+      );
+      const coerced = hasReactive ? "universal_ac" : "universal_dc";
+      log.warn("analog_subject_digital_circuittype_coerced", {
+        from: analysis.circuitType.type,
+        to: coerced,
+        subject: subjectKey,
+      });
+      analysis.circuitType.type = coerced as typeof analysis.circuitType.type;
+    }
+
+    const rawSemantic: SemanticStructure = body.semantic ?? analysis?.semantic ?? DEFAULT_SEMANTIC;
     // ── semantic normalize: SW만 있고 C/L이 없는 두 정상상태 비교 케이스는
     //    waveform 응답이 아니므로 hasWaveformEvolution을 false로 (analyze가 SW
     //    swiching을 timing 변화로 잘못 marking할 때가 잦아 ruleSet의 waveform required
@@ -209,6 +252,36 @@ export async function POST(req: NextRequest) {
       log.info("router_override", { from: circuitType, to: routed.circuitType, reason: routed.reason });
       circuitType = routed.circuitType as typeof circuitType;
     }
+
+    // ★ subject-first 가드 — 모든 dispatch 분기는 circuitType + subjectKey 둘 다 일치를 요구한다.
+    //   디지털 문제(조합논리·진리표 등)를 컴포넌트 인벤토리 추출이 R 다발로 오인해 회로이론
+    //   circuitType(dc_nodal 등)으로 분류하면, subjectKey=digital_logic과 짝이 맞는 분기가 하나도
+    //   없어 제네릭 GPT fallback으로 떨어진다(아날로그 repair 루프 → 품질 저하·family 불일치).
+    //   사용자가 고른 subject를 신뢰해, digital_logic인데 circuitType이 디지털 계열이 아니면
+    //   범용 디지털 파이프라인(universal_digital)으로 보정한다.
+    const DIGITAL_CIRCUIT_TYPES = new Set([
+      "universal_digital", "sequential_dff_generic", "kmap_sop", "kmap_pos",
+      "flipflop_mixed_app", "tff_state_table_blank", "ff_with_waveform",
+      "flipflop_counter", "combinational_gate", "sequence_detector", "fsm",
+      "waveform_analysis", "mux_implementation",
+    ]);
+    if (subjectKey === "digital_logic" && (!circuitType || !DIGITAL_CIRCUIT_TYPES.has(circuitType))) {
+      log.warn("digital_subject_circuittype_coerced", { from: circuitType, to: "universal_digital" });
+      circuitType = "universal_digital" as typeof circuitType;
+    }
+
+    // ★ subject-first 가드 (mixed_signal) — FF + DAC + OPAMP 복합형(임용8 JK카운터·임용10 D시프트레지스터)이
+    //   Vision 비결정성으로 sequential_dff_generic(디지털) 등으로 분류되면 mixed_signal 분기와 안 맞아
+    //   제네릭 fallback으로 추락한다. mixed_signal인데 circuitType이 mixed_signal 계열이 아니면
+    //   counter_dac_comparator로 보정 (파이프라인이 D시프트/JK카운터를 구조 도출로 분기).
+    const MIXED_SIGNAL_CIRCUIT_TYPES = new Set([
+      "counter_dac_comparator", "adc_sample_hold", "logic_opamp_hybrid",
+    ]);
+    if (subjectKey === "mixed_signal" && (!circuitType || !MIXED_SIGNAL_CIRCUIT_TYPES.has(circuitType))) {
+      log.warn("mixed_signal_circuittype_coerced", { from: circuitType, to: "counter_dac_comparator" });
+      circuitType = "counter_dac_comparator" as typeof circuitType;
+    }
+
     let problems: GeneratedProblem[];
     // ★ 스위치 RL + 종속전원(2i_A) 과도응답 (임용 2022 B-7) — 전용 archetype.
     //   종속전원(CCVS)·스위치 상태전이를 generic/topology-driven이 잃는 문제 회피 (topology_driven보다 우선).

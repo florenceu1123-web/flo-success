@@ -490,15 +490,29 @@ export function classifyCircuitType(
     {
       const ffKwSeq = matchesKeyword(text, ["플립플롭", "플립 플롭", "flip-flop", "flipflop", "d-ff", "d 플립플롭", "dff"]);
       const qOuts = (analysis.signals?.outputs ?? []).filter((s) => /^Q/i.test(s)).length;
-      const multiQ = qOuts >= 2 || /q_?1\s*q_?0|q1q0|q_?0q_?1/i.test(text);
-      const wf = matchesKeyword(text, ["입력 파형", "출력 파형", "타이밍", "timing", "파형", "클록", "clock", "클럭"]);
+      // multiQ: 다중비트 상태(Q1Q0) 검출 — signals 미추출·표기 변동에도 견고하게.
+      //   Vision은 "Q1Q0"를 항상 인접 표기하지 않는다 (예: "Q1과 Q0", "Q_1·Q_0", "Q1, Q0").
+      //   인접 표기 + Q1·Q0 각각 언급 + D1·D0 다중 D-FF 라벨 모두 인정.
+      const multiQ =
+        qOuts >= 2 ||
+        /q_?1\s*q_?0|q_?0\s*q_?1|q1q0|q0q1/i.test(text) ||
+        (/q_?1\b/i.test(text) && /q_?0\b/i.test(text)) ||
+        (/d_?1\b/i.test(text) && /d_?0\b/i.test(text));
+      const wf = matchesKeyword(text, ["입력 파형", "출력 파형", "타이밍", "timing", "파형", "클록", "clock", "클럭", "상승 에지", "상승에지", "하강 에지", "에지에서"]);
       const statePt = matchesKeyword(text, ["㉠", "㉡", "㉢", "q값", "q_1q_0", "q1q0", "지점에서", "상태"]);
-      if (ffKwSeq && multiQ && (wf || statePt)) {
+      // 임용 12번 단계3 고유 시그니처: 점선 부분을 "최소한의 AND/OR 게이트"로 재구성/도시.
+      //   임용 8번(ff_with_waveform: 단일 Q + 비동기 RESET)엔 없는 문구 → 두 형식 판별에 사용.
+      const minGateReconstruct = matchesKeyword(text, [
+        "최소한의 논리 게이트", "최소한의 게이트", "최소 게이트", "최소한의 and", "최소의 and",
+        "and 게이트와 or", "and게이트와 or", "최소화하여 도시", "최소한의 논리", "논리 게이트로 재구성",
+        "게이트로 재구성", "최소 논리",
+      ]);
+      if (ffKwSeq && (multiQ || minGateReconstruct) && (wf || statePt)) {
         return {
           type: "sequential_dff_generic",
           params: {},
           confidence: "high",
-          reasoning: `D-FF 다중비트 상태(Q=${qOuts}) + 타이밍/상태분석 → 순서논리 generic (kmap 오분류 차단)`,
+          reasoning: `D-FF 다중비트 상태(Q=${qOuts}, multiQ=${multiQ}, minGate=${minGateReconstruct}) + 타이밍/상태분석 → 순서논리 generic (kmap·counter·ff_waveform 오분류 차단)`,
         };
       }
     }
@@ -1387,6 +1401,38 @@ function decideType(args: DecideArgs): DecideResult {
       type: "ac_superposition",
       confidence: "high",
       reasoning: `AC 중첩 매치 — ${reasons.join(", ")}`,
+    };
+  }
+
+  // ★ AC phasor 안전망 (2026-06-09) — 위 AC 분기(universal_ac·ac_superposition·ac_parallel_branches
+  //   ·rlc_resonance)를 Vision 요약문구·inventory 표기 변동으로 모두 놓쳤더라도, 리액티브 회로에
+  //   AC 시그니처가 있거나 L·C가 함께 있고(=RLC: DC 정상상태로는 해석 불가) 과도 컨텍스트가 없으면
+  //   아래 transient(rc/rl/rlc_step) 분기로 떨어지지 않게 universal_ac로 흡수한다.
+  //   ─ 이유: transient type은 waveform figure를 강제(validateProblem)해 phasor 정상상태 문제에서
+  //     missing_waveform·missing_figure_variant 오류를 내고, 생성도 RC/RL/RLC 과도로 잘못 만든다.
+  //     Vision은 RLC·평균전력 문제에 hasWaveformEvolution=true를 자주 오마킹 → 이 fallthrough가
+  //     키워드 변동에 flaky하게 터짐(실측: 같은 임용 5번이 run별로 universal_ac↔rc_step 진동).
+  //   ─ 판별: 과도 컨텍스트(스위치·t=0·t<0·과도·초기조건·step/계단 응답·v_c(t)·미분방정식 등)가
+  //     있으면 진짜 과도이므로 개입하지 않는다. RLC 전용 archetype/공진은 이미 위에서 return됨.
+  const hasTransientContext =
+    hasSwitchInferred ||
+    matchesKeyword(text, [
+      "과도", "transient", "t=0", "t = 0", "t<0", "t < 0", "t≥0", "t ≥ 0",
+      "초기 조건", "초기조건", "초기 전압", "초기전압",
+      "step response", "스텝 응답", "계단 응답", "스텝응답", "계단응답",
+      "v_c(t)", "vc(t)", "i_l(t)", "il(t)", "미분방정식",
+      "자연 응답", "자연응답", "강제 응답", "강제응답",
+    ]);
+  const hasAcSignalAny =
+    isACTextLocal || Boolean(hasACInventory) || hasJImpedanceLocal || isAcKw ||
+    (counts.L > 0 && counts.C > 0); // RLC: DC 정상상태로 해석 불가 → AC phasor 정상상태
+  if (hasReactiveUniversal && hasAcSignalAny && !hasTransientContext) {
+    return {
+      type: "universal_ac",
+      confidence: "high",
+      reasoning:
+        `AC phasor 안전망 — 리액티브(L=${counts.L},C=${counts.C}) + ` +
+        `${counts.L > 0 && counts.C > 0 ? "RLC(정상상태 AC)" : "AC 시그니처"} + 과도 컨텍스트 없음`,
     };
   }
 

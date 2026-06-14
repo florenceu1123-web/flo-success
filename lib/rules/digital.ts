@@ -15,6 +15,11 @@ export function resolveDigitalRules(args: {
   // ff_with_waveform: 단일 FF + 조합부 + 파형 (임용 8번 형식) — implementation_circuit + waveform
   if (args.circuitType === "ff_with_waveform") {
     required.push("implementation_circuit", "waveform");
+  } else if (args.circuitType === "sequential_dff_generic") {
+    // 임용 12번 형식: D-FF 다중비트(Q1Q0) 순서논리 + 입력 파형 — kmap 없음.
+    //   (단계3의 "최소 AND/OR 게이트 재구성"은 풀이 산출물이지 figure 아님 → kmap 요구 금지.)
+    //   generic 파이프라인 emit: implementation_circuit(logic_network) + input_waveform.
+    required.push("implementation_circuit", "input_waveform");
   } else if (args.circuitType === "flipflop_mixed_app") {
     required.push("implementation_circuit", "truth_table", "waveform");
   } else if (args.circuitType === "tff_state_table_blank") {

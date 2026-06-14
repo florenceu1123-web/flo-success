@@ -10,53 +10,38 @@ import type { CircuitNetlist } from "@/types";
 import type { SolverNetwork } from "./mna";
 import type { ComplexSolverNetwork } from "./complexMna";
 import { parseValue } from "@/lib/generation/topologyDriven/parseValue";
-import { parsePhasor } from "./parsePhasor";
+import { parsePhasor, parseScalar } from "./parsePhasor";
 
 /**
- * L의 임피던스 표기 ("j(2/3)Ω", "j2Ω", "j10Ω", "j5") → 숫자 X (jωL = jX → X 반환).
- * 매치 안 되면 null. omega로 L = X/ω로 환산 가능.
+ * L의 임피던스 표기 → 숫자 X (jωL = jX → X 반환). omega로 L = X/ω 환산.
+ *   "j2Ω" · "j10Ω" · "j(2/3)Ω" · "jΩ"(=j1) · "j√2Ω" · "j2√2Ω" 모두 인식.
+ *   매치 안 되면 null.
  */
 function parseInductorImpedance(raw: string | number | undefined): number | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim().replace(/\s+/g, "");
-  // j(분수)Ω or j(분수) — j(2/3)Ω, j(1/2)
-  const fracMatch = trimmed.match(/^j\((-?\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\)Ω?$/i);
-  if (fracMatch) {
-    const num = parseFloat(fracMatch[1]);
-    const den = parseFloat(fracMatch[2]);
-    if (den !== 0 && Number.isFinite(num / den)) return num / den;
-  }
-  // j숫자Ω — j2Ω, j10Ω, j0.5
-  const numMatch = trimmed.match(/^j(-?\d+(?:\.\d+)?)Ω?$/i);
-  if (numMatch) {
-    const v = parseFloat(numMatch[1]);
-    if (Number.isFinite(v)) return v;
-  }
-  return null;
+  const m = trimmed.match(/^j(.*?)Ω?$/i);
+  if (!m) return null;
+  const body = m[1].replace(/^\((.*)\)$/, "$1"); // 괄호 제거: j(2/3) → 2/3
+  if (body === "") return 1; // 암묵적 1 — "jΩ" = j1
+  const v = parseScalar(body);
+  return v !== null && Number.isFinite(v) ? v : null;
 }
 
 /**
- * C의 임피던스 표기 ("-j3Ω", "-j(1/2)Ω", "−j5") → 숫자 X (1/(jωC) = -jX → X 반환).
- * 매치 안 되면 null. omega로 C = 1/(ω·X)로 환산 가능.
- * −(U+2212 minus sign)·-(hyphen) 모두 인식.
+ * C의 임피던스 표기 → 숫자 X (1/(jωC) = -jX → X 반환). omega로 C = 1/(ω·X) 환산.
+ *   "-j3Ω" · "-j(1/2)Ω" · "−j5" · "-jΩ"(=-j1) · "-j√2Ω" 모두 인식.
+ *   −(U+2212)·-(hyphen) 둘 다 처리. 매치 안 되면 null.
  */
 function parseCapacitorImpedance(raw: string | number | undefined): number | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim().replace(/\s+/g, "");
-  // -j(분수)Ω — -j(2/3)Ω, -j(1/2)
-  const fracMatch = trimmed.match(/^[−-]j\((\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\)Ω?$/i);
-  if (fracMatch) {
-    const num = parseFloat(fracMatch[1]);
-    const den = parseFloat(fracMatch[2]);
-    if (den !== 0 && Number.isFinite(num / den) && num / den > 0) return num / den;
-  }
-  // -j숫자Ω — -j3Ω, -j10Ω, -j0.5
-  const numMatch = trimmed.match(/^[−-]j(\d+(?:\.\d+)?)Ω?$/i);
-  if (numMatch) {
-    const v = parseFloat(numMatch[1]);
-    if (Number.isFinite(v) && v > 0) return v;
-  }
-  return null;
+  const m = trimmed.match(/^[−-]j(.*?)Ω?$/i);
+  if (!m) return null;
+  const body = m[1].replace(/^\((.*)\)$/, "$1");
+  if (body === "") return 1; // 암묵적 1 — "-jΩ" = -j1
+  const v = parseScalar(body);
+  return v !== null && Number.isFinite(v) && v > 0 ? v : null;
 }
 
 /**

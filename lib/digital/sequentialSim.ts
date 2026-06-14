@@ -11,7 +11,8 @@
 
 export type SeqSpec = {
   inputs: string[];                              // 외부 입력 (예 ["A","B"])
-  ffs: Array<{ q: string; d: string }>;          // 각 D-FF: q=출력신호명, d=D입력 불 함수식
+  /** 각 FF: q=출력신호명, d=다음상태 불 함수식, negEdge=반전클럭(하강에지 트리거) 여부. */
+  ffs: Array<{ q: string; d: string; negEdge?: boolean }>;
   /** 중간 신호(게이트 출력) 정의 — d 식에서 참조 가능. 평가 순서 무관(의존 해소). */
   signals?: Array<{ name: string; expr: string }>;
 };
@@ -19,11 +20,19 @@ export type SeqSpec = {
 /** LogicNetworkDiagram(게이트 + D-FF)에서 시뮬레이션 SeqSpec 도출 — 렌더 구조와 일관. */
 export function seqSpecFromLogicNetwork(diagram: {
   inputs: string[];
-  gates: Array<{ id: string; type: string; inputs: string[]; output: string }>;
+  gates: Array<{ id: string; type: string; inputs: string[]; output: string; clockSignal?: string }>;
 }): SeqSpec {
   const FF = new Set(["DFF", "TFF", "JKFF"]);
   const ffOutputs = new Set(diagram.gates.filter((g) => FF.has(g.type)).map((g) => g.output));
   const inputs = diagram.inputs.filter((n) => !/^clk$/i.test(n) && !ffOutputs.has(n));
+  // 반전 클럭 신호 — NOT(CLK)의 출력. 이 신호를 clockSignal로 쓰는 FF는 하강 에지(negEdge) 트리거.
+  const invertedClockSignals = new Set(
+    diagram.gates
+      .filter((g) => g.type === "NOT" && /^clk$/i.test(g.inputs[0] ?? ""))
+      .map((g) => g.output),
+  );
+  const isNegEdge = (clockSignal?: string): boolean =>
+    Boolean(clockSignal) && invertedClockSignals.has(clockSignal as string);
   const combine = (type: string, ins: string[]): string => {
     const a = ins.map((x) => `(${x})`);
     switch (type) {
@@ -42,10 +51,10 @@ export function seqSpecFromLogicNetwork(diagram: {
     .map((g) => ({ name: g.output, expr: combine(g.type, g.inputs) }));
   const ffs = diagram.gates
     .filter((g) => g.type === "DFF")
-    .map((g) => ({ q: g.output, d: g.inputs[0] ?? "0" }));
+    .map((g) => ({ q: g.output, d: g.inputs[0] ?? "0", negEdge: isNegEdge(g.clockSignal) }));
   // TFF: Q_next = Q ^ T (T=inputs[0]) — derive expr
   for (const g of diagram.gates.filter((x) => x.type === "TFF")) {
-    ffs.push({ q: g.output, d: `(${g.output}) ^ (${g.inputs[0] ?? "0"})` });
+    ffs.push({ q: g.output, d: `(${g.output}) ^ (${g.inputs[0] ?? "0"})`, negEdge: isNegEdge(g.clockSignal) });
   }
   return { inputs, ffs, signals };
 }
@@ -129,11 +138,23 @@ export function simulateSequential(args: {
     // 현재 상태 기록
     for (const ff of spec.ffs) trace[ff.q].push(q[ff.q]);
     stateSeq.push(spec.ffs.map((ff) => q[ff.q]).join(""));
-    // 클록 에지: D 평가 → 다음 상태 (중간신호 포함 env로 평가, 동시 갱신)
-    const fullEnv = resolveSignals(spec, env);
-    const next: Record<string, number> = {};
-    for (const ff of spec.ffs) next[ff.q] = evalBool(ff.d, fullEnv);
-    for (const ff of spec.ffs) q[ff.q] = next[ff.q];
+    // 한 클록 주기 = 상승 에지(양 클럭 FF) → 하강 에지(반전 클럭 FF) 2-phase.
+    //   negEdge FF가 없으면 phase 2는 비어 기존 동작(전 FF 동시 갱신)과 동일.
+    //   phase 1: CLK 상승에지 — 양 클럭(negEdge=false) FF 갱신 (현재 Q 기준 D 평가).
+    const posEnv = resolveSignals(spec, env);
+    const posNext: Record<string, number> = {};
+    for (const ff of spec.ffs) if (!ff.negEdge) posNext[ff.q] = evalBool(ff.d, posEnv);
+    for (const ff of spec.ffs) if (!ff.negEdge) q[ff.q] = posNext[ff.q];
+    //   phase 2: CLK 하강에지 — 반전 클럭(negEdge=true) FF 갱신 (phase1 갱신된 Q 반영).
+    const hasNeg = spec.ffs.some((ff) => ff.negEdge);
+    if (hasNeg) {
+      const negBaseEnv: Record<string, number> = { ...env };
+      for (const ff of spec.ffs) negBaseEnv[ff.q] = q[ff.q];
+      const negEnv = resolveSignals(spec, negBaseEnv);
+      const negNext: Record<string, number> = {};
+      for (const ff of spec.ffs) if (ff.negEdge) negNext[ff.q] = evalBool(ff.d, negEnv);
+      for (const ff of spec.ffs) if (ff.negEdge) q[ff.q] = negNext[ff.q];
+    }
   }
   return { trace, stateSeq };
 }

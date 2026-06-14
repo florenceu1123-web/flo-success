@@ -871,15 +871,22 @@ const FB_DESCENT_STEP = 16; // 소비자 하강 수직 채널 간격 (핀 좌측
  */
 function renderFeedbackWires(routes: { src: Point; consumers: Point[]; topY: number }[]): string {
   let svg = "";
-  // 모든 소비자를 모아 y 오름차순(위쪽 먼저) rank → 핀 좌측 distinct 채널 x 배정.
+  // 하강(descent) 채널을 각 소비자 핀 "바로 좌측"(국소)에 둔다.
+  //   ★ 이전엔 전역 minPinX 기준으로 모든 하강선을 한 곳(최좌측 게이트 D_1 입력부)에 몰아
+  //     수직선이 겹치고, 우측 소비자로의 수평 진입선이 회로를 길게 가로질렀다.
+  //   국소 하강 → 신호별 하강선이 자기 소비자 근처로 분산, 수평 진입선도 짧아진다.
+  //   같은 핀 근처(8px 버킷)로 모이는 소비자들만 작은 stagger로 분리(규칙 #3).
   const all = routes.flatMap((r, ri) => r.consumers.map((c) => ({ c, ri })));
   if (all.length === 0) return svg;
-  all.sort((a, b) => a.c.y - b.c.y);
-  const minPinX = Math.min(...all.map((a) => a.c.x));
+  all.sort((a, b) => a.c.x - b.c.x || a.c.y - b.c.y);
+  const bucketCount = new Map<number, number>();
   const descentX = new Map<string, number>();
-  all.forEach((a, rank) => {
-    descentX.set(`${a.ri}:${a.c.x}:${a.c.y}`, minPinX - 14 - rank * FB_DESCENT_STEP);
-  });
+  for (const { c, ri } of all) {
+    const bucket = Math.round(c.x / 8);
+    const k = bucketCount.get(bucket) ?? 0;
+    bucketCount.set(bucket, k + 1);
+    descentX.set(`${ri}:${c.x}:${c.y}`, c.x - PIN_STUB - 6 - k * FB_DESCENT_STEP);
+  }
 
   routes.forEach(({ src, consumers, topY }, ri) => {
     // riser — FF 출력 우측 채널(신호별 distinct), 짧은 수평 jog 후 상단으로.

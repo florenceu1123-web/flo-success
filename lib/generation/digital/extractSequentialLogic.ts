@@ -78,6 +78,71 @@ const SYSTEM = `너는 전자 임용시험 디지털 순서논리(D 플립플롭
   "dashedRegionGateIds": ["g3"]
 }`;
 
+/**
+ * 원본(임용 12번) 클럭 구조 강제 — 첫 FF는 클럭 직결, 두 번째 FF는 NOT 게이트를 거친
+ * 반전 클럭(CLK')으로 구동(하강 에지 트리거). 유사·변형 모드 모두 적용.
+ *
+ *   - FF가 2개 미만이면 변경 없음.
+ *   - ffOutputs 순서(MSB 먼저) 기준 첫 FF=clockSignal "CLK", 두 번째 FF=clockSignal "CLK_n".
+ *   - NOT(CLK)→CLK_n 게이트를 회로에 1개 추가(이미 있으면 재사용).
+ *   - 시뮬레이터(seqSpecFromLogicNetwork)가 CLK_n을 negEdge로 인식 → 2-phase 타이밍 반영.
+ */
+export function enforceSecondFfInvertedClock(diagram: LogicNetworkDiagram, ffOutputs: string[]): LogicNetworkDiagram {
+  const FF = new Set<LogicGateType>(["DFF", "TFF", "JKFF"]);
+  const ffGates = diagram.gates.filter((g) => FF.has(g.type));
+  if (ffGates.length < 2) return diagram;
+  const firstQ = ffOutputs[0] ?? ffGates[0].output;
+  const secondQ = ffOutputs[1] ?? ffGates[1].output;
+  const clkN = "CLK_n";
+  const gates: LogicGate[] = diagram.gates.map((g) => {
+    if (!FF.has(g.type)) return g;
+    if (g.output === secondQ) return { ...g, clockSignal: clkN };       // 두 번째 FF: 반전 클럭
+    if (g.output === firstQ) return { ...g, clockSignal: "CLK" };        // 첫 FF: 클럭 직결
+    return g;
+  });
+  const hasInv = gates.some((g) => g.type === "NOT" && g.output === clkN && /^clk$/i.test(g.inputs[0] ?? ""));
+  const finalGates = hasInv ? gates : [{ id: "clkinv", type: "NOT" as LogicGateType, inputs: ["CLK"], output: clkN }, ...gates];
+  const inputs = diagram.inputs.some((n) => /^clk$/i.test(n)) ? diagram.inputs : [...diagram.inputs, "CLK"];
+  const signalLabels = { ...(diagram.signalLabels ?? {}) };
+  signalLabels[clkN] = "CLK'";
+  log.info("second_ff_inverted_clock", { firstQ, secondQ, clkN });
+  return { ...diagram, inputs, gates: finalGates, signalLabels };
+}
+
+/**
+ * 기출변형유형(exam_variant) 전용 — 2개 이상의 D-FF 중 하나를 T 플립플롭으로 등가 변환한다.
+ *
+ *   변환: 대상 FF의 T 입력 = (원래 D 신호) ⊕ Q.
+ *   효과: Q_next = Q ⊕ T = Q ⊕ (D ⊕ Q) = D  →  상태 시퀀스·정답 동일(학습목표 유지),
+ *         소자 종류만 1개 변형(D-FF → T-FF + 변환 XOR). exam_variant 정책에 부합.
+ *
+ *   - D-FF가 2개 미만이면 변형 불가 → 원본 그대로 반환.
+ *   - seed로 어느 FF를 변환할지 결정론적 선택(문항마다 다른 비트 변형 가능).
+ *   - 특정 회로 하드코딩 없음 — 추출된 임의 D-FF 순서논리에 범용 적용.
+ */
+export function convertOneDffToTff(diagram: LogicNetworkDiagram, seed: number): LogicNetworkDiagram {
+  const dffs = diagram.gates.filter((g) => g.type === "DFF");
+  if (dffs.length < 2) return diagram;
+  const pick = dffs[seed % dffs.length];
+  const dSig = pick.inputs[0] ?? "0";
+  const q = pick.output;
+  const tSig = `T_${q}`;                       // 변환 XOR 출력(= T 입력) 내부 신호명
+  const xor: LogicGate = { id: `tconv_${pick.id}`, type: "XOR", inputs: [dSig, q], output: tSig };
+  const gates: LogicGate[] = [];
+  for (const g of diagram.gates) {
+    if (g.id === pick.id) {
+      gates.push(xor);                          // FF 앞에 변환 XOR 삽입(T = D ⊕ Q)
+      gates.push({ ...g, type: "TFF", inputs: [tSig] });
+    } else {
+      gates.push(g);
+    }
+  }
+  const signalLabels = { ...(diagram.signalLabels ?? {}) };
+  signalLabels[tSig] = q.replace(/^Q/i, "T");   // 표시 라벨: Q1→T1, Q_0→T_0
+  log.info("dff_to_tff_variant", { convertedFf: pick.id, q, dSig, tSig });
+  return { ...diagram, gates, signalLabels };
+}
+
 export async function extractSequentialLogic(args: {
   analysis?: AnalysisResult | null;
   mode: GenerationMode;

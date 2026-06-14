@@ -94,10 +94,21 @@ export function resolveAcQueryRefs(
   netlist: CircuitNetlist,
   analysis: AnalysisResult,
 ): AcQuery[] {
-  // 1) label → node id (DC 로직과 동일)
+  // ★ netlist에 실제 존재하는 노드 집합 — 분석 단계의 nodeAnnotations는 종종 라벨("V_1")을
+  //   그대로 node id로 쓰는데, buildFromTopology는 노드를 n1·n2…로 재명명한다. 그 불일치로
+  //   phantom 노드를 query에 넣으면 nodeVoltages[phantom]=undefined → 결과 NaN.
+  //   따라서 label→node 매핑·위치 fallback 모두 이 집합으로 검증한다.
+  const validNodes = new Set<string>();
+  for (const c of netlist.components) {
+    for (const p of c.pins) {
+      if (typeof p.node === "string") validNodes.add(p.node);
+    }
+  }
+
+  // 1) label → node id (DC 로직과 동일). 단, netlist에 실재하는 node로 매핑될 때만 채택.
   const labelToNode = new Map<string, string>();
   for (const ann of analysis.nodeAnnotations ?? []) {
-    if (typeof ann.label === "string" && ann.node) {
+    if (typeof ann.label === "string" && ann.node && validNodes.has(ann.node)) {
       labelToNode.set(ann.label.toUpperCase(), ann.node);
       labelToNode.set(`V_${ann.label}`.toUpperCase(), ann.node);
     }
