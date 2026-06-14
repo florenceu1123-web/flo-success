@@ -73,7 +73,11 @@ export async function writeUniversalDcText(args: {
 
   // enforcedSolution — 솔버 결과 + 일반적인 분석 절차 서술
   const solLines: string[] = [];
-  const components = generation.netlistOpen.components.map((c) => `${c.id}${c.value ? `=${c.value}` : ""}`).join(", ");
+  // ★ 내부 component id(R_leg3_1 등)를 GPT에 노출하면 본문/질문에 그대로 새어 나온다.
+  //   type+value만 전달하고, id 사용 금지 규칙도 프롬프트에 명시한다.
+  const components = generation.netlistOpen.components
+    .map((c) => `${c.type}${c.value ? `=${c.value}` : ""}`)
+    .join(", ");
   if (stage1.length > 0) {
     solLines.push(
       `[단계 1] KVL/KCL 또는 메시·노드 해석으로 회로를 풀어 ${stage1.map((q) => q.query.label).join("·")}을(를) 얻는다.\n` +
@@ -119,6 +123,7 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
 [규칙]
 - 회로 figure 재생성 금지.
 - conditions·question 자연스럽게.
+- ★ 내부 식별자(R_leg…, n0/n1 등)를 본문·질문에 절대 쓰지 마라. 사람이 읽는 라벨(R, V_1 등)만 사용.
 - JSON 객체 하나만, 코드펜스 금지.`;
 
   const openai = getOpenAI();

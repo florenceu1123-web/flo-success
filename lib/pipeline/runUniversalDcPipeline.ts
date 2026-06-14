@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { buildFromTopology } from "@/lib/generation/topologyDriven/buildFromTopology";
 import { perturbTopology, listSourceIndices } from "@/lib/generation/topologyDriven/perturbTopology";
-import { inferDcQueries, resolveQueryNodes, findVariableResistor } from "@/lib/generation/topologyDriven/inferDcQueries";
+import { inferDcQueries, resolveQueryNodes } from "@/lib/generation/topologyDriven/inferDcQueries";
 import { solveDcQueries, type DcQuery, type DcQueryResult } from "@/lib/solver/universalDc";
 import { validateDcResult } from "@/lib/solver/validateDcResult";
 import { writeUniversalDcText } from "@/lib/generation/topologies/universalDcTextWriter";
@@ -155,12 +155,13 @@ export async function runUniversalDcPipeline(args: {
     // ── 가변 R 표기 — 임용 관습에 따라 figure는 변수명("R")만 표시, 수치 hide.
     //   solver는 perturbed numeric을 계속 사용 (gen.solverNetOpen에 보존됨).
     //   loadPlaceholders는 완전 제거 (R_L floating dashed box 방지).
+    // ★ inverseR query가 있을 때만 변수 R을 "R"로 숨긴다. (2026-06-14 회귀 수정)
+    //   이전엔 query가 없어도 findVariableResistor fallback이 임의 R을 골라 "R"로 숨겨,
+    //   "풀 대상이 아닌데 값이 사라져" 정답을 못 구하는 문제(임용 7번 전원변환 류)가 났다.
+    //   inverseR이 없으면 모든 R은 수치 그대로 둬야 노드전압·전류 query가 계산 가능하다.
     const inverseRq = queryResults.find((r) => r.query.kind === "inverseR");
-    const variableRid =
-      inverseRq && inverseRq.query.kind === "inverseR"
-        ? inverseRq.query.resistorId
-        : findVariableResistor(gen.netlistOpen, analysis);
-    if (variableRid) {
+    if (inverseRq && inverseRq.query.kind === "inverseR") {
+      const variableRid = inverseRq.query.resistorId;
       const comp = gen.netlistOpen.components.find((c) => c.id === variableRid);
       if (comp) {
         comp.value = "R";

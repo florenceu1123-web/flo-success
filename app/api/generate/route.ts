@@ -25,6 +25,7 @@ import { runMaxPowerTransferPipeline } from "@/lib/pipeline/runMaxPowerTransferP
 import { runTheveninMaxPowerGenericPipeline } from "@/lib/pipeline/runTheveninMaxPowerGenericPipeline";
 import { runSwitchingCircuitPipeline } from "@/lib/pipeline/runSwitchingCircuitPipeline";
 import { runSwitchedRlDependentPipeline } from "@/lib/pipeline/runSwitchedRlDependentPipeline";
+import { runSourceTransformRatioPipeline, detectSourceTransformRatio } from "@/lib/pipeline/runSourceTransformRatioPipeline";
 import { runOpampPipeline } from "@/lib/pipeline/runOpampPipeline";
 import { runOpampTimeDomainPipeline } from "@/lib/pipeline/runOpampTimeDomainPipeline";
 import { runBjtSmallSignalPipeline } from "@/lib/pipeline/runBjtSmallSignalPipeline";
@@ -283,6 +284,21 @@ export async function POST(req: NextRequest) {
     }
 
     let problems: GeneratedProblem[];
+    // ★ 전원변환 + 전압비(V_1:V_2:V_3 = a:b:c) → 미지 R_3 도출 (임용 7번) — 전용 결정론 archetype.
+    //   generic perturbation은 전압비 전제(R_1:R_2=a:b)를 랜덤화로 깨뜨리고, Vision이 (가)·(나)
+    //   두 회로를 한 netlist로 병합해 R 값이 "R1"/"R2"/"R3" 심볼로 남는다. 전압비를 만족하도록
+    //   값을 결정론 생성하는 전용 경로. universal_dc·topology_driven보다 먼저 라우팅.
+    const stRatio =
+      subjectKey === "circuit_theory" ? detectSourceTransformRatio(analysis) : null;
+    if (stRatio) {
+      log.info("dispatch", { route: "source_transform_ratio_pipeline", count: n, mode, ratio: stRatio.join(":") });
+      problems = await runSourceTransformRatioPipeline({
+        ratio: stRatio,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else {
     // ★ 스위치 RL + 종속전원(2i_A) 과도응답 (임용 2022 B-7) — 전용 archetype.
     //   종속전원(CCVS)·스위치 상태전이를 generic/topology-driven이 잃는 문제 회피 (topology_driven보다 우선).
     const invSrl = analysis?.componentInventory ?? [];
@@ -773,6 +789,7 @@ export async function POST(req: NextRequest) {
         semantic: expectedSemantic,
       });
     }
+    } // end: source_transform_ratio 우선 dispatch가 아닐 때의 기존 dispatch 체인
 
     // 검증 (Pipeline 6단계)
     // answer/solution 일관성 issue는 별도 "solutionIssues"로 보고 — totalIssues에 합산하지만
