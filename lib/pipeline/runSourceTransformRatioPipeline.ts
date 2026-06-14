@@ -86,22 +86,38 @@ export function detectSourceTransformRatio(analysis: AnalysisResult | null | und
     ...blankTexts,
   ].join(" \n ");
 
-  // 전원변환 신호
+  // 전원변환 신호 (모든 Vision run에서 신뢰성 높음 — 문제의 정의적 특징)
   const hasSourceTransform =
     /전원\s*변환|소스\s*변환|source\s*transform/i.test(text) ||
     (/전류원/i.test(text) && /전압원/i.test(text)) ||
     Boolean(analysis.semantic?.hasEquivalentTransformation);
   if (!hasSourceTransform) return null;
 
-  // 전압비 a:b:c — 우선 V_1:V_2:V_3 인접, 없으면 임의 3중 콜론 비율.
-  const ratio = extractRatio(text);
-  if (!ratio) return null;
-
-  // 전압비 맥락 확인 — V_1:V_2:V_3 또는 "전압비"/"전압 비율" 키워드 동반.
+  // ★ 전압비 "맥락"으로 트리거 (숫자 아님) — Vision 비결정성으로 숫자 비율(3:2:1)·텍스트 비율
+  //   표현은 run마다 통째로 누락되지만, ★ nodeAnnotations의 V_1·V_2·V_3 라벨은 모든 run에 안정적
+  //   으로 존재(실측 확인) ★. 텍스트 맥락(V_1:V_2:V_3·전압비) 또는 nodeAnnotations에 V_1·V_2·V_3가
+  //   2개 이상이면 트리거 — 이래야 universal_dc 추락(정답/풀이 없음)을 원천 차단.
+  //   Thevenin/Norton(단자 a·b annotation)과 구별: V_1·V_2·V_3 전압 라벨 동반.
+  const vNodeLabels = new Set(
+    (analysis.nodeAnnotations ?? [])
+      .map((a) => (a?.label ?? "").replace(/[\s]/g, "").toUpperCase())
+      .filter((l) => /^V_?[123]$/.test(l))
+      .map((l) => l.replace("_", "")),
+  );
   const hasVoltageRatioContext =
-    /V[_\s]*1\s*:\s*V[_\s]*2\s*:\s*V[_\s]*3/i.test(text) || /전압\s*비/.test(text);
+    /V[_\s]*1\s*:\s*V[_\s]*2\s*:\s*V[_\s]*3/i.test(text) ||
+    /전압\s*비/.test(text) ||
+    vNodeLabels.size >= 2;
   if (!hasVoltageRatioContext) return null;
 
+  // 숫자 비율은 있으면 추출, 없으면 3:2:1 기본값(임용 7번 원본). 기본값 사용 시 경고.
+  const ratio = extractRatio(text);
+  if (!ratio) {
+    log.warn("voltage_ratio_number_missing_default_321", {
+      reason: "Vision이 숫자 비율(예 3:2:1) 미추출 — 전원변환+V_1:V_2:V_3 맥락으로 트리거, [3,2,1] 기본값 사용",
+    });
+    return [3, 2, 1];
+  }
   return ratio;
 }
 
