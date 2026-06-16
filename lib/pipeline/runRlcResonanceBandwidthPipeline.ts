@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
-import { generateRlcResonanceBandwidth } from "@/lib/generation/topologies/rlcResonanceBandwidth";
+import {
+  generateRlcResonanceBandwidth,
+  generateRlcResonanceBandwidthDual,
+  type RlcResonanceBandwidthDualGeneration,
+} from "@/lib/generation/topologies/rlcResonanceBandwidth";
 import { generateInParallel } from "./_common";
 import {
   type AnalysisResult,
@@ -24,8 +28,13 @@ export async function runRlcResonanceBandwidthPipeline(args: {
 }): Promise<GeneratedProblem[]> {
   const { mode, count, topicKey } = args;
 
+  // ★ 기출변형유형(exam_variant) = 쌍대(dual) 병렬 RLC 회로.
+  if (mode === "exam_variant") {
+    return generateInParallel(count, async (i, seed) => buildDual(generateRlcResonanceBandwidthDual({ seed }), i, topicKey));
+  }
+
   return generateInParallel(count, async (i, seed) => {
-    const gen = generateRlcResonanceBandwidth({ seed, mode });
+    const gen = generateRlcResonanceBandwidth({ seed });
     const v = gen.values;
     const a = gen.answer;
     log.info("rlc_resonance_bandwidth_generated", {
@@ -85,4 +94,57 @@ export async function runRlcResonanceBandwidthPipeline(args: {
       figureVariants,
     };
   });
+}
+
+/** 기출변형 = 쌍대(병렬 RLC) 문제 1개 구성. */
+function buildDual(gen: RlcResonanceBandwidthDualGeneration, i: number, topicKey?: TopicKey): GeneratedProblem {
+  const v = gen.values;
+  const a = gen.answer;
+  log.info("rlc_resonance_bandwidth_dual_generated", {
+    omega0: v.omega0, Ld_H: v.Ld_H, Rd: v.Rd_kohm, Ip: v.Ip_mA,
+    Cd_nF: a.Cd_nF, Iab: `${a.Iab_mA}∠${a.IabPhase}`, beta1: a.beta1, ratio: a.ratio,
+  });
+
+  const content = [
+    `그림 (가)는 공진주파수 ω₀ = ${v.omega0.toExponential(0).replace("e+", "×10^")} [rad/sec]인 **병렬 RLC 회로**이다 (직렬 RLC의 쌍대).`,
+    `전류원 i(t) = ${v.Ip_mA} cos ω₀t [mA]가 인가되어 공진할 때, 제시된 <해석 절차>에 따라 각 단계별로 풀이과정과 함께 결과를 구하시오.`,
+    `(단, I_ab를 페이저로 표현할 때 ${a.Iab_mA}∠${a.IabPhase}° [mA]로 한다.)`,
+  ].join(" ");
+
+  const conditions = [
+    `병렬 RLC: 전류원 i(t) ∥ R_d(${v.Rd_kohm}kΩ) ∥ [L₁(${v.L1_H}H) 직렬 L₂(${v.L2_H}H)] ∥ C_d.`,
+    `공진주파수 ω₀ = ${v.omega0} rad/s, 전류원 peak ${v.Ip_mA}mA. C_d는 미지(학생 도출). I_ab = 인덕터 가지 전류.`,
+    `※ 이 회로는 직렬 RLC(전압원·V_ab 측정)의 쌍대: 전압원↔전류원, R↔1/R, L↔C, 직렬↔병렬, V↔I.`,
+  ];
+
+  const question = [
+    `[단계 1] 공진시 정전용량 C_d [nF]의 값을 구하고, 페이저 형태로 인덕터 가지 전류 I_ab [mA]를 구한다.`,
+    `[단계 2] 회로의 대역폭 β₁ [rad/sec]를 구한다.`,
+    `[단계 3] 회로의 저항 R_d를 ${v.R2d_kohm}[kΩ]으로 바꾸었을 때의 대역폭을 β₂라 할 때, β₁/β₂를 구한다.`,
+  ].join("\n");
+
+  const answer = [
+    `[단계 1] C_d = ${a.Cd_nF} nF,  I_ab = ${a.Iab_mA}∠${a.IabPhase}° mA`,
+    `[단계 2] β₁ = ${a.beta1} rad/sec`,
+    `[단계 3] β₂ = ${a.beta2} rad/sec,  β₁/β₂ = ${a.ratio}`,
+  ].join("\n");
+
+  const solution = [
+    `[단계 1] L_d = L₁+L₂ = ${v.Ld_H}H (직렬). 병렬 공진: ω₀ = 1/√(L_d·C_d) → C_d = 1/(ω₀²·L_d) = ${a.Cd_nF}nF.`,
+    `  공진시 B_L=B_C 상쇄 → Y=1/R_d → 단자전압 V = I·R_d. 인덕터 가지전류 I_ab = V/(ω₀L_d) = ${a.Iab_mA}∠${a.IabPhase}° mA.`,
+    `[단계 2] 병렬 RLC 대역폭 β₁ = 1/(R_d·C_d) = ${a.beta1} rad/sec.  (직렬 β=R/L의 쌍대)`,
+    `[단계 3] R_d→${v.R2d_kohm}kΩ: β₂ = 1/(R₂d·C_d) = ${a.beta2}. β₁/β₂ = R₂d/R_d = ${a.ratio}.`,
+  ].join("\n");
+
+  const figureVariants: FigureVariant[] = [
+    {
+      id: `fig_rlcbw_dual_${i + 1}`,
+      label: "(가) 병렬 RLC 회로 (직렬의 쌍대 — i(t)∥R_d∥[L₁+L₂]∥C_d)",
+      role: "original_circuit",
+      diagramType: "rlc_resonance_bandwidth_dual_circuit",
+      diagram: gen.circuitDiagram,
+    },
+  ];
+
+  return { id: randomUUID(), content, conditions, question, answer, solution, topicKey, figureVariants };
 }

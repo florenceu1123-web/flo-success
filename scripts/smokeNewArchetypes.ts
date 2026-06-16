@@ -29,8 +29,12 @@ import { generateViTheveninMaxPower } from "../lib/generation/topologies/viTheve
 import { renderViTheveninMaxPowerCircuit } from "../lib/renderers/viTheveninMaxPowerCircuitRenderer";
 import { generateAsyncPresetCounter } from "../lib/generation/topologies/asyncPresetCounter";
 import { renderAsyncPresetCounterCircuit } from "../lib/renderers/asyncPresetCounterCircuitRenderer";
-import { generateRlcResonanceBandwidth } from "../lib/generation/topologies/rlcResonanceBandwidth";
+import {
+  generateRlcResonanceBandwidth,
+  generateRlcResonanceBandwidthDual,
+} from "../lib/generation/topologies/rlcResonanceBandwidth";
 import { renderRlcResonanceBandwidthCircuit } from "../lib/renderers/rlcResonanceBandwidthCircuitRenderer";
+import { renderRlcResonanceBandwidthDualCircuit } from "../lib/renderers/rlcResonanceBandwidthDualCircuitRenderer";
 
 let pass = 0;
 let fail = 0;
@@ -167,26 +171,33 @@ console.log("\n[7] rlcResonanceBandwidth (직렬 RLC 공진 + 대역폭)");
   // 원본 문제 전체 튜플(ω₀=1e4·3.5∥1.5µF·R5·V10·R2 0.5)은 절대 emit 안 됨 (예시 생성 금지).
   //   (캡 분할 3.5/1.5만 다른 R·V·R2와 함께 나오는 것은 답이 다른 별개 문제 — 허용.)
   let origEmitted = false;
-  for (const mode of ["exam_similar", "exam_variant"] as const)
-    for (let seed = 0; seed < 200; seed++) {
-      const v = generateRlcResonanceBandwidth({ seed, mode }).values;
-      if (v.omega0 === 1e4 && v.C1_uF === 3.5 && v.C2_uF === 1.5 && v.R === 5 && v.Vpeak === 10 && v.R2 === 0.5) origEmitted = true;
-    }
+  for (let seed = 0; seed < 200; seed++) {
+    const v = generateRlcResonanceBandwidth({ seed }).values;
+    if (v.omega0 === 1e4 && v.C1_uF === 3.5 && v.C2_uF === 1.5 && v.R === 5 && v.Vpeak === 10 && v.R2 === 0.5) origEmitted = true;
+  }
   check("원본 문제 전체 튜플 미생성", !origEmitted);
 }
-for (const mode of ["exam_similar", "exam_variant"] as const) {
-  for (const seed of [0, 1, 2]) {
-    const g = generateRlcResonanceBandwidth({ seed, mode });
-    const v = g.values, a = g.answer;
-    const svg = renderRlcResonanceBandwidthCircuit(g.circuitDiagram);
-    check(`${mode} seed=${seed} 회로 SVG`, isValidSvg(svg), `${(svg as string).length}자`);
-    // 공식 불변식: L=1/(ω₀²C_eq), β=R/L, V_ab=Vp/R·ω₀L∠−90, β₁/β₂=R/R₂
-    const Ceq = v.Ceq_uF * 1e-6, L = a.L_mH * 1e-3;
-    check(`${mode} s${seed} L=1/(ω₀²C_eq)`, Math.abs(L - 1 / (v.omega0 ** 2 * Ceq)) < 1e-9, `L=${a.L_mH}mH`);
-    check(`${mode} s${seed} β₁=R/L`, Math.abs(a.beta1 - v.R / L) < 1, `β₁=${a.beta1}`);
-    check(`${mode} s${seed} V_ab=Vp/R·ω₀L∠−90`, Math.abs(a.VabMag - (v.Vpeak / v.R) * v.omega0 * L) < 0.01 && a.VabPhase === -90, `V_ab=${a.VabMag}∠${a.VabPhase}`);
-    check(`${mode} s${seed} β₁/β₂=R/R₂`, Math.abs(a.ratio - v.R / v.R2) < 1e-6, `비=${a.ratio}`);
-  }
+// 유사유형 = 직렬 RLC (공식 불변식: L=1/(ω₀²C_eq), β=R/L, V_ab=Vp/R·ω₀L∠−90, β₁/β₂=R/R₂)
+for (const seed of [0, 1, 2]) {
+  const g = generateRlcResonanceBandwidth({ seed });
+  const v = g.values, a = g.answer;
+  check(`유사 seed=${seed} 회로 SVG`, isValidSvg(renderRlcResonanceBandwidthCircuit(g.circuitDiagram)));
+  const Ceq = v.Ceq_uF * 1e-6, L = a.L_mH * 1e-3;
+  check(`유사 s${seed} L=1/(ω₀²C_eq)`, Math.abs(L - 1 / (v.omega0 ** 2 * Ceq)) < 1e-9, `L=${a.L_mH}mH`);
+  check(`유사 s${seed} β₁=R/L`, Math.abs(a.beta1 - v.R / L) < 1, `β₁=${a.beta1}`);
+  check(`유사 s${seed} V_ab=Vp/R·ω₀L∠−90`, Math.abs(a.VabMag - (v.Vpeak / v.R) * v.omega0 * L) < 0.01 && a.VabPhase === -90, `V_ab=${a.VabMag}∠${a.VabPhase}`);
+  check(`유사 s${seed} β₁/β₂=R/R₂`, Math.abs(a.ratio - v.R / v.R2) < 1e-6, `비=${a.ratio}`);
+}
+// 변형유형 = 쌍대(병렬 RLC): C_d=1/(ω₀²L_d), β·β₁/β₂ 보존, I_ab=인덕터 가지전류
+for (const seed of [0, 1, 2]) {
+  const g = generateRlcResonanceBandwidthDual({ seed });
+  const v = g.values, a = g.answer;
+  check(`변형(dual) seed=${seed} 회로 SVG`, isValidSvg(renderRlcResonanceBandwidthDualCircuit(g.circuitDiagram)));
+  const Ld = v.Ld_H, Cd = a.Cd_nF * 1e-9, Rd = v.Rd_kohm * 1e3;
+  check(`변형 s${seed} C_d=1/(ω₀²L_d)`, Math.abs(Cd - 1 / (v.omega0 ** 2 * Ld)) < 1e-12, `C_d=${a.Cd_nF}nF`);
+  check(`변형 s${seed} β₁=1/(R_d·C_d)`, Math.abs(a.beta1 - 1 / (Rd * Cd)) < 1, `β₁=${a.beta1}`);
+  check(`변형 s${seed} β₁/β₂=R₂d/R_d`, Math.abs(a.ratio - v.R2d_kohm / v.Rd_kohm) < 1e-6, `비=${a.ratio}`);
+  check(`변형 s${seed} I_ab 위상=−90`, a.IabPhase === -90, `I_ab=${a.Iab_mA}∠${a.IabPhase}`);
 }
 
 // ── 결과 ──────────────────────────────────────────────────────────

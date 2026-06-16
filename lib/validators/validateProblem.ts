@@ -29,6 +29,7 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "zener_bjt_regulator_circuit", // 임용 8번 제너+BJT 전압 레귤레이터 = topology figure
   "async_preset_counter_circuit", // 비동기 SET/RESET D-FF 응용회로 (가) = topology figure
   "rlc_resonance_bandwidth_circuit", // 직렬 RLC 공진+대역폭 (가) = topology figure
+  "rlc_resonance_bandwidth_dual_circuit", // 위의 쌍대(기출변형) 병렬 RLC = topology figure
 ]);
 
 /**

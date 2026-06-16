@@ -368,6 +368,7 @@ export type DiagramType =
   | "zener_bjt_regulator_circuit" // 임용 8번 — 제너+BJT 전압 레귤레이터 (고정 슬롯)
   | "async_preset_counter_circuit" // 비동기 SET/RESET D-FF 응용회로 (가) — NOR(F) 적재 + 리플 T-FF (고정 슬롯)
   | "rlc_resonance_bandwidth_circuit" // 직렬 RLC 공진+대역폭 (임용 11번) — R–[C₁∥C₂]–L + 단자 a·b (고정 슬롯)
+  | "rlc_resonance_bandwidth_dual_circuit" // 위의 쌍대(기출변형) — 병렬 RLC(전류원∥R_d∥[L₁+L₂]∥C_d), I_ab 측정
   | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
 
 /**
@@ -1228,6 +1229,18 @@ export type RlcResonanceBandwidthCircuitDiagram = {
   c2Label: string;  // "1.5µF" (마디 a–b 하단, C₁과 병렬)
   lLabel: string;   // "L" (미지) 또는 값
   vLabel: string;   // "v(t)=10cos ω₀t"
+};
+
+/**
+ * rlc_resonance_bandwidth_dual_circuit payload — 위 직렬 RLC의 쌍대(병렬 RLC, 기출변형).
+ *   전류원 i(t) ∥ R_d ∥ [L₁ 직렬 L₂] ∥ C_d. I_ab = 인덕터 가지 전류(V_ab의 쌍대).
+ */
+export type RlcResonanceBandwidthDualCircuitDiagram = {
+  iLabel: string;   // "i(t)=10cos ω₀t [mA]"
+  rdLabel: string;  // "200kΩ"
+  l1Label: string;  // "2.5H"
+  l2Label: string;  // "1.5H"
+  cdLabel: string;  // "C" (미지)
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

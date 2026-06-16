@@ -99,7 +99,16 @@ function acSource(cx: number, cy: number): string {
 }
 
 function resistor(x1: number, x2: number, y: number): string {
-  return `<rect x="${x1}" y="${y - 9}" width="${x2 - x1}" height="18" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
+  // 지그재그 저항 심볼 (양끝 짧은 리드 + 6개 톱니)
+  const a = 8, lead = 8, teeth = 6;
+  const bx1 = x1 + lead, bx2 = x2 - lead;
+  const step = (bx2 - bx1) / teeth;
+  let p = `M${x1},${y} L${bx1},${y}`;
+  for (let i = 0; i < teeth; i++) {
+    p += ` L${bx1 + step * (i + 0.5)},${y + (i % 2 === 0 ? -a : a)}`;
+  }
+  p += ` L${bx2},${y} L${x2},${y}`;
+  return `<path d="${p}" fill="none" stroke="${STROKE}" stroke-width="${WIRE_W}" stroke-linejoin="round"/>`;
 }
 
 function capacitor(cx: number, y: number): string {

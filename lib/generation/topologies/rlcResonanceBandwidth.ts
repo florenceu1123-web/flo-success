@@ -1,4 +1,8 @@
-import type { GenerationMode, RlcResonanceBandwidthCircuitDiagram } from "@/types";
+import type {
+  GenerationMode,
+  RlcResonanceBandwidthCircuitDiagram,
+  RlcResonanceBandwidthDualCircuitDiagram,
+} from "@/types";
 import { makeRand, pick, round3 } from "./_helpers";
 
 /**
@@ -136,12 +140,91 @@ function solve(s: ParamSet): RlcResonanceBandwidthGeneration {
 
 export function generateRlcResonanceBandwidth(args: {
   seed?: number;
-  mode: GenerationMode;
 }): RlcResonanceBandwidthGeneration {
   const rand = makeRand(args.seed);
   for (let i = 0; i < 4; i++) rand(); // warm-up
-  // 규칙으로 구성된 전체 공간에서 선택 (예시 목록 아님). mode로 공간을 반분해 유사/변형 분리.
-  const half = Math.floor(RULE_SPACE.length / 2);
-  const space = args.mode === "exam_variant" ? RULE_SPACE.slice(half) : RULE_SPACE.slice(0, half);
-  return solve(pick(space.length ? space : RULE_SPACE, rand));
+  // 규칙으로 구성된 전체 공간에서 선택 (예시 목록 아님).
+  return solve(pick(RULE_SPACE, rand));
+}
+
+// ─── 기출변형 = 쌍대(dual) 병렬 RLC ─────────────────────────────────
+//   임피던스 스케일 R₀=1kΩ로 직렬→병렬 변환: 전압원→전류원, 직렬R→병렬R_d=R₀²/R,
+//   직렬L→병렬C_d=L/R₀², 직렬C→병렬L_d=C·R₀², V_ab→I_ab=V_ab/R₀.
+//   ★ β·β₁/β₂ 보존(직렬 β=R/L = 병렬 β=1/(R_dC_d)), V_ab[V]↔I_ab[mA] 거울. 공진주파수 동일.
+const R0 = 1000; // 스케일 저항 (Ω)
+
+export type RlcResonanceBandwidthDualGeneration = {
+  values: {
+    omega0: number;
+    Rd_kohm: number;   // R₀²/R (kΩ)
+    R2d_kohm: number;  // R₀²/R2 (kΩ)
+    L1_H: number;      // C₁·R₀² (H) — 직렬 인덕터 1 (주어짐)
+    L2_H: number;      // C₂·R₀² (H)
+    Ld_H: number;      // L₁+L₂
+    Ip_mA: number;     // V/R₀ (mA)
+  };
+  answer: {
+    Cd_nF: number;     // 도출 (= 원본 L_mH 거울)
+    X: number;         // ω₀·L_d (Ω)
+    Iab_mA: number;    // |I_ab| (mA, = 원본 V_ab 거울)
+    IabPhase: number;  // −90
+    beta1: number;     // 1/(R_d·C_d) = R/L (보존)
+    beta2: number;
+    ratio: number;     // R/R2 (보존)
+  };
+  circuitDiagram: RlcResonanceBandwidthDualCircuitDiagram;
+};
+
+function solveDual(s: ParamSet): RlcResonanceBandwidthDualGeneration {
+  const R0sq = R0 * R0;
+  const Rd = R0sq / s.R;                  // Ω
+  const R2d = R0sq / s.R2;
+  const L1_H = s.C1_uF * 1e-6 * R0sq;     // C·R₀²
+  const L2_H = s.C2_uF * 1e-6 * R0sq;
+  const Ld_H = L1_H + L2_H;               // = C_eq·R₀²
+  const Ip_A = s.Vpeak / R0;              // V/R₀
+  const Cd_F = 1 / (s.omega0 * s.omega0 * Ld_H); // 병렬 공진: C_d=1/(ω₀²L_d)
+  const X = s.omega0 * Ld_H;              // ω₀L_d
+  const Vtank = Ip_A * Rd;                // I·R_d (peak)
+  const Iab_A = Vtank / X;                // 인덕터 가지 전류
+  const beta1 = 1 / (Rd * Cd_F);
+  const beta2 = 1 / (R2d * Cd_F);
+  const ratio = beta1 / beta2;
+
+  const kΩ = (ohm: number) => round3(ohm / 1000);
+  const circuitDiagram: RlcResonanceBandwidthDualCircuitDiagram = {
+    iLabel: `i(t)=${s.Vpeak}cos ω₀t [mA]`,
+    rdLabel: `${kΩ(Rd)}kΩ`,
+    l1Label: `${round3(L1_H)}H`,
+    l2Label: `${round3(L2_H)}H`,
+    cdLabel: "C",
+  };
+
+  return {
+    values: {
+      omega0: s.omega0,
+      Rd_kohm: kΩ(Rd),
+      R2d_kohm: kΩ(R2d),
+      L1_H: round3(L1_H),
+      L2_H: round3(L2_H),
+      Ld_H: round3(Ld_H),
+      Ip_mA: round3(Ip_A * 1e3),
+    },
+    answer: {
+      Cd_nF: round3(Cd_F * 1e9),
+      X: round3(X),
+      Iab_mA: round3(Iab_A * 1e3),
+      IabPhase: -90,
+      beta1: round3(beta1),
+      beta2: round3(beta2),
+      ratio: round3(ratio),
+    },
+    circuitDiagram,
+  };
+}
+
+export function generateRlcResonanceBandwidthDual(args: { seed?: number }): RlcResonanceBandwidthDualGeneration {
+  const rand = makeRand(args.seed);
+  for (let i = 0; i < 4; i++) rand(); // warm-up
+  return solveDual(pick(RULE_SPACE, rand));
 }
