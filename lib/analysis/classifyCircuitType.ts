@@ -1364,6 +1364,29 @@ function decideType(args: DecideArgs): DecideResult {
     };
   }
 
+  // 0-PRE-AC-RLC-BANDWIDTH. 직렬 RLC 공진 + 대역폭 (임용 11번) — universal_ac보다 먼저.
+  //   원본: ω₀·C 주어지고 L 도출·V_ab 페이저·**대역폭 β=R/L**·R변경 시 β₁/β₂.
+  //   ★ generic universal_ac 쿼리추론은 "공진주파수·C 찾기"라는 엉뚱한 generic 문제를 만들어
+  //     대역폭·L도출·V_ab 구조를 잃음 → 전용 결정론 archetype.
+  //   판별 키: 공진 + **대역폭/β**(bandwidth) — 일반 공진문제와 구분하는 결정적 단서.
+  {
+    const hasReactive = counts.L > 0 || counts.C > 0;
+    const isResonance = matchesKeyword(text, ["공진", "resonance", "공진주파수", "공진 주파수", "ω₀", "ω_0", "omega_0", "omega0"]);
+    const hasBandwidth = matchesKeyword(text, [
+      "대역폭", "대역 폭", "bandwidth", "band width",
+      "β₁", "β1", "β₂", "β2", "β [rad", "β[rad", "beta_1", "beta1", "beta_2", "beta2",
+      "rad/sec", "rad/s 대역", "half-power", "반전력", "−3db", "-3db", "3db 대역",
+    ]);
+    if (hasReactive && isResonance && hasBandwidth) {
+      return {
+        type: "rlc_resonance_bandwidth",
+        params: {},
+        confidence: "high",
+        reasoning: "직렬 RLC + 공진 + 대역폭(β=R/L) → rlc_resonance_bandwidth (universal_ac generic 공진문제 오분류 차단)",
+      };
+    }
+  }
+
   // 0-PRE-AC. Universal AC (archetype-free) — 모든 AC archetype보다 우선.
   //   조건: (L OR C 존재) + AC 키워드(공진·페이저·최대전력) + 기존 archetype 강한 시그니처 없음.
   //   기존 archetype(rlc_resonance·ac_superposition 등) 명시 키워드는 그쪽 유지.

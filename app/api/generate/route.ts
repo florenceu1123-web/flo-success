@@ -47,6 +47,7 @@ import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGat
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runSrFfMuxSequentialPipeline } from "@/lib/pipeline/runSrFfMuxSequentialPipeline";
 import { runAsyncPresetCounterPipeline } from "@/lib/pipeline/runAsyncPresetCounterPipeline";
+import { runRlcResonanceBandwidthPipeline } from "@/lib/pipeline/runRlcResonanceBandwidthPipeline";
 import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
 import { runTheveninSwitchedRcPipeline } from "@/lib/pipeline/runTheveninSwitchedRcPipeline";
 import { runOpampCascadePipeline } from "@/lib/pipeline/runOpampCascadePipeline";
@@ -195,6 +196,8 @@ export async function POST(req: NextRequest) {
     // async_preset_ripple_counter는 (가)회로+(나)파형 2-figure 형식. 파형은 제공하므로 유지,
     //  스위치 t<0/t>0 상태쌍은 없음(F=NOR 자동재적재) → hasStateTransition=false로 state_before/after 면제.
     const isAsyncPresetCounter = analysis?.circuitType?.type === "async_preset_ripple_counter";
+    // rlc_resonance_bandwidth: 페이저 정상상태 단일 회로 figure — 파형·등가·상태·multi 모두 면제.
+    const isRlcResonanceBandwidth = analysis?.circuitType?.type === "rlc_resonance_bandwidth";
     const isSwStatePair =
       rawSemantic.hasWaveformEvolution &&
       !hasCapOrIndInCircuit &&
@@ -208,6 +211,8 @@ export async function POST(req: NextRequest) {
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, requiresMultiFigure: false }
       : isAsyncPresetCounter
       ? { ...rawSemantic, hasStateTransition: false, hasWaveformEvolution: true, requiresMultiFigure: true }
+      : isRlcResonanceBandwidth
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
       : isAcDcSuperposition
         ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false }
         : isRlcResonanceMaxPower
@@ -393,6 +398,14 @@ export async function POST(req: NextRequest) {
       }
       problems = await runUniversalDcPipeline({
         analysis,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "rlc_resonance_bandwidth" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "rlc_resonance_bandwidth_pipeline", count: n, mode });
+      problems = await runRlcResonanceBandwidthPipeline({
+        analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
         topicKey: expectedTopicKey,

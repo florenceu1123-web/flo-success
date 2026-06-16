@@ -51,6 +51,7 @@ import { renderViTheveninMaxPowerCircuit } from "./viTheveninMaxPowerCircuitRend
 import { renderFlashAdc2bitCircuit } from "./flashAdc2bitCircuitRenderer";
 import { renderZenerBjtRegulatorCircuit } from "./zenerBjtRegulatorCircuitRenderer";
 import { renderAsyncPresetCounterCircuit } from "./asyncPresetCounterCircuitRenderer";
+import { renderRlcResonanceBandwidthCircuit } from "./rlcResonanceBandwidthCircuitRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -120,6 +121,8 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderZenerBjtRegulatorCircuit(figure.diagram as import("@/types").ZenerBjtRegulatorCircuitDiagram));
     case "async_preset_counter_circuit":
       return wrapSvg(figure, renderAsyncPresetCounterCircuit(figure.diagram as import("@/types").AsyncPresetCounterCircuitDiagram));
+    case "rlc_resonance_bandwidth_circuit":
+      return wrapSvg(figure, renderRlcResonanceBandwidthCircuit(figure.diagram as import("@/types").RlcResonanceBandwidthCircuitDiagram));
     case "vi_line_graph":
       return wrapSvg(figure, renderViLineGraph(figure.diagram as Parameters<typeof renderViLineGraph>[0]));
     default:

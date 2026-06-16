@@ -509,6 +509,17 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - classifier 우선순위: **ac_superposition보다 먼저 매치**. 트리거: (R>0 ∧ L>0 ∧ C>0) ∧ (V≤1 ∧ I=0) ∧ 공진/주파수응답 키워드 ∧ "중첩" 키워드 없음.
 - ★ **기출변형유형 = 쌍대(dual) 회로**: 직렬 RLC(전압원·전류측정)의 쌍대 = **병렬 GLC(전류원·전압측정)**. V↔I, R↔G(=1/R), L↔C, C↔L, 직렬↔병렬 (스케일 R₀=1kΩ). 공진주파수 f_0 동일. 원본 TRIPLES·V_PRESETS를 R₀ 매핑으로 재사용 → 깔끔한 거울값(I[mA]↔V[V], Ω↔kΩ, H↔µF). 학생 도출: 미지 **L**(원본 C의 쌍대)을 (f_x,V_x) −3dB점에서, 그 뒤 f_0·V_max=I_peak·R. 파일: `generateRlcResonanceDual`+`buildDualResonanceCurveSamples` (rlcResonance.ts), `runRlcResonancePipeline`에서 `mode==="exam_variant"`면 dual(결정론 텍스트, 병렬 netlist는 generic analogMeshRenderer로 렌더, (나)는 |V| vs f 곡선).
 
+## 직렬 RLC 공진 + 대역폭 (임용 11번 — `rlc_resonance_bandwidth`) 전용 archetype
+- 원본: 직렬 RLC. v(t)=Vp·cos(ω₀t), 공진주파수 ω₀·C값 주어짐. 토폴로지 `v(t)→R→마디 a→[C₁∥C₂]→마디 b→L→복귀` (C_eq=C₁+C₂).
+- 위 `rlc_resonance`(임용 9번, f vs |I| 곡선에서 **C 도출**)와 **다름** — 이쪽은 **L 도출 + 대역폭 β** 중심. 3단계:
+  - [단계1] 공진시 **L = 1/(ω₀²·C_eq)** + 페이저 **V_ab = I·(1/jω₀C_eq) = (Vp/R)·ω₀L ∠−90°** (공진시 Z=R → I=Vp/R∠0°).
+  - [단계2] **대역폭 β₁ = R/L** [rad/s] (직렬 RLC).
+  - [단계3] R→R₂ 시 β₂=R₂/L → **β₁/β₂ = R/R₂**.
+- ★ generic `universal_ac` 쿼리추론은 "공진주파수·C 찾기"라는 엉뚱한 generic 문제를 만들어 **대역폭·L도출·V_ab 구조를 잃음** → 전용 결정론 archetype 필수.
+- ★ **Vision 비결정성 대응 (핵심)**: Vision이 이 문제를 "공진 전압 계산"으로 요약하며 **대역폭/β 단계를 흘려** universal_ac로 오분류됨(실측 0/3). → `analyzeImage` 프롬프트에 "RLC 공진+대역폭 추출 절대규칙" 추가(대역폭·β·L·V_ab를 interpretation·relatedConcepts에 보존 강제). classifier는 **공진 + 대역폭/β** 키워드로 universal_ac **앞에** 매치. 보강 후 라우팅 0/3→5/5.
+- ★ **원본 예시 미생성**: PARAM_SETS index 0 = 원본값(3.5µF∥1.5µF·5Ω·10V) — **생성 풀에서 제외**(참조·물리검증 전용). 유사·변형은 다른 사전검증 세트(L·V_ab·β 모두 깔끔)만 emit. [[feedback_generic_code]] 준수.
+- 파일: `lib/generation/topologies/rlcResonanceBandwidth.ts`(결정론 generator, GPT 없음), `lib/pipeline/runRlcResonanceBandwidthPipeline.ts`(3단계 텍스트), `lib/renderers/rlcResonanceBandwidthCircuitRenderer.ts`(전용: 직렬 R–[C₁∥C₂]–L + 단자 a·b + AC원 + V_ab 화살표). circuitType `rlc_resonance_bandwidth`, diagramType `rlc_resonance_bandwidth_circuit`. types·validateProblem·route dispatch·semantic normalize(페이저 정상상태=파형/등가/multi 면제) 등록.
+
 ## Switched RLC 5-leg (임용 9번 원본 정확 재현)
 - 6 vertical legs + 2 top horizontal R + SPDT SW:
   - Leg1 V_s (vertical), Leg2 R_2v (vertical), Leg3 R_3+L_a 직렬 (vertical), Leg4 C∥R_4 (vertical), Leg5 L_b (vertical), Leg6 I_s (vertical)

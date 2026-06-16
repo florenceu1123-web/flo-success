@@ -367,6 +367,7 @@ export type DiagramType =
   | "flash_adc_2bit_circuit" // 임용 6번 — 2비트 플래시 ADC (저항사다리+비교기+인코더, 복합형)
   | "zener_bjt_regulator_circuit" // 임용 8번 — 제너+BJT 전압 레귤레이터 (고정 슬롯)
   | "async_preset_counter_circuit" // 비동기 SET/RESET D-FF 응용회로 (가) — NOR(F) 적재 + 리플 T-FF (고정 슬롯)
+  | "rlc_resonance_bandwidth_circuit" // 직렬 RLC 공진+대역폭 (임용 11번) — R–[C₁∥C₂]–L + 단자 a·b (고정 슬롯)
   | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
 
 /**
@@ -1214,6 +1215,19 @@ export type AsyncPresetCounterCircuitDiagram = {
   qLabels: string[];
   /** 우측 NOR 게이트 출력 라벨 (예: "F"). */
   norLabel: string;
+};
+
+/**
+ * rlc_resonance_bandwidth_circuit payload — 직렬 RLC 공진+대역폭 (임용 11번).
+ *   고정 토폴로지: v(t) → R → 마디 a → [C₁ ∥ C₂] → 마디 b → L → v(t) 복귀.
+ *   값(라벨)만 외부 결정. L은 미지(학생 도출)라 보통 "L" 표기.
+ */
+export type RlcResonanceBandwidthCircuitDiagram = {
+  rLabel: string;   // "5Ω"
+  c1Label: string;  // "3.5µF" (마디 a–b 상단)
+  c2Label: string;  // "1.5µF" (마디 a–b 하단, C₁과 병렬)
+  lLabel: string;   // "L" (미지) 또는 값
+  vLabel: string;   // "v(t)=10cos ω₀t"
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

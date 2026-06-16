@@ -28,6 +28,7 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "flash_adc_2bit_circuit", // 임용 6번 2비트 플래시 ADC = topology figure
   "zener_bjt_regulator_circuit", // 임용 8번 제너+BJT 전압 레귤레이터 = topology figure
   "async_preset_counter_circuit", // 비동기 SET/RESET D-FF 응용회로 (가) = topology figure
+  "rlc_resonance_bandwidth_circuit", // 직렬 RLC 공진+대역폭 (가) = topology figure
 ]);
 
 /**

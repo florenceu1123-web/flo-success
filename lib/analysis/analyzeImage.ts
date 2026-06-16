@@ -432,6 +432,18 @@ GPT의 역할은 ★ 관측(observation) ★ 만:
 위 (1)·(2)·(3) 중 하나라도 누락하면 classifier가 switched_rc·switching_circuit 등 잘못된
 path로 라우팅되어 universal_ac_pwl 파이프라인이 호출되지 못한다.)
 
+【RLC 공진 + 대역폭 회로 추출 — 절대 규칙 (임용 11번류)】
+- 직렬/병렬 RLC 공진 회로에서 <해석 절차>가 **대역폭(β, bandwidth)** · **품질계수(Q)** · **인덕턴스 L 도출** ·
+  **마디 전압 V_ab** · **저항 변경 시 대역폭 비(β₁/β₂)** 등을 요구하면, 그 용어를 ★ interpretation과
+  relatedConcepts에 그대로 보존 ★ 하라. 문제를 "공진 전압 계산" 정도로 ★ 요약·축약하지 마라 ★.
+- ★ 절대 금지 ★: 원본이 "대역폭 β를 구하라"·"β₁/β₂를 구하라" 단계를 가졌는데 interpretation에서
+  대역폭·β를 누락하고 "공진 주파수에서 전압을 구한다"로만 적는 것. (그러면 generic 공진문제로 오분류된다.)
+- (1) interpretation에 ★ "대역폭" 과 "β" 를 명시 ★ + 각 단계의 요구량(L[mH], V_ab 페이저, β₁/β₂)을 문장으로 보존.
+- (2) relatedConcepts에 ★ "대역폭", "β", "품질계수 Q", "공진주파수 ω₀", "직렬 RLC" 중 4개 이상 ★ 포함.
+- (3) 공진주파수 ω₀와 주어진 C값·R값을 그대로 추출(L은 미지면 value="?" 또는 "L").
+(이 케이스는 classifier가 rlc_resonance_bandwidth로 라우팅하여 결정론 3단계 풀이가 적용된다.
+"대역폭"·"β" 키워드 누락 시 universal_ac로 떨어져 엉뚱한 generic 공진문제가 생성된다.)
+
 【electronics OPAMP 회로 추출 — 절대 규칙】
 - OPAMP component는 R/V/I와 동일하게 componentInventory에 모두 포함하고, topologySignature.branches에도 명시한다.
 - OPAMP가 회로에 K개 있으면 inventory에 "OPAMP" K번, branches에도 K개 별도 entry.

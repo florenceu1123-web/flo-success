@@ -29,6 +29,8 @@ import { generateViTheveninMaxPower } from "../lib/generation/topologies/viTheve
 import { renderViTheveninMaxPowerCircuit } from "../lib/renderers/viTheveninMaxPowerCircuitRenderer";
 import { generateAsyncPresetCounter } from "../lib/generation/topologies/asyncPresetCounter";
 import { renderAsyncPresetCounterCircuit } from "../lib/renderers/asyncPresetCounterCircuitRenderer";
+import { generateRlcResonanceBandwidth } from "../lib/generation/topologies/rlcResonanceBandwidth";
+import { renderRlcResonanceBandwidthCircuit } from "../lib/renderers/rlcResonanceBandwidthCircuitRenderer";
 
 let pass = 0;
 let fail = 0;
@@ -156,6 +158,34 @@ for (const mode of ["exam_similar", "exam_variant"] as const) {
     // (나) 파형 = 클럭 + Q 빈 트랙 + ㉠·㉡ 마커
     const wf = gen.waveformDiagram;
     check(`${mode} seed=${seed} 파형 ㉠·㉡ 마커`, (wf.markers ?? []).map((m) => m.label).join("") === "㉠㉡");
+  }
+}
+
+// ── [7] rlcResonanceBandwidth ─────────────────────────────────────
+console.log("\n[7] rlcResonanceBandwidth (직렬 RLC 공진 + 대역폭)");
+{
+  // 원본 문제 전체 튜플(ω₀=1e4·3.5∥1.5µF·R5·V10·R2 0.5)은 절대 emit 안 됨 (예시 생성 금지).
+  //   (캡 분할 3.5/1.5만 다른 R·V·R2와 함께 나오는 것은 답이 다른 별개 문제 — 허용.)
+  let origEmitted = false;
+  for (const mode of ["exam_similar", "exam_variant"] as const)
+    for (let seed = 0; seed < 200; seed++) {
+      const v = generateRlcResonanceBandwidth({ seed, mode }).values;
+      if (v.omega0 === 1e4 && v.C1_uF === 3.5 && v.C2_uF === 1.5 && v.R === 5 && v.Vpeak === 10 && v.R2 === 0.5) origEmitted = true;
+    }
+  check("원본 문제 전체 튜플 미생성", !origEmitted);
+}
+for (const mode of ["exam_similar", "exam_variant"] as const) {
+  for (const seed of [0, 1, 2]) {
+    const g = generateRlcResonanceBandwidth({ seed, mode });
+    const v = g.values, a = g.answer;
+    const svg = renderRlcResonanceBandwidthCircuit(g.circuitDiagram);
+    check(`${mode} seed=${seed} 회로 SVG`, isValidSvg(svg), `${(svg as string).length}자`);
+    // 공식 불변식: L=1/(ω₀²C_eq), β=R/L, V_ab=Vp/R·ω₀L∠−90, β₁/β₂=R/R₂
+    const Ceq = v.Ceq_uF * 1e-6, L = a.L_mH * 1e-3;
+    check(`${mode} s${seed} L=1/(ω₀²C_eq)`, Math.abs(L - 1 / (v.omega0 ** 2 * Ceq)) < 1e-9, `L=${a.L_mH}mH`);
+    check(`${mode} s${seed} β₁=R/L`, Math.abs(a.beta1 - v.R / L) < 1, `β₁=${a.beta1}`);
+    check(`${mode} s${seed} V_ab=Vp/R·ω₀L∠−90`, Math.abs(a.VabMag - (v.Vpeak / v.R) * v.omega0 * L) < 0.01 && a.VabPhase === -90, `V_ab=${a.VabMag}∠${a.VabPhase}`);
+    check(`${mode} s${seed} β₁/β₂=R/R₂`, Math.abs(a.ratio - v.R / v.R2) < 1e-6, `비=${a.ratio}`);
   }
 }
 
