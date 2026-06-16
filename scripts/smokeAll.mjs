@@ -27,6 +27,14 @@ const TESTS = [
   { type: "flipflop_counter",    subject: "digital_logic",  topic: "D-FF 카운터",    topicKey: "flipflop_counter" },
   { type: "fsm",                 subject: "digital_logic",  topic: "Mealy FSM",      topicKey: "fsm" },
   { type: "waveform_analysis",   subject: "digital_logic",  topic: "파형 분석",      topicKey: "waveform_analysis" },
+  // 신규 archetype 5종 (전용 fixed-slot renderer)
+  { type: "flash_adc_2bit",        subject: "mixed_signal",   topic: "2비트 플래시 ADC",   topicKey: "adc_sample_hold" },
+  { type: "sr_ff_mux_sequential",  subject: "digital_logic",  topic: "SR-FF + MUX 순차회로", topicKey: "flipflop_counter" },
+  { type: "zener_bjt_regulator",   subject: "electronics",    topic: "제너+BJT 레귤레이터",  topicKey: "bjt_bias" },
+  // acDcSuperpositionRc — universal_ac + params 플래그로 트리거 (임용 12번 AC+DC 중첩 RC)
+  { type: "universal_ac",          subject: "circuit_theory", topic: "AC+DC 중첩 RC",      topicKey: "rlc_response", params: { acDcSuperpositionRc: true } },
+  // viTheveninMaxPower — max_power_transfer + 2전압원·2전류원 params로 maxpower 파이프라인 내 분기 (임용 5번)
+  { type: "max_power_transfer",    subject: "circuit_theory", topic: "2전원 테브난 최대전력", topicKey: "dc_resistive", params: { vSourceCount: 2, iSourceCount: 2 } },
 ];
 
 const results = [];
@@ -44,7 +52,7 @@ for (const t of TESTS) {
       relatedConcepts: [t.topic],
       fillInTheBlanks: [],
       subjectKey: t.subject,
-      circuitType: { type: t.type, params: {}, confidence: "high", reasoning: "smoke" },
+      circuitType: { type: t.type, params: t.params ?? {}, confidence: "high", reasoning: "smoke" },
     },
   };
 
