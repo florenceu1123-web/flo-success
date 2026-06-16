@@ -1,4 +1,4 @@
-import type { CircuitNetlist, CircuitTypeParams } from "@/types";
+import type { CircuitComponent, CircuitNetlist, CircuitTypeParams } from "@/types";
 import type { SolverNetwork } from "@/lib/solver/mna";
 import { solveRcTransient } from "@/lib/solver/rcTransient";
 import {
@@ -156,5 +156,56 @@ function buildSimpleCharging(rand: () => number): RcStepGeneration {
     },
     archetype: "simple_charging",
     values: { V1, R1_kohm, C1_uF, N_multiplier: N },
+  };
+}
+
+// =====================================================================
+// 쌍대(dual) — RC 충전(전압원·직렬 R·C, V_C 측정)의 쌍대 = 병렬 RL(전류원∥R∥L, I_L 측정).
+//   V↔I, R↔G(=1/R), C↔L, 직렬↔병렬 (스케일 R₀=1kΩ). 시정수 τ=R·C=L/R' 동일.
+//   I_L(t)=I1(1−e^(−t/τ)), I_L(∞)=I1. (V_C(t)=V1(1−e^(−t/τ))의 거울, V↔I)
+// =====================================================================
+const RC_DUAL_R0 = 1000;
+
+export type RcStepDualGeneration = {
+  netlist: CircuitNetlist;
+  answer: { tauMs: number; Iinf: number; tQueryMs: number; IlAtQuery: number };
+  values: { I1_mA: number; R1d: number; L1_H: number; N_multiplier: number };
+};
+
+export function generateRcStepDual(args: { seed?: number }): RcStepDualGeneration {
+  const rand = makeRand(args.seed);
+  const V1 = pick(NICE_VOLTAGES, rand);
+  const R1_kohm = pick(NICE_RESISTORS, rand);
+  const C1_uF = pick(NICE_CAPACITANCES_UF, rand);
+  const N = pick(TIME_MULTIPLIERS, rand);
+
+  // 쌍대 값 (R₀=1kΩ): I1=V1/R₀=V1[mA], R1'=R₀²/R1, L1=C·R₀².
+  const I1_mA = V1;                       // V1[V]/1kΩ = V1 mA
+  const R1d = round3(1000 / R1_kohm);     // R₀²/R1 = 1e6/(R1_kΩ·1e3) = 1000/R1_kΩ [Ω]
+  const L1_H = round3(C1_uF);             // C[F]·R₀² = C1_uF·1e-6·1e6 = C1_uF [H]
+  const tauMs = round3(R1_kohm * C1_uF);  // = R·C = L/R' [ms]
+  const Iinf = I1_mA;
+  const IlAtQuery = round3(I1_mA * (1 - Math.exp(-N)));
+  const tQueryMs = round3(N * tauMs);
+
+  const GND = "GND";
+  const components: CircuitComponent[] = [
+    { id: "I1", type: "I", value: `${I1_mA}mA`,
+      pins: [{ id: "p", node: GND, side: "bottom" }, { id: "n", node: "a", side: "top" }] },
+    { id: "R1", type: "R", value: `${R1d}Ω`,
+      pins: [{ id: "p", node: "a", side: "top" }, { id: "n", node: GND, side: "bottom" }] },
+    { id: "L1", type: "L", value: `${L1_H}H`,
+      pins: [{ id: "p", node: "a", side: "top" }, { id: "n", node: GND, side: "bottom" }] },
+  ];
+  const netlist: CircuitNetlist = {
+    components, ground: GND,
+    nodeAnnotations: [{ node: "a", label: "i_L↓", style: "label_only" }],
+    positions: { GND: { x: 300, y: 320 }, a: { x: 300, y: 120 } },
+  };
+
+  return {
+    netlist,
+    answer: { tauMs, Iinf, tQueryMs, IlAtQuery },
+    values: { I1_mA, R1d, L1_H, N_multiplier: N },
   };
 }

@@ -1,4 +1,4 @@
-import type { CircuitNetlist, CircuitTypeParams } from "@/types";
+import type { CircuitComponent, CircuitNetlist, CircuitTypeParams } from "@/types";
 import { solveMNA, type SolverNetwork } from "@/lib/solver/mna";
 import {
   NICE_CURRENTS,
@@ -155,5 +155,87 @@ function buildTwoMeshSharedI(rand: () => number, targetBranch?: string): DcSuper
     targetCurrent: branchCurrents[target],
     archetype: "two_mesh_shared_I",
     values: { V1, V2, I_s: Is, R1, R3 },
+  };
+}
+
+// =====================================================================
+// 쌍대(dual) — 슈퍼메시(공유 전류원·메시전류)의 쌍대 = 슈퍼노드(공유 전압원·노드전압).
+//   V↔I, R↔G, 메시↔노드, 공유 전류원 I_s↔공유 전압원 V_s (D1-D2 사이) (스케일 R₀=10).
+//   원본: V1·R1·I_s(공유)·R3·V2 → 쌍대: I1∥R1'(D1), V_s(D1-D2 슈퍼노드), I2∥R3'(D2).
+//   ★ 부호: 메시 RHS [V1; -V2]의 대칭 → I2는 D2에서 인출. 공유전류원 I_s → 공유전압원 V_s.
+// =====================================================================
+const SUPERMESH_DUAL_R0 = 10;
+
+export type DcSupermeshDualGeneration = {
+  netlist: CircuitNetlist;
+  solverNet: SolverNetwork;
+  branchVoltages: Record<string, number>;
+  nodeVoltages: { D1: number; D2: number };
+  targetBranch: string;
+  targetVoltage: number;
+  values: Record<string, number>;
+};
+
+export function generateDcSupermeshDual(args: { seed?: number; targetBranch?: string }): DcSupermeshDualGeneration {
+  const rand = makeRand(args.seed);
+  const V1 = pick(NICE_VOLTAGES, rand);
+  const V2 = pick(NICE_VOLTAGES, rand);
+  const Is = pick(NICE_CURRENTS, rand);
+  const R1 = pick(NICE_RESISTORS, rand);
+  const R3 = pick(NICE_RESISTORS, rand);
+
+  const R0 = SUPERMESH_DUAL_R0;
+  const I1 = round3(V1 / R0);
+  const I2 = round3(V2 / R0);
+  const R1d = round3((R0 * R0) / R1);
+  const R3d = round3((R0 * R0) / R3);
+  const Vs = round3(Is * R0);   // 공유 전류원 → 공유 전압원
+
+  const solverNet: SolverNetwork = {
+    nodeIds: ["D1", "D2"],
+    groundId: "GND",
+    resistors: [
+      { id: "R1", a: "D1", b: "GND", R: R1d },
+      { id: "R3", a: "D2", b: "GND", R: R3d },
+    ],
+    vsources: [{ id: "Vs", a: "D1", b: "D2", V: Vs }], // 슈퍼노드: V_D1 − V_D2 = Vs
+    isources: [
+      { id: "I1", a: "GND", b: "D1", I: I1 },
+      { id: "I2", a: "GND", b: "D2", I: I2 },
+    ],
+  };
+  const sol = solveMNA(solverNet);
+  const D1 = round3(sol.nodeVoltages["D1"]);
+  const D2 = round3(sol.nodeVoltages["D2"]);
+  const branchVoltages: Record<string, number> = { R1: D1, R3: D2 };
+
+  const choices = ["R1", "R3"];
+  const target = args.targetBranch && choices.includes(args.targetBranch)
+    ? args.targetBranch
+    : choices[Math.floor(rand() * choices.length)];
+
+  const GND = "GND";
+  const components: CircuitComponent[] = [
+    { id: "I1", type: "I", value: `${I1}A`, pins: [{ id: "p", node: GND, side: "bottom" }, { id: "n", node: "D1", side: "top" }] },
+    { id: "R1", type: "R", value: `${R1d}Ω`, pins: [{ id: "p", node: "D1", side: "top" }, { id: "n", node: GND, side: "bottom" }] },
+    { id: "Vs", type: "V", value: `${Vs}V`, pins: [{ id: "p", node: "D1", side: "left" }, { id: "n", node: "D2", side: "right" }] },
+    { id: "R3", type: "R", value: `${R3d}Ω`, pins: [{ id: "p", node: "D2", side: "top" }, { id: "n", node: GND, side: "bottom" }] },
+    { id: "I2", type: "I", value: `${I2}A`, pins: [{ id: "p", node: GND, side: "bottom" }, { id: "n", node: "D2", side: "top" }] },
+  ];
+  const netlist: CircuitNetlist = {
+    components, ground: GND,
+    nodeAnnotations: [
+      { node: "D1", label: "D₁", style: "label_only" },
+      { node: "D2", label: "D₂", style: "label_only" },
+    ],
+    positions: { GND: { x: 300, y: 340 }, D1: { x: 160, y: 150 }, D2: { x: 440, y: 150 } },
+  };
+
+  return {
+    netlist, solverNet, branchVoltages,
+    nodeVoltages: { D1, D2 },
+    targetBranch: target,
+    targetVoltage: branchVoltages[target],
+    values: { I1, I2, Vs, R1d, R3d, R0 },
   };
 }

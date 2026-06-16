@@ -44,6 +44,12 @@ import {
   type OpampCascadeDiagram,
 } from "./opampCascadeRenderer";
 import { renderViLineGraph } from "./viLineGraphRenderer";
+import { renderSrFfMuxSequentialCircuit } from "./srFfMuxSequentialCircuitRenderer";
+import { renderAcDcSuperpositionRcCircuit } from "./acDcSuperpositionRcCircuitRenderer";
+import { renderAcDcSuperpositionRcDualCircuit } from "./acDcSuperpositionRcDualCircuitRenderer";
+import { renderViTheveninMaxPowerCircuit } from "./viTheveninMaxPowerCircuitRenderer";
+import { renderFlashAdc2bitCircuit } from "./flashAdc2bitCircuitRenderer";
+import { renderZenerBjtRegulatorCircuit } from "./zenerBjtRegulatorCircuitRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -99,6 +105,18 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderTheveninEquivalent(figure.diagram as TheveninEquivalentDiagram));
     case "opamp_cascade":
       return wrapSvg(figure, renderOpampCascade(figure.diagram as OpampCascadeDiagram));
+    case "sr_ff_mux_sequential_circuit":
+      return wrapSvg(figure, renderSrFfMuxSequentialCircuit(figure.diagram as import("@/types").SrFfMuxSequentialCircuitDiagram));
+    case "ac_dc_superposition_rc_circuit":
+      return wrapSvg(figure, renderAcDcSuperpositionRcCircuit(figure.diagram as import("@/types").AcDcSuperpositionRcCircuitDiagram));
+    case "ac_dc_superposition_rc_dual_circuit":
+      return wrapSvg(figure, renderAcDcSuperpositionRcDualCircuit(figure.diagram as import("@/types").AcDcSuperpositionRcDualCircuitDiagram));
+    case "vi_thevenin_maxpower_circuit":
+      return wrapSvg(figure, renderViTheveninMaxPowerCircuit(figure.diagram as import("@/types").ViTheveninMaxPowerCircuitDiagram));
+    case "flash_adc_2bit_circuit":
+      return wrapSvg(figure, renderFlashAdc2bitCircuit(figure.diagram as import("@/types").FlashAdc2bitCircuitDiagram));
+    case "zener_bjt_regulator_circuit":
+      return wrapSvg(figure, renderZenerBjtRegulatorCircuit(figure.diagram as import("@/types").ZenerBjtRegulatorCircuitDiagram));
     case "vi_line_graph":
       return wrapSvg(figure, renderViLineGraph(figure.diagram as Parameters<typeof renderViLineGraph>[0]));
     default:

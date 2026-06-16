@@ -320,6 +320,158 @@ function buildNetlist(
   return { components, ground: GND, nodeAnnotations, positions };
 }
 
+// =====================================================================
+// 쌍대(dual) 회로 — 직렬 RLC 공진(전압원·전류측정)의 쌍대 = 병렬 GLC 공진(전류원·전압측정).
+//   V↔I, R↔G(=1/R), L↔C, C↔L, 직렬↔병렬 (스케일 R₀=1kΩ). 공진주파수 f_0 동일.
+//   원본 TRIPLES·V_PRESETS를 그대로 매핑 → 깔끔한 값. (기출변형유형)
+// =====================================================================
+const DUAL_R0 = 1000; // 쌍대 스케일 (Ω)
+
+export type RlcResonanceDualGeneration = {
+  netlist: CircuitNetlist;
+  values: {
+    /** 전류원 peak (A). i(t)=I_peak·cos(ωt). */
+    Ipeak: number;
+    /** I_peak 라벨 (예 "10√2 mA"). */
+    IpeakLabel: string;
+    Irms: number;
+    /** 병렬 저항 R_d = R₀²/R (Ω). */
+    Rd: number; RdLabel: string;
+    /** C_d = L/R₀² (F) — 원본 L의 쌍대, 회로에 표시. */
+    Cd: number; CdLabel: string;
+    /** L_d = C·R₀² (H) — 원본 C의 쌍대, 학생 도출 미지수. */
+    Ld: number; LdLabel: string;
+    /** "L_d는 X[mH]보다 크다" 단서. */
+    lLowerBoundLabel: string;
+    omegaX: number; fx: number;
+    /** (f_x, V_x) 측정점 전압 (V, peak). */
+    Vx: number;
+    omega0: number; f0: number;
+    /** V_max = I_peak·R_d (V, peak) — 도출. */
+    Vmax: number;
+  };
+};
+
+function formatInductanceLabel(L_H: number): string {
+  if (Math.abs(L_H - Math.round(L_H)) < 1e-9) return `${Math.round(L_H)}H`;
+  for (const denom of [3, 6, 7, 9]) {
+    const numer = Math.round(L_H * denom);
+    if (numer > 0 && Math.abs(L_H - numer / denom) < 1e-9) return `${numer}/${denom}H`;
+  }
+  if (L_H < 1) return `${Math.round(L_H * 1000)}mH`;
+  return `${Math.round(L_H * 1000) / 1000}H`;
+}
+
+function formatResistanceLabel(R: number): string {
+  return R >= 1000 ? `${Math.round((R / 1000) * 1000) / 1000}kΩ` : `${Math.round(R)}Ω`;
+}
+
+/** 직렬 RLC 공진의 쌍대 = 병렬 GLC 공진 (전류원·전압측정). */
+export function generateRlcResonanceDual(args: { seed?: number }): RlcResonanceDualGeneration {
+  const rand = makeRand(args.seed);
+  const triple = pick(TRIPLES, rand);
+  const vPair = pick(V_PRESETS, rand);
+
+  const R = triple.R, L = triple.L;
+  const C = 1 / (triple.omegaX * (triple.omegaX * L - R)); // 원본 C [F]
+  // 쌍대 소자 (R₀ 스케일)
+  const Rd = (DUAL_R0 * DUAL_R0) / R;
+  const Cd = L / (DUAL_R0 * DUAL_R0);     // 원본 L의 쌍대 (표시)
+  const Ld = C * DUAL_R0 * DUAL_R0;       // 원본 C의 쌍대 (미지수)
+  const Ipeak = vPair.Vpeak / DUAL_R0;    // A
+  const Irms = vPair.Vrms / DUAL_R0;
+
+  const omega0 = 1 / Math.sqrt(Ld * Cd);  // = 원본 ω_0
+  const f0 = omega0 / (2 * Math.PI);
+  const fx = triple.omegaX / (2 * Math.PI);
+  // 쌍대 측정점: V_x = I_peak·R_d/√2 = (Vrms/R)·R₀ (원본 I_x의 R₀배)
+  const Vx = (vPair.Vrms / R) * DUAL_R0;
+  const Vmax = (vPair.Vpeak / R) * DUAL_R0;
+
+  const CdLabel = formatCapacitanceLabel(Cd * 1e6);
+  const LdLabel = formatInductanceLabel(Ld);
+  // L_d 하한 단서 (도출 L_d보다 작은 nice 값, mH 기준)
+  const Ld_mH = Ld * 1000;
+  const lbCandidates = [10, 20, 50, 100, 200, 300, 500, 800, 1000, 1500, 2000, 3000];
+  let lb = lbCandidates[0];
+  for (const c of lbCandidates) { if (c < Ld_mH - 1e-6) lb = c; else break; }
+  const lLowerBoundLabel = `${lb}[mH]`;
+
+  const IpeakLabel = `${vPair.VpeakLabel} mA`; // Vpeak/R₀ = Vpeak[V]/1000 → Vpeak mA
+
+  return {
+    netlist: buildDualNetlist(IpeakLabel, formatResistanceLabel(Rd), CdLabel),
+    values: {
+      Ipeak, IpeakLabel, Irms,
+      Rd, RdLabel: formatResistanceLabel(Rd),
+      Cd, CdLabel,
+      Ld, LdLabel,
+      lLowerBoundLabel,
+      omegaX: triple.omegaX, fx, Vx,
+      omega0, f0, Vmax,
+    },
+  };
+}
+
+/** 쌍대 병렬 회로 netlist: I_s ∥ R_d ∥ C_d ∥ L_d(미지). 전압 v(t) 측정. */
+function buildDualNetlist(iLabel: string, rLabel: string, cLabel: string): CircuitNetlist {
+  const GND = "GND";
+  const N = "N_top";
+  const components: CircuitComponent[] = [
+    {
+      id: "I_s", type: "I", value: iLabel,
+      pins: [
+        { id: "p", node: GND, side: "bottom" },
+        { id: "n", node: N, side: "top" },
+      ],
+    },
+    {
+      id: "R", type: "R", value: rLabel,
+      pins: [{ id: "p", node: N, side: "top" }, { id: "n", node: GND, side: "bottom" }],
+    },
+    {
+      id: "C", type: "C", value: cLabel,
+      pins: [{ id: "p", node: N, side: "top" }, { id: "n", node: GND, side: "bottom" }],
+    },
+    {
+      // L_d 미지수 — id "L"만 표시, value omit.
+      id: "L", type: "L",
+      pins: [{ id: "p", node: N, side: "top" }, { id: "n", node: GND, side: "bottom" }],
+    },
+  ];
+  const nodeAnnotations: NodeAnnotation[] = [
+    { node: N, label: "v(t)", style: "label_only" },
+  ];
+  const positions: Record<string, { x: number; y: number }> = {
+    [GND]: { x: 320, y: 320 },
+    [N]: { x: 320, y: 120 },
+  };
+  return { components, ground: GND, nodeAnnotations, positions };
+}
+
+/** 쌍대 공진 곡선(V[V] vs f[Hz]) sample. |V|=I_peak/|Y|, Y=G+j(ωC_d−1/(ωL_d)). */
+export function buildDualResonanceCurveSamples(args: {
+  Ipeak: number; Rd: number; Cd: number; Ld: number;
+  fMin?: number; fMax?: number; nSamples?: number;
+}): Array<{ t: number; v: number }> {
+  const { Ipeak, Rd, Cd, Ld } = args;
+  const G = 1 / Rd;
+  const omega0 = 1 / Math.sqrt(Ld * Cd);
+  const f0 = omega0 / (2 * Math.PI);
+  const fMin = args.fMin ?? 0;
+  const fMax = args.fMax ?? 3 * f0;
+  const N = args.nSamples ?? 160;
+  const out: Array<{ t: number; v: number }> = [];
+  for (let i = 0; i <= N; i++) {
+    const f = fMin + (fMax - fMin) * (i / N);
+    if (f <= 0) { out.push({ t: 0, v: 0 }); continue; }
+    const omega = 2 * Math.PI * f;
+    const B = omega * Cd - 1 / (omega * Ld);
+    out.push({ t: f, v: Ipeak / Math.sqrt(G * G + B * B) });
+  }
+  return out;
+}
+
 /**
  * 공진 곡선(I[A] vs f[Hz])용 sample 생성 — Lorentzian 형태.
  *  |I(jω)| = V_peak / |Z(jω)| = V_peak / √(R² + (ωL − 1/(ωC))²)

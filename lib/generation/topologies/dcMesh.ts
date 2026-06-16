@@ -1,4 +1,4 @@
-import type { CircuitNetlist, CircuitTypeParams } from "@/types";
+import type { CircuitComponent, CircuitNetlist, CircuitTypeParams } from "@/types";
 import { solveMNA, type SolverNetwork } from "@/lib/solver/mna";
 import {
   NICE_RESISTORS,
@@ -66,6 +66,106 @@ export function generateDcMesh(args: {
   const rand = makeRand(args.seed);
   const archetype: DcMeshArchetype = args.archetype ?? "two_mesh_shared_R";
   return buildTwoMeshSharedR(rand, args.targetBranch);
+}
+
+// =====================================================================
+// 쌍대(dual) — 2-mesh(전압원·메시전류)의 쌍대 = 2-node(전류원·노드전압).
+//   V↔I, R↔G(=1/R), 메시↔노드 (스케일 R₀=10). 메시1·2 → 노드 D1·D2, 외부메시 → GND.
+//   원본 branch 전류 ↔ 쌍대 branch 전압 (×R₀).
+//   원본: V1(좌)·R1·R2(공유)·R3·V2(우) →
+//   쌍대: I1∥R1'(D1), R2'(D1-D2 브리지), I2∥R3'(D2). 노드전압/branch전압 해석.
+// =====================================================================
+const DC_MESH_DUAL_R0 = 10;
+
+export type DcMeshDualGeneration = {
+  netlist: CircuitNetlist;
+  solverNet: SolverNetwork;
+  /** 각 저항 양단 전압 (D1·D2 기준). */
+  branchVoltages: Record<string, number>;
+  nodeVoltages: { D1: number; D2: number };
+  targetBranch: string;   // "R1"|"R2"|"R3" (쌍대에서도 같은 이름 유지)
+  targetVoltage: number;
+  values: Record<string, number>;
+};
+
+export function generateDcMeshDual(args: { seed?: number; targetBranch?: string }): DcMeshDualGeneration {
+  const rand = makeRand(args.seed);
+  // 원본과 동일한 pick 순서 (같은 seed → 동일 값, 거울 검증 가능)
+  const V1 = pick(NICE_VOLTAGES, rand);
+  const V2 = pick(NICE_VOLTAGES, rand);
+  const R1 = pick(NICE_RESISTORS, rand);
+  const R2 = pick(NICE_RESISTORS, rand);
+  const R3 = pick(NICE_RESISTORS, rand);
+
+  const R0 = DC_MESH_DUAL_R0;
+  const I1 = round3(V1 / R0);
+  const I2 = round3(V2 / R0);
+  const R1d = round3((R0 * R0) / R1);
+  const R2d = round3((R0 * R0) / R2);
+  const R3d = round3((R0 * R0) / R3);
+
+  const solverNet: SolverNetwork = {
+    nodeIds: ["D1", "D2"],
+    groundId: "GND",
+    resistors: [
+      { id: "R1", a: "D1", b: "GND", R: R1d },  // 원본 R1의 쌍대
+      { id: "R2", a: "D1", b: "D2", R: R2d },    // 원본 R2(공유)의 쌍대 = 브리지
+      { id: "R3", a: "D2", b: "GND", R: R3d },   // 원본 R3의 쌍대
+    ],
+    vsources: [],
+    isources: [
+      // 두 전류원 모두 노드로 주입(↑) — 그림과 풀이 일관(generic 렌더러가 화살표 방향 반영 못 함).
+      // 구조적 쌍대(메시→노드, V→I, R→G, 직렬↔병렬)는 유지. MNA가 그린 회로 그대로 해석.
+      { id: "I1", a: "GND", b: "D1", I: I1 },
+      { id: "I2", a: "GND", b: "D2", I: I2 },
+    ],
+  };
+  const sol = solveMNA(solverNet);
+  const D1 = round3(sol.nodeVoltages["D1"]);
+  const D2 = round3(sol.nodeVoltages["D2"]);
+  const branchVoltages: Record<string, number> = {
+    R1: D1,                 // R1' 양단 = V_D1
+    R2: round3(D1 - D2),    // R2' 양단 = V_D1 − V_D2
+    R3: D2,                 // R3' 양단 = V_D2
+  };
+
+  const choices = ["R1", "R2", "R3"];
+  const target = args.targetBranch && choices.includes(args.targetBranch)
+    ? args.targetBranch
+    : choices[Math.floor(rand() * choices.length)];
+
+  return {
+    netlist: buildDualMeshNetlist(I1, I2, R1d, R2d, R3d),
+    solverNet,
+    branchVoltages,
+    nodeVoltages: { D1, D2 },
+    targetBranch: target,
+    targetVoltage: branchVoltages[target],
+    values: { I1, I2, R1d, R2d, R3d, R0 },
+  };
+}
+
+/** 쌍대 2-node netlist: I1∥R1'(D1-GND), R2'(D1-D2), I2∥R3'(D2-GND). 전용 고정 슬롯. */
+function buildDualMeshNetlist(I1: number, I2: number, R1d: number, R2d: number, R3d: number): CircuitNetlist {
+  const GND = "GND";
+  const components: CircuitComponent[] = [
+    { id: "I1", type: "I", value: `${I1}A`,
+      pins: [{ id: "p", node: GND, side: "bottom" }, { id: "n", node: "D1", side: "top" }] },
+    { id: "R1", type: "R", value: `${R1d}Ω`,
+      pins: [{ id: "p", node: "D1", side: "top" }, { id: "n", node: GND, side: "bottom" }] },
+    { id: "R2", type: "R", value: `${R2d}Ω`,
+      pins: [{ id: "p", node: "D1", side: "left" }, { id: "n", node: "D2", side: "right" }] },
+    { id: "R3", type: "R", value: `${R3d}Ω`,
+      pins: [{ id: "p", node: "D2", side: "top" }, { id: "n", node: GND, side: "bottom" }] },
+    { id: "I2", type: "I", value: `${I2}A`,
+      pins: [{ id: "p", node: GND, side: "bottom" }, { id: "n", node: "D2", side: "top" }] },
+  ];
+  const positions: Record<string, { x: number; y: number }> = {
+    [GND]: { x: 300, y: 340 },
+    D1: { x: 160, y: 150 },
+    D2: { x: 440, y: 150 },
+  };
+  return { components, ground: GND, positions };
 }
 
 // =====================================================================

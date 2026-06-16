@@ -35,6 +35,8 @@ import { runBjtCharacteristicCurvePipeline } from "@/lib/pipeline/runBjtCharacte
 import { runMosfetBiasPipeline } from "@/lib/pipeline/runMosfetBiasPipeline";
 import { runMosfetCascodeMirrorPipeline } from "@/lib/pipeline/runMosfetCascodeMirrorPipeline";
 import { runCounterDacComparatorPipeline } from "@/lib/pipeline/runCounterDacComparatorPipeline";
+import { runFlashAdc2bitPipeline } from "@/lib/pipeline/runFlashAdc2bitPipeline";
+import { runZenerBjtRegulatorPipeline } from "@/lib/pipeline/runZenerBjtRegulatorPipeline";
 import { runKmapSopPipeline } from "@/lib/pipeline/runKmapSopPipeline";
 import { runKmapPosPipeline } from "@/lib/pipeline/runKmapPosPipeline";
 import { runFlipflopCounterPipeline } from "@/lib/pipeline/runFlipflopCounterPipeline";
@@ -43,6 +45,7 @@ import { runFlipflopMixedPipeline } from "@/lib/pipeline/runFlipflopMixedPipelin
 import { runTffStateTableBlankPipeline } from "@/lib/pipeline/runTffStateTableBlankPipeline";
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
+import { runSrFfMuxSequentialPipeline } from "@/lib/pipeline/runSrFfMuxSequentialPipeline";
 import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
 import { runTheveninSwitchedRcPipeline } from "@/lib/pipeline/runTheveninSwitchedRcPipeline";
 import { runOpampCascadePipeline } from "@/lib/pipeline/runOpampCascadePipeline";
@@ -170,7 +173,10 @@ export async function POST(req: NextRequest) {
     // universal_ac DC+AC 중첩 모드: 스위치는 전원 선택용(단자 연결) — 상태 전이(t<0/t>0) 문제가 아님.
     //  → waveform 뿐 아니라 state_before/state_after figure 요구도 면제.
     const isAcDcSuperposition =
-      isUniversalAc && Boolean(analysis?.circuitType?.params?.acDcSuperposition);
+      isUniversalAc && Boolean(
+        analysis?.circuitType?.params?.acDcSuperposition ||
+        analysis?.circuitType?.params?.acDcSuperpositionRc, // 임용 12번 RC 중첩 — 정상상태(상태전이 아님)
+      );
     // switched_rlc_*는 v_C(t) 응답이 학생 도출 정답이라 waveform figure를 안 만듦 (학습 의도).
     //  → state_before/state_after figure로 시간 변화 표현 → hasWaveformEvolution=false 강제로 waveform required 면제.
     const isSwitchedRlc =
@@ -183,6 +189,8 @@ export async function POST(req: NextRequest) {
     // bjt_characteristic_curve는 개념·도식 해석형 — 시간영역 파형 없음, 회로 netlist 없음.
     //  단일 characteristic_curve figure 1장으로 충분.
     const isCharacteristicCurve = analysis?.circuitType?.type === "bjt_characteristic_curve";
+    // zener_bjt_regulator는 단일 회로 해석형 (V_o·전류·저항 도출) — 파형·상태전이·multi-figure 불필요.
+    const isZenerBjtRegulator = analysis?.circuitType?.type === "zener_bjt_regulator";
     const isSwStatePair =
       rawSemantic.hasWaveformEvolution &&
       !hasCapOrIndInCircuit &&
@@ -191,6 +199,8 @@ export async function POST(req: NextRequest) {
     // bjt_characteristic_curve는 회로/파형 없는 graph 해석 — 모든 multi-figure 의무 면제
     // rlc_resonance_max_power는 phasor 정상상태 — waveform 면제
     const expectedSemantic: SemanticStructure = isCharacteristicCurve
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, requiresMultiFigure: false }
+      : isZenerBjtRegulator
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, requiresMultiFigure: false }
       : isAcDcSuperposition
         ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false }
@@ -265,7 +275,7 @@ export async function POST(req: NextRequest) {
       "universal_digital", "sequential_dff_generic", "kmap_sop", "kmap_pos",
       "flipflop_mixed_app", "tff_state_table_blank", "ff_with_waveform",
       "flipflop_counter", "combinational_gate", "sequence_detector", "fsm",
-      "waveform_analysis", "mux_implementation",
+      "sr_ff_mux_sequential", "waveform_analysis", "mux_implementation",
     ]);
     if (subjectKey === "digital_logic" && (!circuitType || !DIGITAL_CIRCUIT_TYPES.has(circuitType))) {
       log.warn("digital_subject_circuittype_coerced", { from: circuitType, to: "universal_digital" });
@@ -277,7 +287,7 @@ export async function POST(req: NextRequest) {
     //   제네릭 fallback으로 추락한다. mixed_signal인데 circuitType이 mixed_signal 계열이 아니면
     //   counter_dac_comparator로 보정 (파이프라인이 D시프트/JK카운터를 구조 도출로 분기).
     const MIXED_SIGNAL_CIRCUIT_TYPES = new Set([
-      "counter_dac_comparator", "adc_sample_hold", "logic_opamp_hybrid",
+      "counter_dac_comparator", "adc_sample_hold", "logic_opamp_hybrid", "flash_adc_2bit",
     ]);
     if (subjectKey === "mixed_signal" && (!circuitType || !MIXED_SIGNAL_CIRCUIT_TYPES.has(circuitType))) {
       log.warn("mixed_signal_circuittype_coerced", { from: circuitType, to: "counter_dac_comparator" });
@@ -391,6 +401,7 @@ export async function POST(req: NextRequest) {
       if (
         !analysis?.topologySignature &&
         !analysis?.circuitType?.params?.acDcSuperposition &&
+        !analysis?.circuitType?.params?.acDcSuperpositionRc &&
         !analysis?.circuitType?.params?.theveninMaxPower
       ) {
         return NextResponse.json({ error: "universal_ac는 topologySignature 필수" }, { status: 400 });
@@ -658,6 +669,14 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (circuitType === "flash_adc_2bit" && subjectKey === "mixed_signal") {
+      log.info("dispatch", { route: "flash_adc_2bit_pipeline", count: n, mode });
+      problems = await runFlashAdc2bitPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else if (circuitType === "counter_dac_comparator" && subjectKey === "mixed_signal") {
       log.info("dispatch", { route: "counter_dac_comparator_pipeline", count: n, mode });
       problems = await runCounterDacComparatorPipeline({
@@ -669,6 +688,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "bjt_bias" && subjectKey === "electronics") {
       log.info("dispatch", { route: "bjt_bias_pipeline", count: n, mode });
       problems = await runBjtBiasPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "zener_bjt_regulator" && subjectKey === "electronics") {
+      log.info("dispatch", { route: "zener_bjt_regulator_pipeline", count: n, mode });
+      problems = await runZenerBjtRegulatorPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
@@ -765,6 +792,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "sequence_detector" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "sequence_detector_pipeline", count: n, mode });
       problems = await runSequenceDetectorPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "sr_ff_mux_sequential" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "sr_ff_mux_sequential_pipeline", count: n, mode });
+      problems = await runSrFfMuxSequentialPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

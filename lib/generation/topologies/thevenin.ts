@@ -1,4 +1,4 @@
-import type { CircuitNetlist, CircuitTypeParams } from "@/types";
+import type { CircuitComponent, CircuitNetlist, CircuitTypeParams } from "@/types";
 import type { SolverNetwork } from "@/lib/solver/mna";
 import { solveThevenin } from "@/lib/solver/thevenin";
 import {
@@ -427,3 +427,76 @@ function buildVdCccsHorizontal(rand: () => number, swapTerminals = false): Theve
   };
 }
 
+
+// =====================================================================
+// 쌍대(dual) — 테브난 등가(전압원·직렬 R)의 쌍대 = 노턴 등가(전류원·병렬 R).
+//   voltage_divider의 쌍대: I1∥R1'(n1–GND) + R2'(n1–a 직렬). 단자 a–b에서 노턴 등가 도출.
+//   V↔I, R↔G(=1/R), 직렬↔병렬 (스케일 R₀=10). 노턴 I_N=V_th/R₀, R_N=R₀²/R_th (원본 거울).
+// =====================================================================
+const THEV_DUAL_R0 = 10;
+
+export type TheveninDualGeneration = {
+  netlist: CircuitNetlist;
+  solverNet: SolverNetwork;
+  terminalA: string;
+  terminalB: string;
+  /** 노턴 등가 정답. */
+  answer: { In: number; Rn: number };
+  values: Record<string, number>;
+};
+
+export function generateTheveninDual(args: { seed?: number }): TheveninDualGeneration {
+  const rand = makeRand(args.seed);
+  const V1 = pick(NICE_VOLTAGES, rand);
+  const R1 = pick(NICE_RESISTORS, rand);
+  let R2 = pick(NICE_RESISTORS, rand);
+  if (R2 === R1) R2 = pick(NICE_RESISTORS, rand);
+
+  const R0 = THEV_DUAL_R0;
+  const I1 = round3(V1 / R0);
+  const R1d = round3((R0 * R0) / R1);
+  const R2d = round3((R0 * R0) / R2);
+
+  // 쌍대 회로: I1∥R1'(n1–GND), R2'(n1–a 직렬). 단자 a–b(GND).
+  const solverNet: SolverNetwork = {
+    nodeIds: ["n1", "a"],
+    groundId: "GND",
+    resistors: [
+      { id: "R1", a: "n1", b: "GND", R: R1d },
+      { id: "R2", a: "n1", b: "a", R: R2d },
+    ],
+    vsources: [],
+    isources: [{ id: "I1", a: "GND", b: "n1", I: I1 }],
+  };
+  const { Vth, Rth } = solveThevenin({ net: solverNet, terminalA: "a", terminalB: "GND" });
+  const In = round3(Vth / Rth);   // 노턴 단락전류
+  const Rn = round3(Rth);
+
+  const components: CircuitComponent[] = [
+    { id: "I1", type: "I", value: `${I1}A`,
+      pins: [{ id: "p", node: "GND", side: "bottom" }, { id: "n", node: "n1", side: "top" }] },
+    { id: "R1", type: "R", value: `${R1d}Ω`,
+      pins: [{ id: "p", node: "n1", side: "top" }, { id: "n", node: "GND", side: "bottom" }] },
+    { id: "R2", type: "R", value: `${R2d}Ω`,
+      pins: [{ id: "p", node: "n1", side: "left" }, { id: "n", node: "a", side: "right" }] },
+  ];
+  const netlist: CircuitNetlist = {
+    components, ground: "GND",
+    // a는 개방 출력 단자(노턴 등가 대상) → label_only로 degree 검사 면제.
+    nodeAnnotations: [
+      { node: "a", label: "a", style: "label_only" },
+      { node: "GND", label: "b", style: "terminal_dot" },
+    ],
+    positions: {
+      GND: { x: 300, y: 320 },
+      n1: { x: 140, y: 150 },
+      a: { x: 420, y: 150 },
+    },
+  };
+
+  return {
+    netlist, solverNet, terminalA: "a", terminalB: "GND",
+    answer: { In, Rn },
+    values: { I1, R1d, R2d, R0, Vth: round3(Vth), Rth: round3(Rth) },
+  };
+}

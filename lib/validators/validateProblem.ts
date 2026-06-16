@@ -21,6 +21,12 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "analog_netlist",
   "logic_network",
   "imyong_10_dc_nodal",
+  "sr_ff_mux_sequential_circuit", // 임용 10번 정보과 (다) SR-FF + MUX 구현 회로 = topology figure
+  "ac_dc_superposition_rc_circuit", // 임용 12번 회로이론 (가) AC+DC 중첩 RC 회로 = topology figure
+  "ac_dc_superposition_rc_dual_circuit", // 위의 쌍대 (변형유형) = topology figure
+  "vi_thevenin_maxpower_circuit", // 임용 5번 2전압원+2전류원 테브난+최대전력 = topology figure
+  "flash_adc_2bit_circuit", // 임용 6번 2비트 플래시 ADC = topology figure
+  "zener_bjt_regulator_circuit", // 임용 8번 제너+BJT 전압 레귤레이터 = topology figure
 ]);
 
 /**

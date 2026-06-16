@@ -507,6 +507,7 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
   2. 도출된 C로 공진 조건 X_L=X_C → **f_0 = 1/(2π√(LC))** 와 **I_max = V_peak/R** 도출.
 - 값 선택 전략: (ω_x, L, R) 사전 페어 — ω_x·L > R 강제 (inductive case, C가 큰 쪽). V_rms·R 페어로 I_x = V_rms/R(peak)이 nice 소수. C·ω_0·Imax 자동 도출. **−3dB point** 권장: |Z(jω_x)| = R√2 → I_x = Imax/√2.
 - classifier 우선순위: **ac_superposition보다 먼저 매치**. 트리거: (R>0 ∧ L>0 ∧ C>0) ∧ (V≤1 ∧ I=0) ∧ 공진/주파수응답 키워드 ∧ "중첩" 키워드 없음.
+- ★ **기출변형유형 = 쌍대(dual) 회로**: 직렬 RLC(전압원·전류측정)의 쌍대 = **병렬 GLC(전류원·전압측정)**. V↔I, R↔G(=1/R), L↔C, C↔L, 직렬↔병렬 (스케일 R₀=1kΩ). 공진주파수 f_0 동일. 원본 TRIPLES·V_PRESETS를 R₀ 매핑으로 재사용 → 깔끔한 거울값(I[mA]↔V[V], Ω↔kΩ, H↔µF). 학생 도출: 미지 **L**(원본 C의 쌍대)을 (f_x,V_x) −3dB점에서, 그 뒤 f_0·V_max=I_peak·R. 파일: `generateRlcResonanceDual`+`buildDualResonanceCurveSamples` (rlcResonance.ts), `runRlcResonancePipeline`에서 `mode==="exam_variant"`면 dual(결정론 텍스트, 병렬 netlist는 generic analogMeshRenderer로 렌더, (나)는 |V| vs f 곡선).
 
 ## Switched RLC 5-leg (임용 9번 원본 정확 재현)
 - 6 vertical legs + 2 top horizontal R + SPDT SW:
@@ -563,6 +564,16 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
   - 닫힌형 해: 조건 1/(ωC_eq)=R(45°). [단계1] C 개방 → V_DC=I_dc·R. [단계2] Y=(1+j)/R → v_ac=I_ac·R∠−45°, 전압분배 v_1ac/v_ac=C_eq/C_1(직렬 C). [단계3] 중첩 v(t)=V_DC+v_ac(t). 값은 원본 nice-number를 I↔V로 재사용(I[mA]·R[Ω]/1000=정수 V).
   - 레이아웃: 두 rail 사이 병렬 가지 [I_ac+SW₂]‖[I_dc+SW₁]‖[R]‖[C_1─N_MID─C_2 직렬]. SW는 활성 단자→rail, 개방 단자(단자3·단자1)는 stub. v(t)·v₁(t)는 우측 +/− 화살표.
 
+## AC+DC 중첩 RC 회로, 스위치 없음 (임용 12번 회로이론 — `acDcSuperpositionRc`) 전용 archetype
+- 원본: 교류 전원 v(t)=A√2·cos(ωt) + 직류 전원 V_dc가 포함된 **RC 회로**(스위치 없음)를 **중첩의 원리**로 해석. 단자 a·b, i_ab(a→b)·I_DC 측정.
+- ★ 위 acDcSuperposition(스위치+RL 단일루프)과 **구조가 다름** — 흡수 불가. generic universal_ac 추출은 두 전원 병합·DC 소실 → 전용 고정 토폴로지 archetype.
+- **고정 토폴로지** (사용자 원본 이미지 확정, 4 노드 a·b·c·g): `g─v(t)─C─a` / `a─[R₃∥R₄]─c` (★ **a–c 사이 R₃∥R₄ 병렬**) / `c─R₅─g` (우측 세로) / `a─20V─b─(도선)─g` (중앙, b 바닥 접지선 직결). i_ab=a→b, I_DC=b.
+- **닫힌형 해** (Rp=R₃∥R₄): [DC] C 개방→직렬 루프 V_dc·Rp·R₅ → I_DC=V_dc/(Rp+R₅) (=i_ab(DC)), I_R₄(DC)=I_DC·R₃/(R₃+R₄). [AC] ★ **20V 단락이 점 a를 접지에 클램프**(이상 전압원=AC 단락) → R₃∥R₄ 양단 0 → **I_R₄(AC)=0** (교육 포인트). 모든 교류는 20V 가지로: i_ab(AC)=V_peak/|Z_C|=V_peak·ωC. [전체] R₄ 최대=I_R₄(DC)+0.
+- ★ **생성기**: 사전검증 PARAM_SETS(첫 세트=원본값 10√2·20V·0.2µF·2k∥2k·1k). DC 정수 mA + i_ab(AC)=정수·√2 mA. (`generateAcDcSuperpositionRc`, GPT 없음.)
+- ★ **기출변형유형 = 쌍대(dual) 회로** (`generateAcDcSuperpositionRcDual`, diagramType `ac_dc_superposition_rc_dual_circuit`): V↔I, R↔1/R, C↔L, 직렬↔병렬 (스케일 R₀=1kΩ). 전류원 i(t)∥L + 직류 전류원 + 직렬 R₃+R₄ + 병렬 R₅, **전압 측정**(v_ab·V_DC·V_R₄). 해석도 쌍대: [DC] L단락, [AC] 직류 전류원 개방→V_R₄(AC)=0. 답은 원본의 mA→V 거울. `runUniversalAcPipeline`에서 `mode==="exam_variant"`면 dual 경로.
+- 분류: classifier 0-PRE-AC-DC-SUPER-RC (switch 분기보다 먼저) — I=0 + C>0 + AC신호(텍스트/inv) + **DC 전압원(hasDcVSource) + 스위치 없음** → `universal_ac` + `params.acDcSuperpositionRc`. ★ V≥2 의존 금지(Vision이 AC 소스 누락해 V=1인 경우 잦음 — DC는 inventory, AC는 텍스트로 교차 감지). route는 topologySignature 불필요 + isAcDcSuperposition 가드 포함(정상상태).
+- 렌더러 `acDcSuperpositionRcCircuitRenderer.ts`(유사)·`acDcSuperpositionRcDualCircuitRenderer.ts`(변형), index.tsx + validateProblem `CIRCUIT_FIGURE_TYPES` 둘 다 등록. 저항·인덕터 지그재그/코일.
+
 ## 2전원 테브난 최대전력 (임용 10번 — AC 전압원 + 전류원 + RLC + R_L 최대평균전력)
 - 전압원 V(∠0°) + 전류원 I(∠0°) + RLC + 부하 R_L. [단계1] Z_th(a-b), [단계2] V_th(중첩), [단계3] R_L=|Z_th|·P_max.
 - ★ generic universal_ac 토폴로지 추출은 두 전원망의 **공통 부하 단자 연결을 잃어** figure·물리 모두 깨짐 → **고정 토폴로지 archetype** 필수.
@@ -616,6 +627,18 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - 학생이 풀 것: (1) R_A 알 때 V_E → R_B 도출, (2) 저항률 ρ + 단면적 A + 길이 ℓ로 R_A' = ρℓ/A 계산, (3) R_A 교체 후 I_C·V_O 도출.
 - 단자/측정: V_E, V_BE, V_O, I_C, I_E 마크.
 - placeholder: R_A를 점선 박스로 그릴 수 있음 (학생이 단계 2에서 도출하는 변수).
+
+## 제너다이오드 + BJT 전압 레귤레이터 (임용 8번 전자회로 — `zener_bjt_regulator`) 전용 archetype
+- 원본: 제너다이오드 + 트랜지스터 응용회로(전압 안정화). V_z·V_BE·V_CE=0(포화) 주어지고 I_L 조건에서 V_o·I_1·I_z·R_4 단계 도출.
+- ★ **오분류 차단**: "포화영역에서 동작" 표현이 `bjt_characteristic_curve`(출력특성곡선 영역식별) 분기를 잘못 트리거. 제너 + 회로해석 단계(V_o·전류·저항 "구한다")가 있으면 특성곡선이 아니라 **레귤레이터 해석** → classifier에서 특성곡선 분기 **앞에** 매치. 트리거: (제너 키워드 OR 제너 inventory: D+전압값) + (BJT 키워드 OR BJT inventory) + 회로해석 단계 신호.
+- ★ generic bjt 경로는 회로 구조 잃고 특성곡선/특성식별 문제로 변질 → 전용 archetype 필수.
+- **션트 레귤레이터 해석 (닫힌형, 3단계)**: V_o 노드에 제너+BJT 션트가 걸려 V_o 안정화.
+  - [단계1] V_o = V_z + V_BE.
+  - [단계2] I_1 = (V_in − V_o)/R_1, 출력노드 KCL I_1 = I_L + I_z → I_z = I_1 − I_L (제너·트랜지스터 션트전류).
+  - [단계3] R_3∥R_4 = V_o/I_L → R_4 = (R_load·R_3)/(R_3 − R_load).
+- 원본값(첫 PARAM_SET): 20V·V_z7.3·V_BE0.7·R_1=120·R_3=150·I_L=80mA → **V_o=8V·I_1=100mA·I_z=20mA·R_4=300Ω**. 사전검증 세트 모두 정수/깔끔 (Rload<R3, Iz>0).
+- 파일: `lib/generation/topologies/zenerBjtRegulator.ts`(결정론 generator, GPT 없음), `lib/pipeline/runZenerBjtRegulatorPipeline.ts`(결정론 3단계 텍스트), `lib/renderers/zenerBjtRegulatorCircuitRenderer.ts`(전용 fixed-slot: 20V·R₁+I_1·제너(삼각형+Z바)·R₂(수직)·NPN BJT·R₃∥R₄(점선)·V_o 단자·I_L). circuitType `zener_bjt_regulator`, diagramType `zener_bjt_regulator_circuit`. index.tsx·validateProblem `CIRCUIT_FIGURE_TYPES`·route dispatch(특성곡선 앞)·semantic normalize(multi-figure off) 등록.
+- ★ **토폴로지 주의**: 표준 제너-BJT 션트 레귤레이터 해석으로 구현 (V_o=V_z+V_BE). 원본 정확한 wire-routing은 사용자 확인 시 정정 가능.
 
 ## OPAMP positive feedback (정귀환) — 임용 6번 형식
 - 회로: V_in(SW 통해) → V−, V+ → R_1 → GND, V_out → R_2 → V+ (★ V_out이 V+로 피드백, V−가 아님).
@@ -676,6 +699,18 @@ system prompt에도 동일 규칙 박힘: `lib/prompts/system.ts`의 `[LOGIC_DAG
 - ★ **figure 3개 필수**: (가) logic_network, (나) waveform, **(다) kmap(빈칸, 학생이 채움)**. kmap 누락 시 `missing_figure_variant` 에러. `runWaveformAnalysisPipeline`이 `gen.kmapDiagram`(빈 셀 "") 추가. 정답은 `gen.kmapAnswer`.
 - 문제 3단계(`waveformAnalysisTextWriter`): [1] Y 파형 그리기, [2] ㉠ 게이트 도출(F와 일치), [3] F 카르노맵·부울함수. figure(Y blank·㉠ blank·kmap blank)와 질문 일관성 필수.
 - 렌더러: AND 게이트 입력핀 간격 — gate height `inputCount*40+28`, rowGap 175 (입력 wire 겹침 방지). 입력 stub는 핀별 stagger(`gateInputStub`), **각 입력핀에 신호 이름 라벨**(primary 변수·보수 또는 signalLabels) — 어느 node가 어느 입력인지 구분.
+
+## SR 플립플롭 + 2×1 MUX 상태순환 순차회로 (임용 10번 정보과 — `sr_ff_mux_sequential`) 전용 archetype
+- 원본: 입력 없는 **2-bit 순환 순서회로**(예: 11→00→10→01→11)를 **SR 플립플롭 2개 + 2×1 MUX 4개**로 설계. 각 FF 입력(S·R)을 MUX 1개가 구동.
+- ★ generic `fsm`/`sequential_dff_generic` 경로는 SR-FF·MUX4 구조를 **D-FF+MUX2 Mealy FSM으로 변질**(SR→D, 입력 X·출력 Z 날조) → 전용 archetype 필수.
+- ★ **핵심 설계 규칙 (모든 단일 4-cycle에서 성립 — 검증됨)**: 단일 4-cycle은 차기상태 비트 nA·nB 중 **정확히 하나만 두 비트(Q_A·Q_B) 모두에 의존**, 나머지는 단일 비트 의존.
+  - "두 비트 의존" FF = **빈칸(㉠~㉣) FF**. 선택선 = 나머지 비트로 두면 MUX 데이터입력 I0·I1이 그 나머지 비트의 함수(Q_x / Q_x' / 0 / 1) → 학생 도출.
+  - 단일 비트 의존 FF = **주어진 FF**. 그 비트를 선택선으로 두면 I0·I1이 상수(0/1).
+  - 두 FF 공유 선택선 = "주어진 FF가 의존하는 비트". 교차 의존 cycle(공유 선택선 불가)은 본 archetype 대상 아님 → 풀에서 제외.
+- 모드: `exam_similar`=cycle C·C'(select=Q_A, 빈칸 FF B, 원본 flavor) / `exam_variant`=cycle A·A'(select=Q_B, 빈칸 FF A, 거울). 각 2개 distinct (4-cycle 공간 한계).
+- 풀이 2단계: [1] (나) 상태표 → 빈칸 FF의 S·R **SOP**(2변수 Q_A·Q_B, **무관항=1**). [2] 선택선으로 S·R 분해 → MUX 데이터입력(㉠~㉣).
+- figure 3개: (가) `concept_diagram`(입력 없는 ring 상태도), (나) `truth_table`(현재상태·다음상태·SR입력 S_A R_A S_B R_B, ×=don't care), (다) `sr_ff_mux_sequential_circuit`(전용 fixed-slot 렌더러).
+- 파일: `lib/generation/topologies/srFfMuxSequential.ts`(결정론 generator — 여기표·SOP·MUX분해 모두 cycle에서 도출, GPT 없음), `lib/pipeline/runSrFfMuxSequentialPipeline.ts`(결정론 텍스트), `lib/renderers/srFfMuxSequentialCircuitRenderer.ts`(전용 렌더러: MUX 사다리꼴×4 + SR-FF box×2 + 공통 선택선 + 클럭). classifier는 **디지털 분기 최상단**(SR/RS-FF + MUX + 순차문맥 + T-FF 아님) → `sequential_dff_generic`·`universal_digital`보다 먼저 매치.
 
 # Important Notes
 1. **AI 모델**: OpenAI GPT-4o (`lib/openai.ts` 싱글톤, `DEFAULT_MODEL`)

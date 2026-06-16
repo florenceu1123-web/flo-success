@@ -360,6 +360,12 @@ export type DiagramType =
   | "thevenin_original_circuit"   // 임용 9번 정보과 (가) 원본 RC + SW + 점선박스
   | "thevenin_equivalent_circuit" // 임용 9번 정보과 (나) Thevenin 등가 회로
   | "opamp_cascade"               // 임용 10번 2-OPAMP cascade 회로
+  | "sr_ff_mux_sequential_circuit" // 임용 10번 정보과 — SR-FF 2개 + 2×1 MUX 4개 순차회로 구현 (다)
+  | "ac_dc_superposition_rc_circuit" // 임용 12번 회로이론 — AC+DC 중첩 RC 회로 (고정 슬롯)
+  | "ac_dc_superposition_rc_dual_circuit" // 위의 쌍대 — RL + 전류원 (기출변형유형)
+  | "vi_thevenin_maxpower_circuit" // 임용 5번 — 2전압원+2전류원 테브난+최대전력 (고정 슬롯)
+  | "flash_adc_2bit_circuit" // 임용 6번 — 2비트 플래시 ADC (저항사다리+비교기+인코더, 복합형)
+  | "zener_bjt_regulator_circuit" // 임용 8번 — 제너+BJT 전압 레귤레이터 (고정 슬롯)
   | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
 
 /**
@@ -1090,6 +1096,107 @@ export type WaveformDiagram = {
   xAxis?: { symbol?: string; unit?: string };
   /** y축에 수평 점선 + 라벨 (예: I_max). 모든 lane 가로지름. lane 안쪽 v좌표. */
   yMarkers?: Array<{ v: number; label: string }>;
+};
+
+/**
+ * sr_ff_mux_sequential_circuit payload — 임용 10번 정보과 (다) 구현 회로.
+ *  SR 플립플롭 2개 + 2×1 MUX 4개. 각 FF 입력(S·R)을 MUX 1개가 구동.
+ *  - selectVar: 모든 MUX 공통 선택선 (FF 출력 중 하나). "Q_A" | "Q_B".
+ *  - muxes: 위→아래 MUX1..MUX4. muxes[0,1] = 상단 FF, muxes[2,3] = 하단 FF.
+ *  - i0/i1: 데이터입력 라벨 (값 "0"/"1"/"Q_B"/"Q_B'" 또는 빈칸 심볼 "㉠"~"㉣").
+ *  - blank: 학생이 도출할 빈칸 MUX (i0·i1이 심볼).
+ */
+export type SrFfMuxSequentialCircuitDiagram = {
+  selectVar: "Q_A" | "Q_B";
+  muxes: Array<{
+    id: string;        // "MUX1".."MUX4"
+    label: string;
+    target: string;    // "S_A" | "R_A" | "S_B" | "R_B"
+    i0: string;
+    i1: string;
+    blank: boolean;
+  }>;
+  flipflops: Array<{
+    id: string;        // "FF_A" | "FF_B"
+    label: string;
+    sFrom: string;     // S 입력을 구동하는 MUX id
+    rFrom: string;     // R 입력을 구동하는 MUX id
+    qLabel: string;    // "Q_A"
+    qbarLabel: string; // "Q_A'"
+  }>;
+};
+
+/**
+ * ac_dc_superposition_rc_circuit payload — 임용 12번 회로이론 (가) AC+DC 중첩 RC 회로.
+ *  고정 토폴로지: g─v(t)─TL─C─a / a─V_dc─b / a─R_3─c / c─R_4─g / b─R_5─g.
+ *  renderer가 고정 슬롯에 배치. 라벨 문자열만 받음.
+ */
+export type AcDcSuperpositionRcCircuitDiagram = {
+  vacLabel: string;   // "v(t) = 10√2 cos5000t [V]"
+  vacPhasor: string;  // "10√2∠0° V"
+  vdcLabel: string;   // "20V"
+  cLabel: string;     // "0.2µF"
+  omegaLabel: string; // "5000 rad/s"
+  r3Label: string;    // "2kΩ"
+  r4Label: string;
+  r5Label: string;
+  iabLabel: string;   // "i_ab(t)"
+  idcLabel: string;   // "I_DC"
+};
+
+/**
+ * ac_dc_superposition_rc_dual_circuit payload — 임용 12번 RC 회로의 쌍대(RL + 전류원).
+ *  V↔I, R↔G(1/R), C↔L, 직렬↔병렬. 전류원 + 병렬 L + 직렬 R₃·R₄ + 병렬 R₅, 전압 측정.
+ */
+export type AcDcSuperpositionRcDualCircuitDiagram = {
+  iacLabel: string;   // "i(t) = 10√2 cos5000t [A]" (또는 mA)
+  iacPhasor: string;  // "10√2∠0° A"
+  idcLabel: string;   // "20 mA" (DC 전류원)
+  lLabel: string;     // "L = 0.2 H"
+  omegaLabel: string;
+  r3Label: string;
+  r4Label: string;
+  r5Label: string;
+  vabLabel: string;   // "v_ab(t)"
+  vdcLabel: string;   // "V_DC"
+};
+
+/**
+ * vi_thevenin_maxpower_circuit payload — 임용 5번 (2전압원 직렬 + 2전류원 + 2R + R_L).
+ *  고정 슬롯: TL─R1─c─R2─a / TL─V1─V2─GND(좌 직렬) / c─[Iup↑∥Idown↓]─GND / a─R_L─b.
+ */
+export type ViTheveninMaxPowerCircuitDiagram = {
+  v1Label: string; v2Label: string;
+  r1Label: string; r2Label: string;
+  iupLabel: string; idownLabel: string;
+};
+
+/**
+ * flash_adc_2bit_circuit payload — 임용 6번 (가) 2비트 플래시 ADC.
+ *  저항 사다리(V_top + N×R) → 기준전압 → 3 비교기 → 점선 인코더 → Q_1·Q_0.
+ */
+export type FlashAdc2bitCircuitDiagram = {
+  vtopLabel: string;   // "4V"
+  rLabel: string;      // "100Ω"
+  vinLabel: string;    // "V_in"
+  refLabels: string[]; // ["V_c","V_b","V_a"] (위→아래)
+  compLabels: string[];// ["C_2","C_1","C_0"]
+  outLabels: string[]; // ["Q_1","Q_0"]
+};
+
+/**
+ * zener_bjt_regulator_circuit payload — 임용 8번 (가) 제너+BJT 전압 레귤레이터.
+ *  20V─R1─V_o─(R3∥R4 부하)─GND, V_o 노드에 제너(V_z)+BJT 션트로 V_o=V_z+V_BE 안정화.
+ */
+export type ZenerBjtRegulatorCircuitDiagram = {
+  vinLabel: string; // "20V"
+  vzLabel: string;  // "7.3V"
+  r1Label: string;  // "120Ω"
+  r2Label: string;  // "500Ω"
+  r3Label: string;  // "150Ω"
+  voLabel: string;  // "V_o"
+  ilLabel: string;  // "I_L"
+  i1Label: string;  // "I_1"
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

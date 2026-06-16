@@ -27,6 +27,8 @@ export type CircuitType =
   | "mosfet_bias"           // NMOS DC bias 회로 (단순 단일단) — 포화 영역 I_D=K(V_GS-V_TH)², V_GS·I_D·V_D·V_DS 단계 도출
   | "mosfet_cascode_mirror" // NMOS cascode current mirror (임용 10번 정확 재현) — M1 reference + M2 mirror + M3 cascode + R(학생 도출) + R_G 분압. 단계 1:V_GS1·R, 단계 2:V_D2, 단계 3:V_GS3·V_S3
   | "counter_dac_comparator" // 복합형: 2-bit JK 카운터 + R-2R DAC + OPAMP 비교기 (임용 8번)
+  | "flash_adc_2bit"         // 복합형: 2비트 플래시 ADC (저항사다리+3비교기+인코더→Q1Q0, 임용 6번). 온도계코드 빈칸·Q최소화·논리회로
+  | "zener_bjt_regulator"    // 제너+BJT 전압 레귤레이터 (임용 8번) — V_o=V_z+V_BE, I_1·I_z·R_4 도출. "포화영역" 키워드로 특성곡선 오분류 방지
   // ── 과도응답 ─────────────────────────────────
   | "rc_step"               // RC step input 응답
   | "rl_step"               // RL step input 응답
@@ -54,6 +56,7 @@ export type CircuitType =
   | "combinational_gate"    // 3-입력 2-출력 조합 회로 (F, G 동시 설계)
   | "mux_implementation"    // (가) 조합논리회로 + (나) 4×1 MUX 등가구현 — POS→SOP→MUX 입력 결정 (임용 5번 형식)
   | "fsm"                   // Mealy 4-state FSM (상태 전이도 + 구현 회로)
+  | "sr_ff_mux_sequential"  // SR-FF 2개 + 2×1 MUX 4개 상태순환 순차회로 설계 (임용 10번 정보과). 여기표→S/R SOP, 선택선 분해로 MUX 입력 도출
   | "sequence_detector"     // 시퀀스 검출기 + D-FF + 상태도/표 빈칸 (임용 8번 정보과)
   | "waveform_analysis"     // 디지털 입력 파형 → 출력 파형 분석
   | "thevenin_switched_rc"  // SW + RC + 점선박스(Thevenin 대상) 다단계 (임용 9번 정보과)
@@ -181,6 +184,13 @@ export type CircuitTypeParams = {
    *   - [단계 1] Z_th  [단계 2] V_th(중첩)  [단계 3] R_L=|Z_th|, P_max
    */
   theveninMaxPower?: boolean;
+  /**
+   * AC+DC 중첩 RC 회로 (임용 12번 회로이론 형식) — 스위치 없는 고정 토폴로지.
+   * 교류 전원 v(t)=A√2cos(ωt) + 직류 전원이 RC 회로에 포함, 중첩의 원리로 i_ab·I_DC·I_R4 도출.
+   * true면 universal_ac pipeline이 generic buildFromTopology 대신 generateAcDcSuperpositionRc 사용
+   * (generic 추출은 두 전원 병합·DC 소실). 기존 acDcSuperposition(스위치+RL)과 다른 구조.
+   */
+  acDcSuperpositionRc?: boolean;
 };
 
 /**

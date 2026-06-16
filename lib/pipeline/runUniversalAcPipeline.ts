@@ -18,6 +18,7 @@ import { generateAcDcSuperpositionDual } from "@/lib/generation/topologies/acDcS
 import { writeAcDcSuperpositionDualText } from "@/lib/generation/topologies/acDcSuperpositionDualTextWriter";
 import { generateAcTheveninMaxPower } from "@/lib/generation/topologies/acTheveninMaxPower";
 import { writeAcTheveninMaxPowerText } from "@/lib/generation/topologies/acTheveninMaxPowerTextWriter";
+import { generateAcDcSuperpositionRc, generateAcDcSuperpositionRcDual } from "@/lib/generation/topologies/acDcSuperpositionRc";
 import { GenerateError } from "@/lib/generation/_core";
 import { assembleProblem, buildContextHint, generateInParallel } from "./_common";
 import {
@@ -77,6 +78,129 @@ export async function runUniversalAcPipeline(args: {
         figureIdSuffix: i + 1,
         topicKey,
       });
+    });
+  }
+
+  // ★ AC+DC 중첩 RC 회로 (임용 12번 회로이론) — 스위치 없는 고정 토폴로지 archetype.
+  //   기존 acDcSuperposition(스위치+RL)과 다른 구조. 결정론 generator + 텍스트 (GPT 없음).
+  if (analysis.circuitType?.params?.acDcSuperpositionRc) {
+    log.info("ac_dc_superposition_rc_mode", { mode, count });
+    // ★ 기출변형유형 — 쌍대(dual) 회로: 전류원 + 병렬 L + 직렬 R₃·R₄ + 병렬 R₅, 전압 측정.
+    if (mode === "exam_variant") {
+      return generateInParallel(count, async (i, seed) => {
+        const gen = generateAcDcSuperpositionRcDual({ seed });
+        const v = gen.values;
+        const dvd = gen.derived;
+        log.info("ac_dc_superposition_rc_dual_generated", {
+          iac: gen.circuitDiagram.iacLabel, idc: v.idcMa, L: v.lH,
+          R: [v.r3d, v.r4d, v.r5d], vDc: dvd.vDcV, vAbAc: dvd.vAbAcV, vR4Dc: dvd.vR4DcV,
+        });
+        const V = (x: number) => `${x} V`;
+        const vAbAcStr = `${dvd.vAbAcCoeff}√2 V (≈${dvd.vAbAcV} V)`;
+        const content = [
+          `그림은 ${gen.circuitDiagram.iacLabel}인 교류 전류원과 ${v.idcMa}[mA] 직류 전류원이 포함된 RL 회로이다.`,
+          `이는 원본 RC 회로(전압원·전류 측정)의 **쌍대 회로**(전류원·전압 측정)이다.`,
+          `제시된 <해석 절차>에 따라 중첩의 원리로 각 단계별 결과를 구하시오. (단, i(t)의 페이저는 ${gen.circuitDiagram.iacPhasor}, ω=${v.omega} rad/s.)`,
+        ].join(" ");
+        const conditions = [
+          `교류 전류원 + 직류 전류원 ${v.idcMa}mA`,
+          `L=${v.lH}H (Z_L = j${dvd.xL}Ω at ω=${v.omega}), 점 a–b 사이 직렬 R₃+R₄ (${gen.circuitDiagram.r3Label}+${gen.circuitDiagram.r4Label}), R₅=${gen.circuitDiagram.r5Label} 병렬`,
+          `측정: v_ab(t) (a·b 양단 전압), V_DC`,
+          `정상상태 중첩 — 과도응답 아님 (waveform·상태천이 figure 면제)`,
+        ];
+        const question = [
+          `[단계 1] 페이저를 이용하여 교류 전류원에 의한 v_ab의 최댓값[V]과 R₄ 양단 전압의 최댓값[V]을 각각 구한다.`,
+          `[단계 2] 직류 전류원에 의한 V_DC[V]와, 전체 전원에 의해 R₄ 양단 전압의 최댓값[V]을 각각 구한다.`,
+        ].join("\n");
+        const answer = [
+          `[단계 1] v_ab(AC) 최댓값 = ${vAbAcStr},  V_R₄(AC) 최댓값 = ${V(dvd.vR4AcV)}`,
+          `[단계 2] V_DC = ${V(dvd.vDcV)},  전체 V_R₄ 최댓값 = ${V(dvd.vR4TotalMaxV)}`,
+        ].join("\n");
+        const solution = [
+          `[단계 1] 교류 전류원만 (직류 전류원 개방 → 쌍대: 직류 전압원 단락의 대응). ★ 이상적 직류 전류원은 교류에서 개방 →`,
+          `  R₃·R₄ 가지가 분리됨 → R₄ 양단 교류 전압 = 0: V_R₄(AC) = 0.`,
+          `  모든 교류는 i(t)∥L에 인가: Z_L = jωL = j${dvd.xL}Ω → v_ab(AC) 최댓값 = i_peak·ωL = ${vAbAcStr}.`,
+          `[단계 2] 직류 전류원만 (L 단락 → 쌍대: C 개방의 대응). 직렬 R₃+R₄ = ${dvd.rSeries}Ω, 병렬 R₅:`,
+          `  V_DC = I_dc·(R₅∥(R₃+R₄)) = ${V(dvd.vDcV)}. V_R₄(DC) = [V_DC/(R₃+R₄)]·R₄ = ${V(dvd.vR4DcV)}.`,
+          `  전체 R₄ 양단 최대 전압 = V_R₄(DC) + V_R₄(AC) = ${dvd.vR4DcV} + 0 = ${V(dvd.vR4TotalMaxV)}.`,
+        ].join("\n");
+        const figureVariants: FigureVariant[] = [
+          {
+            id: `fig_ac_dc_rc_dual_${i + 1}`,
+            label: "(가) AC+DC 중첩 회로의 쌍대 (RL + 전류원)",
+            role: "original_circuit",
+            diagramType: "ac_dc_superposition_rc_dual_circuit",
+            diagram: gen.circuitDiagram,
+          },
+        ];
+        return { id: randomUUID(), content, conditions, question, answer, solution, topicKey, figureVariants };
+      });
+    }
+    return generateInParallel(count, async (i, seed) => {
+      const gen = generateAcDcSuperpositionRc({ seed, mode });
+      const v = gen.values;
+      const dvd = gen.derived;
+      log.info("ac_dc_superposition_rc_generated", {
+        vac: gen.circuitDiagram.vacLabel, vdc: v.vdc,
+        R: [v.r3, v.r4, v.r5], xC: dvd.xC, rp: dvd.rp,
+        iDc: dvd.iDcMa, iAbAc: dvd.iAbAcMa, iR4Ac: dvd.iR4AcMa, totR4: dvd.iR4TotalMaxMa,
+      });
+
+      const ma = (x: number) => `${x} mA`;
+      const iAbAcStr = `${dvd.iAbAcCoeff}√2 mA (≈${dvd.iAbAcMa} mA)`;
+      const content = [
+        `그림은 ${gen.circuitDiagram.vacLabel}인 교류 전원과 ${v.vdc}[V] 직류 전원이 포함된 RC 회로이다.`,
+        `제시된 <해석 절차>에 따라 중첩의 원리를 이용하여 각 단계별로 풀이과정과 함께 결과를 구하시오.`,
+        `(단, v(t)를 페이저로 표현할 때 ${gen.circuitDiagram.vacPhasor}로 하고, 각주파수 ω=${v.omega} rad/s이다.)`,
+      ].join(" ");
+
+      const conditions = [
+        `교류 전원 v(t)=${gen.circuitDiagram.vacLabel.replace("v(t) = ", "").replace(" [V]", "")} + 직류 전원 ${v.vdc}V`,
+        `C=${v.cUf}µF (Z_C = −j${dvd.xC}Ω at ω=${v.omega}), 점 a–c 사이 R₃∥R₄ (${gen.circuitDiagram.r3Label}·${gen.circuitDiagram.r4Label} 병렬), R₅=${gen.circuitDiagram.r5Label}`,
+        `단자 a·b, 측정: i_ab(t) (a→b), I_DC (b 지점)`,
+        `정상상태 중첩 — 과도응답 아님 (waveform·상태천이 figure 면제)`,
+      ];
+
+      const question = [
+        `[단계 1] 페이저를 이용하여 교류 전원에 의한 점 a에서의 전류 i_ab의 최댓값[A]과 R₄에 흐르는 전류의 최댓값[A]을 각각 구한다.`,
+        `[단계 2] 직류 전원에 의한 점 b에서의 전류 I_DC[A]와, 전체 전원에 의해 R₄에 흐르는 전류의 최댓값[A]을 각각 구한다.`,
+      ].join("\n");
+
+      const answer = [
+        `[단계 1] i_ab(AC) 최댓값 = ${iAbAcStr},  I_R₄(AC) 최댓값 = ${ma(dvd.iR4AcMa)}`,
+        `[단계 2] I_DC = ${ma(dvd.iDcMa)},  전체 I_R₄ 최댓값 = ${ma(dvd.iR4TotalMaxMa)}`,
+      ].join("\n");
+
+      const solution = [
+        `[단계 1] 교류 전원만 (직류 전원 단락). ★ 이상적 직류 전압원은 교류에서 단락 → 점 a가 접지에 클램프됨.`,
+        `  따라서 R₃∥R₄ 양단 전압 = 0 → R₃·R₄에는 교류 전류가 흐르지 않음: I_R₄(AC) = 0.`,
+        `  모든 교류 전류는 20V 가지(a→b)로 흐른다. Z_C = 1/(jωC) = −j${dvd.xC}Ω →`,
+        `  i_ab(AC) 최댓값 = V_peak/|Z_C| = ${v.vacPeak}/${dvd.xC} = ${iAbAcStr}.`,
+        `[단계 2] 직류 전원만 (C 개방 → 교류 가지 차단). a–c 병렬 Rp = R₃∥R₄ = ${dvd.rp}Ω, 직렬 루프 ${v.vdc}V·Rp·R₅:`,
+        `  I_DC = ${v.vdc}/(Rp+R₅) = ${v.vdc}/${dvd.rp + v.r5}Ω = ${ma(dvd.iDcMa)} (= i_ab(DC)). I_R₄(DC) = I_DC·R₃/(R₃+R₄) = ${ma(dvd.iR4DcMa)}.`,
+        `  전체 R₄ 최대 순시전류 = I_R₄(DC) + I_R₄(AC) = ${dvd.iR4DcMa} + 0 = ${ma(dvd.iR4TotalMaxMa)}.`,
+      ].join("\n");
+
+      const figureVariants: FigureVariant[] = [
+        {
+          id: `fig_ac_dc_rc_${i + 1}`,
+          label: "(가) AC+DC 중첩 RC 회로",
+          role: "original_circuit",
+          diagramType: "ac_dc_superposition_rc_circuit",
+          diagram: gen.circuitDiagram,
+        },
+      ];
+
+      return {
+        id: randomUUID(),
+        content,
+        conditions,
+        question,
+        answer,
+        solution,
+        topicKey,
+        figureVariants,
+      };
     });
   }
 

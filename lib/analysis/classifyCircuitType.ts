@@ -181,6 +181,28 @@ export function classifyCircuitType(
       "r-2r", "r2r",
       "동기식 카운터",  // 일반 동기식 카운터 키워드
     ];
+    // ★ 2비트 플래시 ADC (임용 6번) — counter_dac_comparator보다 먼저 매치.
+    //   저항 사다리 + 비교기 3개 + 인코더 → 2비트 디지털. 카운터·FF·DAC 없음.
+    //   트리거: (ADC/플래시/디지털 변환/2비트 디지털 출력 키워드) + 비교기 + (카운터·DAC·FF 키워드 없음).
+    const flashAdcKw = matchesKeyword(text, [
+      "플래시", "flash adc", "flash a/d",
+      "a/d 변환", "ad 변환", "a-d 변환", "아날로그-디지털", "아날로그 디지털",
+      "2비트 디지털", "2-bit 디지털", "디지털 신호로 출력", "디지털로 변환", "디지털 신호로 변환",
+      "온도계 코드", "thermometer",
+    ]);
+    const comparatorKw = matchesKeyword(text, ["비교기", "comparator", "opamp", "op-amp", "연산증폭기"]);
+    const counterDacFfKw = matchesKeyword(text, [
+      "카운터", "counter", "계수기", "플립플롭", "flip-flop", "jk", "d/a", "dac", "r-2r", "r2r",
+    ]);
+    if (flashAdcKw && comparatorKw && !counterDacFfKw) {
+      return {
+        type: "flash_adc_2bit",
+        params: {},
+        confidence: "high",
+        reasoning: "mixed_signal + 플래시 ADC(2비트 디지털 출력 + 비교기, 카운터/DAC 없음) → flash_adc_2bit",
+      };
+    }
+
     // inventory 기반 robust 매치 — OPAMP가 있으면 비교기 가능성 높음.
     //   GPT 키워드 추출이 부족해도 mixed_signal subject + OPAMP면 counter_dac_comparator로.
     const inv = analysis.componentInventory ?? [];
@@ -223,6 +245,34 @@ export function classifyCircuitType(
       blanksText,
     ].join(" ");
     const family = analysis.topologySignature?.family;
+
+    // ★ 제너다이오드 + BJT 전압 레귤레이터 (임용 8번) — 특성곡선보다 먼저 매치.
+    //   "포화영역에서 동작" 표현이 특성곡선 분기를 잘못 트리거하는데, 제너 + 회로해석 단계
+    //   (V_o·전류·저항 도출)가 있으면 특성곡선(영역 식별)이 아니라 레귤레이터 해석 문제다.
+    //   트리거: (제너 키워드 OR 제너 inventory) + (BJT 키워드 OR BJT inventory) + 회로해석 단계 신호.
+    const inv = analysis.componentInventory ?? [];
+    const hasZenerKw = matchesKeyword(text, ["제너", "zener", "제너다이오드", "정전압", "전압 안정", "전압안정", "안정화"]);
+    const hasZenerInv = inv.some((c) => {
+      const t = String(c.type ?? "").toUpperCase();
+      // 다이오드(D/ZD/DZ) + 전압값(V_z) 보유 → 제너로 간주.
+      return (t === "ZD" || t === "DZ" || t === "ZENER" || (t === "D" && /\d/.test(String(c.value ?? "")))) ;
+    });
+    const hasBjtKw = matchesKeyword(text, ["트랜지스터", "bjt", "transistor", "npn", "pnp", "컬렉터", "이미터", "베이스", "v_be", "v_ce", "v_be", "포화영역", "포화 영역"]);
+    const hasBjtInv = inv.some((c) => ["BJT", "NPN", "PNP", "Q", "TR"].includes(String(c.type ?? "").toUpperCase()));
+    // 회로해석 단계 신호 — 출력전압/전류/저항을 "구한다" (특성곡선의 "영역 명칭"과 구분).
+    const hasAnalysisSteps = matchesKeyword(text, [
+      "출력전압", "출력 전압", "v_o", "안정화", "레귤레이터", "regulator",
+      "전류 i", "저항 r", "구하시오", "구한다", "[단계", "단계 1", "단계1",
+    ]);
+    if ((hasZenerKw || hasZenerInv) && (hasBjtKw || hasBjtInv) && hasAnalysisSteps) {
+      return {
+        type: "zener_bjt_regulator",
+        params: {},
+        confidence: "high",
+        reasoning: "electronics + 제너다이오드 + BJT + 회로해석 단계(V_o·전류·저항 도출) → 제너-BJT 전압 레귤레이터 (특성곡선 아님)",
+      };
+    }
+
     // ★ BJT/MOSFET 출력특성곡선 (영역 식별 + ON/OFF) — 개념·도식 해석형.
     //   bjt_bias·bjt_small_signal·mosfet_*보다 먼저 매치.
     //   트리거: 특성곡선/출력특성/동작영역 키워드 + 영역 marker(㉠/㉡/㉢) 또는 영역명 키워드.
@@ -440,6 +490,34 @@ export function classifyCircuitType(
       (analysis.relatedConcepts ?? []).join(" "),
       blanksText,
     ].join(" ");
+
+    // ★ SR 플립플롭 + MUX 기반 상태순환 순차회로 설계 (임용 10번 정보과) — 디지털 분기 최상단.
+    //   원본: 입력 없는 2-bit 순환 순서회로(11→00→10→01)를 SR-FF 2개 + 2×1 MUX 4개로 설계.
+    //   여기표 → S/R SOP(무관항=1) → 선택선 분해로 MUX 입력(㉠~㉣) 도출.
+    //   ★ generic fsm/sequential_dff 경로는 SR-FF·MUX4 구조를 D-FF+MUX2 Mealy FSM으로 변질시킴
+    //     → 전용 archetype 필수. SR-FF + MUX 시그니처는 sequential_dff_generic·universal_digital보다 먼저 매치.
+    //   트리거: SR(RS) 플립플롭 + MUX/멀티플렉서 + 순차/순서/상태 문맥. T-FF는 별도 분기로 양보.
+    {
+      const hasSrFf = matchesKeyword(text, [
+        "sr 플립플롭", "sr-ff", "sr 플립", "s-r 플립플롭", "s-r ff", "sr flip-flop", "sr flipflop",
+        "s-r flip-flop", "rs 플립플롭", "rs-ff", "rs 플립",
+      ]);
+      const hasMuxKw = matchesKeyword(text, [
+        "멀티플렉서", "multiplexer", "mux", "2×1", "2x1", "2:1", "2 × 1", "선택선", "선택 신호", "select line",
+      ]);
+      const hasSeqCtx = matchesKeyword(text, [
+        "순서회로", "순차회로", "순서 논리", "순차 논리", "순서논리", "순차논리", "상태", "순환", "sequential",
+      ]);
+      const hasTFfLocal = matchesKeyword(text, ["t 플립플롭", "t-ff", "t 플립", "t-플립"]);
+      if (hasSrFf && hasMuxKw && hasSeqCtx && !hasTFfLocal) {
+        return {
+          type: "sr_ff_mux_sequential",
+          params: {},
+          confidence: "high",
+          reasoning: "digital_logic + SR 플립플롭 + MUX + 순차회로 → SR-FF·MUX 상태순환 순차회로 설계 (임용 10번 정보과)",
+        };
+      }
+    }
 
     // ★ Universal digital — N-변수 M-함수 K-map 결합 (임용 8번 형식 등).
     //   기존 combinational_gate(3-var 2-out)에 안 맞는 N-var/M-func 케이스 흡수.
@@ -912,6 +990,12 @@ export function classifyCircuitType(
     const v = String(c.value ?? "");
     return /∠|\bj\s*\d|페이저|phasor|cos|sin|ωt|√2/i.test(v);
   });
+  // DC 전압원 존재 — 값에 AC 패턴(cos/sin/∠/√2/phasor)이 없는 V 소스. AC+DC 중첩 판별용.
+  const hasDcVSource = inv.some(
+    (c) =>
+      c.type === "V" &&
+      !/∠|\bj\s*\d|페이저|phasor|cos|sin|ωt|√2/i.test(String(c.value ?? "")),
+  );
 
   // 종속전원이 type=V로 잡히고 값만 "2i_x"인 경우(Vision) 검출 — counts.dep는 type 기반이라 0.
   const hasDependentByValue = (analysis.componentInventory ?? []).some((c) =>
@@ -925,6 +1009,7 @@ export function classifyCircuitType(
     counts,
     text,
     hasACInventory,
+    hasDcVSource,
     nodeAnnotations: analysis.nodeAnnotations,
     topicInterpText: `${analysis.topic ?? ""} ${analysis.interpretation ?? ""}`,
     hasDependentByValue,
@@ -1065,6 +1150,8 @@ type DecideArgs = {
   semantic: Partial<NonNullable<AnalysisResult["semantic"]>>;
   counts: Counts;
   hasACInventory?: boolean;
+  /** DC 전압원 존재 (값에 AC 패턴 없는 V 소스) — AC+DC 중첩 판별용. */
+  hasDcVSource?: boolean;
   text: string;
   /** topic + interpretation만 (relatedConcepts 제외) — 진짜 주제 키워드 판별용 */
   topicInterpText?: string;
@@ -1083,7 +1170,7 @@ type DecideResult = {
 };
 
 function decideType(args: DecideArgs): DecideResult {
-  const { topicKey, features, semantic, counts, text, hasACInventory, nodeAnnotations, topicInterpText } = args;
+  const { topicKey, features, semantic, counts, text, hasACInventory, hasDcVSource, nodeAnnotations, topicInterpText } = args;
 
   // SW 존재 판정 — counts.SW에만 의존하지 말 것. GPT가 inventory 추출 시 SW를 가끔 누락함.
   //   features.hasSwitch OR text의 SW/스위치 키워드도 인정해서 robust하게.
@@ -1137,6 +1224,38 @@ function decideType(args: DecideArgs): DecideResult {
   //     같은 회로가 ac_superposition으로 새는 문제 발생. 이 패턴의 정의적 시그니처로 교체:
   //     전압원 ≥ 2 + 전류원 0(= ac_superposition과 구분) + 리액티브 + AC 신호 + 스위치(전원 선택)
   //     + 강한 과도 키워드 없음. (정상상태 키워드는 보조 — 있으면 신뢰 ↑, 없어도 트리거.)
+  // 0-PRE-AC-DC-SUPER-RC. 스위치 없는 AC+DC 중첩 RC 회로 (임용 12번 회로이론 형식) — switch 분기보다 먼저.
+  //   ★ 구조 시그니처 기반 (Vision이 "중첩" 키워드를 자주 누락 — topic "교류 전원과 RC 회로 해석" 등):
+  //     교류 전원(1+) + 직류 전압원(1+) + C(RC) + 스위치 없음 + 강한 과도 키워드 없음 = AC+DC 중첩 RC.
+  //   ★ generic universal_ac 추출은 두 전원 병합·DC 소실·floating source → 전용 고정 토폴로지 archetype.
+  //   ★ 기존 acDcSuperposition(스위치+RL)과 구조 다름 → !hasSwitchInferred로 분리.
+  //   중첩 키워드는 보조 — hasDcVSource(inventory DC)로 "AC 2개"가 아닌 "AC+DC"임을 확정.
+  //   ★★ Vision이 AC 전원을 inventory에서 통째로 누락하는 경우가 잦음(counts.V=1, DC만 추출)
+  //      → V 개수에 의존 금지. DC는 inventory(hasDcVSource), AC는 텍스트/inventory(hasAcSourceSignal)로
+  //      각각 감지해 "AC+DC"를 확정한다 (둘 다 있으면 V=1이어도 트리거).
+  if (
+    counts.I === 0 &&
+    counts.C > 0 &&
+    hasAcSourceSignal &&
+    Boolean(hasDcVSource) &&
+    !hasSwitchInferred &&
+    !strongTransientKw
+  ) {
+    return {
+      type: "universal_ac",
+      confidence: "high",
+      reasoning:
+        `AC 전원(텍스트/inventory) + DC 전압원(inventory, V=${counts.V}) + C(RC, C=${counts.C}) + I=0 + 스위치 없음 ` +
+        `→ AC+DC 중첩 RC 모드 (임용 12번; Vision AC 소스 누락에도 견고)`,
+      params: {
+        acDcSuperpositionRc: true,
+        hasACSource: true,
+        resistorCount: counts.R,
+        capacitorCount: counts.C,
+      },
+    };
+  }
+
   if (
     counts.V >= 2 &&
     counts.I === 0 &&
