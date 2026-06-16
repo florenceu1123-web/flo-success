@@ -712,6 +712,19 @@ system prompt에도 동일 규칙 박힘: `lib/prompts/system.ts`의 `[LOGIC_DAG
 - figure 3개: (가) `concept_diagram`(입력 없는 ring 상태도), (나) `truth_table`(현재상태·다음상태·SR입력 S_A R_A S_B R_B, ×=don't care), (다) `sr_ff_mux_sequential_circuit`(전용 fixed-slot 렌더러).
 - 파일: `lib/generation/topologies/srFfMuxSequential.ts`(결정론 generator — 여기표·SOP·MUX분해 모두 cycle에서 도출, GPT 없음), `lib/pipeline/runSrFfMuxSequentialPipeline.ts`(결정론 텍스트), `lib/renderers/srFfMuxSequentialCircuitRenderer.ts`(전용 렌더러: MUX 사다리꼴×4 + SR-FF box×2 + 공통 선택선 + 클럭). classifier는 **디지털 분기 최상단**(SR/RS-FF + MUX + 순차문맥 + T-FF 아님) → `sequential_dff_generic`·`universal_digital`보다 먼저 매치.
 
+## 비동기 SET/RESET D-FF 응용회로 — 자동재적재 리플 다운카운터 (`async_preset_ripple_counter`) 전용 archetype
+- 원본(정보·전자 임용): **비동기 SET·RESET을 갖는 D-FF 3개** 응용회로. I₀I₁I₂(예: 101) 고정 입력, 초깃값 Q=000. [단계1] 구간 ㉠의 Q₀Q₁Q₂ 값, [단계2] 구간 ㉡의 출력 파형 도시.
+- ★ **확정된 동작** (사용자 정답으로 검증):
+  - 우측 게이트 **F = NOR(Q₀, Q₁, Q₂, CLK)** — Q·CLK가 **모두 0일 때만 1**.
+  - 셀별 비동기: **Set_k = F·I_k, Reset_k = F·I_k′** (인버터 + AND 2개). F=1이면 I 패턴을 비동기 적재(I_k=1→Set, 0→Reset).
+  - 평상시(F=0): **D_k = Q̄_k (T 동작)** + **리플 클럭**(CLK→FF0, Q₀→FF1.clk, Q₁→FF2.clk). Q₀는 CLK 상승마다, Q₁은 Q₀ 상승마다, Q₂는 Q₁ 상승마다 반전.
+  - 출력이 **모두 0이 되면 F=1로 I 자동 재적재**(0 상태 건너뜀) — "출력 모두 0일 때 빼고 정상동작".
+- ★ **수학적 정체**: I의 2진값(Q₀=LSB)을 N이라 하면 **mod-N 다운카운터**(N→N-1→…→1→재적재 N). 예) I=101=5 → ㉠=101 → ㉡=001,110,010,100(→재적재). [단계1] ㉠ = I 적재값. [단계2] ㉡ = 다운카운트 파형.
+- ★ generic `sequential_dff_generic`(D-FF 다중비트+㉠㉡ 시그니처에 걸림)으로 흡수되면 **비동기 SET·RESET 망·NOR 자동재적재 구조를 잃어** 임의 D-FF 상태표로 변질 → 전용 archetype 필수.
+- 모드: `exam_similar`=I∈{001,011,111}(value 4·6·7), clk 4. `exam_variant`=I∈{101,011,111}(value 5·6·7), clk=N+1로 **000→재적재(F)를 파형에 노출**(교육 포인트 강화).
+- figure 2개: (가) `async_preset_counter_circuit`(전용 fixed-slot 렌더러 — 3 D-FF + 셀별 인버터+AND(Set=F·I·Reset=F·I′) + D=Q̄ 피드백 + 리플 클럭 체인 + 우측 NOR(F). F·I·Q는 net 라벨로 표기해 배선 단순화), (나) `waveform`(클럭 step + Q 빈 트랙(학생 도시) + ㉠·㉡ 마커).
+- 파일: `lib/generation/topologies/asyncPresetCounter.ts`(결정론 generator — faithful edge-sim, GPT 없음), `lib/pipeline/runAsyncPresetCounterPipeline.ts`(결정론 2단계 텍스트), `lib/renderers/asyncPresetCounterCircuitRenderer.ts`. classifier는 **`sequential_dff_generic` 앞**에 매치 — 트리거: FF + **비동기 SET**(RESET만인 임용8 ff_with_waveform과 구분) + I 병렬입력(I₀I₁I₂)/구간(㉠㉡). semantic normalize: hasStateTransition=false(스위치 상태쌍 없음, F 자동재적재), 파형·multi-figure 유지.
+
 # Important Notes
 1. **AI 모델**: OpenAI GPT-4o (`lib/openai.ts` 싱글톤, `DEFAULT_MODEL`)
 2. **디자인**: 흰 배경 + 파란 글씨(indigo/blue 계열), 모던·미니멀

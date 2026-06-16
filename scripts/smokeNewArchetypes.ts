@@ -27,6 +27,8 @@ import { renderAcDcSuperpositionRcCircuit } from "../lib/renderers/acDcSuperposi
 import { renderAcDcSuperpositionRcDualCircuit } from "../lib/renderers/acDcSuperpositionRcDualCircuitRenderer";
 import { generateViTheveninMaxPower } from "../lib/generation/topologies/viTheveninMaxPower";
 import { renderViTheveninMaxPowerCircuit } from "../lib/renderers/viTheveninMaxPowerCircuitRenderer";
+import { generateAsyncPresetCounter } from "../lib/generation/topologies/asyncPresetCounter";
+import { renderAsyncPresetCounterCircuit } from "../lib/renderers/asyncPresetCounterCircuitRenderer";
 
 let pass = 0;
 let fail = 0;
@@ -115,6 +117,46 @@ for (const seed of SEEDS) {
   // P_max = V_th²/(4·R_th). a.Pmax는 W 단위 round3이라 정밀도 손실 — 답 표기값 PmaxMw(mW)로 검증.
   const expectedMw = ((a.Vc * a.Vc) / (4 * a.Rth)) * 1000;
   check(`seed=${seed} P_max=V_th²/(4R_th)`, Math.abs(a.PmaxMw - expectedMw) < 1e-3, `P_max=${a.PmaxMw}mW (기대 ${expectedMw.toFixed(3)})`);
+}
+
+// ── [6] asyncPresetCounter ────────────────────────────────────────
+console.log("\n[6] asyncPresetCounter (비동기 SET/RESET D-FF 자동재적재 리플 카운터)");
+// 원본 검증: I=101 → ㉠=101, ㉡[0..3]=001,110,010,100 (변형 풀 첫 항이 101)
+{
+  let g101: ReturnType<typeof generateAsyncPresetCounter> | null = null;
+  for (let s = 0; s < 50 && !g101; s++) {
+    const g = generateAsyncPresetCounter({ seed: s, mode: "exam_variant" });
+    if (g.iStr === "101") g101 = g;
+  }
+  check("원본 I=101 패턴 생성", !!g101);
+  if (g101) {
+    check("㉠ = 101", g101.initialStr === "101", `㉠=${g101.initialStr}`);
+    const head = g101.sequenceStr.slice(0, 4).join(",");
+    check("㉡[0..3] = 001,110,010,100", head === "001,110,010,100", `㉡=${head}`);
+    check("000 자동 재적재(F) 발생", g101.hasReload);
+  }
+}
+for (const mode of ["exam_similar", "exam_variant"] as const) {
+  for (const seed of [0, 1, 2]) {
+    const gen = generateAsyncPresetCounter({ seed, mode });
+    const svg = renderAsyncPresetCounterCircuit(gen.circuitDiagram);
+    check(`${mode} seed=${seed} 회로 SVG`, isValidSvg(svg), `${(svg as string).length}자`);
+    // ㉠ = I (적재값)
+    check(`${mode} seed=${seed} ㉠=I 적재`, gen.initialStr === gen.iStr, `㉠=${gen.initialStr}`);
+    // ㉡ 시퀀스가 mod-N 다운카운트 (각 스텝 value-1, 0이면 재적재 N)
+    let ok = true;
+    let prev = gen.nValue;
+    for (const st of gen.sequence) {
+      const v = st.reduce((a, b, k) => a + (b ? 1 << k : 0), 0);
+      const expected = prev === 1 ? gen.nValue : prev - 1;
+      if (v !== expected) { ok = false; break; }
+      prev = v;
+    }
+    check(`${mode} seed=${seed} ㉡ mod-${gen.nValue} 다운카운트`, ok, `I=${gen.iStr} ㉡=${gen.sequenceStr.join(",")}`);
+    // (나) 파형 = 클럭 + Q 빈 트랙 + ㉠·㉡ 마커
+    const wf = gen.waveformDiagram;
+    check(`${mode} seed=${seed} 파형 ㉠·㉡ 마커`, (wf.markers ?? []).map((m) => m.label).join("") === "㉠㉡");
+  }
 }
 
 // ── 결과 ──────────────────────────────────────────────────────────

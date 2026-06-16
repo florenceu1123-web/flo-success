@@ -24,6 +24,9 @@ export function resolveDigitalRules(args: {
     //   (단계3의 "최소 AND/OR 게이트 재구성"은 풀이 산출물이지 figure 아님 → kmap 요구 금지.)
     //   generic 파이프라인 emit: implementation_circuit(logic_network) + input_waveform.
     required.push("implementation_circuit", "input_waveform");
+  } else if (args.circuitType === "async_preset_ripple_counter") {
+    // 비동기 SET/RESET D-FF 응용회로 — (가) 회로 + (나) 파형(클럭·Q, ㉠·㉡ 구간). kmap·구현회로 요구 없음.
+    required.push("main_circuit", "waveform");
   } else if (args.circuitType === "flipflop_mixed_app") {
     required.push("implementation_circuit", "truth_table", "waveform");
   } else if (args.circuitType === "tff_state_table_blank") {

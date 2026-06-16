@@ -27,6 +27,7 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "vi_thevenin_maxpower_circuit", // 임용 5번 2전압원+2전류원 테브난+최대전력 = topology figure
   "flash_adc_2bit_circuit", // 임용 6번 2비트 플래시 ADC = topology figure
   "zener_bjt_regulator_circuit", // 임용 8번 제너+BJT 전압 레귤레이터 = topology figure
+  "async_preset_counter_circuit", // 비동기 SET/RESET D-FF 응용회로 (가) = topology figure
 ]);
 
 /**

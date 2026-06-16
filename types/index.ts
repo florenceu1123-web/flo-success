@@ -366,6 +366,7 @@ export type DiagramType =
   | "vi_thevenin_maxpower_circuit" // 임용 5번 — 2전압원+2전류원 테브난+최대전력 (고정 슬롯)
   | "flash_adc_2bit_circuit" // 임용 6번 — 2비트 플래시 ADC (저항사다리+비교기+인코더, 복합형)
   | "zener_bjt_regulator_circuit" // 임용 8번 — 제너+BJT 전압 레귤레이터 (고정 슬롯)
+  | "async_preset_counter_circuit" // 비동기 SET/RESET D-FF 응용회로 (가) — NOR(F) 적재 + 리플 T-FF (고정 슬롯)
   | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
 
 /**
@@ -1197,6 +1198,22 @@ export type ZenerBjtRegulatorCircuitDiagram = {
   voLabel: string;  // "V_o"
   ilLabel: string;  // "I_L"
   i1Label: string;  // "I_1"
+};
+
+/**
+ * async_preset_counter_circuit (가) payload — 비동기 SET/RESET D-FF 응용회로.
+ *   구조는 고정(N개 D-FF 리플 체인 + 셀별 인버터+AND로 Set=F·I_k·Reset=F·I_k′ + 우측 NOR F).
+ *   값(label)만 외부 결정 — bitCount·I 라벨·Q 라벨.
+ */
+export type AsyncPresetCounterCircuitDiagram = {
+  /** FF 개수 (고정 슬롯 렌더러는 3 지원). */
+  bitCount: number;
+  /** 비동기 적재 입력 라벨 (좌→우, 예: ["I₀","I₁","I₂"]). */
+  iLabels: string[];
+  /** Q 출력 라벨 (예: ["Q₀","Q₁","Q₂"]). */
+  qLabels: string[];
+  /** 우측 NOR 게이트 출력 라벨 (예: "F"). */
+  norLabel: string;
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

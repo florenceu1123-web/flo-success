@@ -562,6 +562,62 @@ export function classifyCircuitType(
         "상태도", "상태 전이도", "상태천이도", "상태표", "상태 표",
         "state diagram", "state table", "순서논리", "순차 논리", "순차논리",
       ]);
+    // ★ 비동기 SET/RESET D-FF 응용회로 (자동 재적재 리플 다운카운터) — sequential_dff_generic 앞.
+    //   F=NOR(Q,CLK) all-zero 검출로 I 패턴을 비동기 적재 + 평상시 리플 T-FF 다운카운트.
+    //   ㉠=적재값(I), ㉡=카운트 파형. generic 순서논리 경로로 흡수되면 비동기 SET·RESET 망과
+    //   NOR 자동재적재 구조를 잃어 임의 D-FF 상태표로 변질 → 전용 archetype 필수.
+    //   ★ 판별 키 = 이 archetype 고유 구조 시그니처 (Vision 표현 흔들림에 견고하게):
+    //     · I₀I₁I₂ **병렬 적재 입력** (ff_with_waveform=A·B·C, sequential_dff=클록·X와 구분되는 결정적 단서)
+    //     · 다중 Q 출력 (Q₀Q₁Q₂) — 단일 Q인 임용8 ff_with_waveform과 구분
+    //   "비동기 SET" 키워드는 보조(있으면 강한 신호). Vision이 SET 표현을 흘려도 I-입력+다중Q면 매치.
+    {
+      const apcSignals = analysis.signals ?? { inputs: [], outputs: [] };
+      const apcInputs = apcSignals.inputs ?? [];
+      const apcOutputs = apcSignals.outputs ?? [];
+      const hasFfApc =
+        matchesKeyword(text, ["플립플롭", "flip-flop", "flipflop", "d-ff", "d 플립", "dff", "f/f", "ff"]) ||
+        Boolean(analysis.semantic?.hasStateTransition) ||
+        apcOutputs.some((s) => /^Q/i.test(s));
+      // I₀I₁I₂ 병렬입력 — text(라벨/본문) 또는 signals.inputs 양쪽에서 검출.
+      const iInTextApc =
+        /i₀\s*i₁\s*i₂/i.test(text) ||
+        (/i_?0\b/i.test(text) && /i_?1\b/i.test(text) && /i_?2\b/i.test(text));
+      const iInSignalsApc =
+        ["I0", "I1", "I2"].filter((v) => apcInputs.some((s) => s.replace(/[_₀₁₂]/g, (m) => ({ "₀": "0", "₁": "1", "₂": "2", _: "" }[m] ?? "")) === v)).length >= 2;
+      const hasIInputs = iInTextApc || iInSignalsApc;
+      // 다중 Q 출력 (Q₀Q₁Q₂ 등)
+      const qOutsApc = apcOutputs.filter((s) => /^Q/i.test(s)).length;
+      const multiQApc =
+        qOutsApc >= 2 ||
+        /q_?0\s*q_?1\s*q_?2|q₀\s*q₁\s*q₂/i.test(text) ||
+        (/q_?0\b/i.test(text) && /q_?1\b/i.test(text) && /q_?2\b/i.test(text));
+      const hasRegionApc = matchesKeyword(text, BLANK_CIRCLE_MARKERS);
+      // ★ 정의적 시그니처: **D 플립플롭 + 비동기 + SET + RESET**.
+      //   원본은 항상 "비동기식 SET과 RESET을 갖는 D 플립플롭"으로 기술 → Vision이 표현을 바꿔도
+      //   이 4요소(D-FF·비동기·SET·RESET)는 안정적으로 잡힌다(실측 4/4). 임용8 ff_with_waveform은
+      //   **RESET만**이라 SET 키워드가 없고, SR-FF 문제는 "비동기 SET/RESET D-FF"가 아니므로 구분됨.
+      const hasDFf = matchesKeyword(text, ["d 플립플롭", "d-ff", "d 플립", "dff", "d형 플립", "d ff", "d 플립 플롭"]);
+      const hasAsyncKw = matchesKeyword(text, ["비동기", "asynchronous", "async"]);
+      // ★ "set"은 "reset"의 부분문자열이므로 단어경계(\bset\b)로 분리 — RESET만 있는 경우 오발화 방지.
+      //   한글 "셋"도 "리셋"에 포함되므로 (?<!리)로 제외.
+      const hasSetKw = /\bset\b|preset|프리셋|(?<!리)셋/i.test(text);
+      const hasResetKw = /reset|리셋|클리어|clear/i.test(text);
+      // D-FF가 명시 안 돼도 일반 FF+다중Q/I-입력이면 보강 인정.
+      const asyncSetReset =
+        (hasDFf || hasFfApc) && hasAsyncKw && hasSetKw && hasResetKw;
+      // structural: 비동기 표현이 흘려도 I₀I₁I₂ 병렬입력(고유 구조)이면 매치.
+      const structural = hasFfApc && hasIInputs && (multiQApc || hasResetKw || hasRegionApc);
+      if (asyncSetReset || structural) {
+        return {
+          type: "async_preset_ripple_counter",
+          params: {},
+          confidence: "high",
+          reasoning:
+            `비동기 SET/RESET D-FF 응용회로 (D-FF·비동기·SET·RESET=${asyncSetReset}, I₀I₁I₂=${hasIInputs}, 다중Q=${multiQApc}, 구간=${hasRegionApc}) → 비동기 적재 리플 다운카운터 (ff_with_waveform·sequential_dff_generic 오분류 차단)`,
+        };
+      }
+    }
+
     // ★ 순서논리 generic (임용 12번류): D-FF 다중비트 상태(Q1Q0) + 클록/입력파형 + 상태분석(㉠㉡㉢).
     //   [단계3]의 "최소 AND/OR" 문구가 kmap_sop으로 오분류시키는 것을 차단하고 generic 순서논리로.
     //   단일 Q·X/Y(임용 8 ffWithWaveform)·조합(FF 없음)과 구분.

@@ -46,6 +46,7 @@ import { runTffStateTableBlankPipeline } from "@/lib/pipeline/runTffStateTableBl
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runSrFfMuxSequentialPipeline } from "@/lib/pipeline/runSrFfMuxSequentialPipeline";
+import { runAsyncPresetCounterPipeline } from "@/lib/pipeline/runAsyncPresetCounterPipeline";
 import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
 import { runTheveninSwitchedRcPipeline } from "@/lib/pipeline/runTheveninSwitchedRcPipeline";
 import { runOpampCascadePipeline } from "@/lib/pipeline/runOpampCascadePipeline";
@@ -191,6 +192,9 @@ export async function POST(req: NextRequest) {
     const isCharacteristicCurve = analysis?.circuitType?.type === "bjt_characteristic_curve";
     // zener_bjt_regulator는 단일 회로 해석형 (V_o·전류·저항 도출) — 파형·상태전이·multi-figure 불필요.
     const isZenerBjtRegulator = analysis?.circuitType?.type === "zener_bjt_regulator";
+    // async_preset_ripple_counter는 (가)회로+(나)파형 2-figure 형식. 파형은 제공하므로 유지,
+    //  스위치 t<0/t>0 상태쌍은 없음(F=NOR 자동재적재) → hasStateTransition=false로 state_before/after 면제.
+    const isAsyncPresetCounter = analysis?.circuitType?.type === "async_preset_ripple_counter";
     const isSwStatePair =
       rawSemantic.hasWaveformEvolution &&
       !hasCapOrIndInCircuit &&
@@ -202,6 +206,8 @@ export async function POST(req: NextRequest) {
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, requiresMultiFigure: false }
       : isZenerBjtRegulator
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, requiresMultiFigure: false }
+      : isAsyncPresetCounter
+      ? { ...rawSemantic, hasStateTransition: false, hasWaveformEvolution: true, requiresMultiFigure: true }
       : isAcDcSuperposition
         ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false }
         : isRlcResonanceMaxPower
@@ -276,6 +282,7 @@ export async function POST(req: NextRequest) {
       "flipflop_mixed_app", "tff_state_table_blank", "ff_with_waveform",
       "flipflop_counter", "combinational_gate", "sequence_detector", "fsm",
       "sr_ff_mux_sequential", "waveform_analysis", "mux_implementation",
+      "async_preset_ripple_counter",
     ]);
     if (subjectKey === "digital_logic" && (!circuitType || !DIGITAL_CIRCUIT_TYPES.has(circuitType))) {
       log.warn("digital_subject_circuittype_coerced", { from: circuitType, to: "universal_digital" });
@@ -800,6 +807,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "sr_ff_mux_sequential" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "sr_ff_mux_sequential_pipeline", count: n, mode });
       problems = await runSrFfMuxSequentialPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "async_preset_ripple_counter" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "async_preset_ripple_counter_pipeline", count: n, mode });
+      problems = await runAsyncPresetCounterPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
