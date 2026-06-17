@@ -122,9 +122,14 @@ export function classifyCircuitType(
     const rPS = invPS.filter((c) => String(c.type ?? "").toUpperCase() === "R").length;
     const textPS = `${analysis.topic ?? ""} ${analysis.interpretation ?? ""} ${(analysis.relatedConcepts ?? []).join(" ")}`.toLowerCase();
     const cascadePS = /cascade|캐스케이드|2단|두 단|두단|두 개의 연산|두개의 연산|2개의 연산|두 번째 연산|첫 번째 연산|v_o\/v_i|v_s\/v_o|v_s\/v_i|전달함수|opamp 응용|연산증폭기 응용|연산\s*증폭기를 이용|증폭 회로|각 단계별로|각 증폭기의/.test(textPS);
-    // OPAMP가 1개로 잘못 카운트돼도 cascade 텍스트 + 충분한 R + multi-OPAMP 키워드면 매치
-    const multiOpampTextPS = /두 번째|첫 번째|두번째|첫번째|2단|두 단|cascade|캐스케이드|u[_ ]?1.*u[_ ]?2/i.test(textPS);
-    const opampQualifies = opampPS >= 2 || (opampPS >= 1 && multiOpampTextPS && rPS >= 5);
+    // OPAMP가 1개로 잘못 카운트돼도(또는 0개로 누락돼도) cascade 텍스트 + 충분한 R + 연산증폭기 맥락이면 매치.
+    //   ★ Vision이 라벨 없는 삼각형 OPAMP를 자주 흘려 inventory OPAMP=0이 되는 케이스 안전망.
+    const multiOpampTextPS = /두 번째|첫 번째|두번째|첫번째|2단|두 단|두개|두 개|2개|cascade|캐스케이드|u[_ ]?1.*u[_ ]?2|두 개의 연산|2개의 연산|두개의 연산/i.test(textPS);
+    const opampStrongCtxPS = analysis.topicKey === "opamp" || /연산\s*증폭|op[\s.\-]?amp/i.test(textPS);
+    const opampQualifies =
+      opampPS >= 2 ||
+      (opampPS >= 1 && multiOpampTextPS && rPS >= 5) ||
+      (multiOpampTextPS && rPS >= 5 && opampStrongCtxPS); // OPAMP 0개여도 강한 cascade 시그니처
     // ★ 범용 OPAMP (임용 8번류: 가산기+차동, 미지 저항 R 역산) — cascade 전달함수와 구분.
     //   시그니처: OPAMP≥2 + (독립 DC전원 ≥3 OR 저항값 역산 키워드) + 전달함수(V_o/V_i) 키워드 없음.
     //   → 고정 archetype 대신 GPT 구조추출 netlist + MNA generic 경로 (opamp_generic).
