@@ -1429,6 +1429,22 @@ function decideType(args: DecideArgs): DecideResult {
     }
   }
 
+  // 0-PRE-AC-PB. AC 다중 가지 phasor (임용 5번) — ★ universal_ac보다 먼저 ★.
+  //   V_s + R_top + I_s + (L1 ∥ L2 ∥ R ∥ C) 5-가지 구조. 전용 generator + 고정슬롯 렌더러 보유.
+  //   ★ universal_ac generic이 먼저 잡으면 topology-driven으로 변질(L_leg2 등 노드 겹침) → 그 앞에 매치.
+  //   시그니처: R + L≥2(핵심) + C + AC + 단자 a·b 없음 (L≥2가 generic AC와 구분).
+  {
+    const hasABpb = matchesKeyword(text, ["단자 a", "단자 b", "a-b", "ab간", "a, b"]);
+    const acKwPb = matchesKeyword(text, AC_PHASOR_KEYWORDS) || Boolean(hasACInventory) || matchesKeyword(text, ["교류", "ac 회로", "페이저", "가지 전류"]);
+    if (!hasABpb && counts.R > 0 && counts.L >= 2 && counts.C > 0 && acKwPb) {
+      return {
+        type: "ac_parallel_branches",
+        confidence: "high",
+        reasoning: `AC + multi-L(${counts.L}) + C + R + 단자 a·b 없음 → ac_parallel_branches (임용 5번, universal_ac 앞)`,
+      };
+    }
+  }
+
   // 0-PRE-AC. Universal AC (archetype-free) — 모든 AC archetype보다 우선.
   //   조건: (L OR C 존재) + AC 키워드(공진·페이저·최대전력) + 기존 archetype 강한 시그니처 없음.
   //   기존 archetype(rlc_resonance·ac_superposition 등) 명시 키워드는 그쪽 유지.
