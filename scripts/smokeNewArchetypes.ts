@@ -283,7 +283,7 @@ for (const s of [0, 1, 2]) {
   check(`유사(RC) s${s} 회로 SVG·kind`, isValidSvg(renderSwRc(g.circuitDiagram)) && g.kind === "RC");
   const vc = (v.Vs / v.Rs + v.Is) / (1 / v.Rs + 1 / v.Rload);
   check(`유사 s${s} v_c(0⁻) 공식·정수`, Math.abs(a.init0 - vc) < 1e-6 && Number.isInteger(a.init0), `vc0=${a.init0}`);
-  check(`유사 s${s} τ=R·C·v_o계수=v_c(0⁻)`, Math.abs(a.tau - v.Rload * v.react) < 1e-9 && a.voCoeff === a.init0);
+  check(`유사 s${s} τ=R·C·출력=v_o`, Math.abs(a.tau - v.Rload * v.react) < 1e-9 && a.outCoeff === a.init0 && a.outSym === "v_o(t)");
 }
 // 변형 = RL (코일): i_L(0⁻)=Vs/Rs+Is, τ=L/Rl, v_o계수=Rl·i_L(0⁻)
 for (const s of [0, 1, 2]) {
@@ -292,7 +292,7 @@ for (const s of [0, 1, 2]) {
   check(`변형(RL) s${s} 회로 SVG·kind=RL`, isValidSvg(renderSwRc(g.circuitDiagram)) && g.kind === "RL");
   check(`변형 s${s} 코일 라벨(H)`, /H$/.test(g.circuitDiagram.reactLabel) && g.circuitDiagram.reactMeasLabel === "i_L(t)");
   check(`변형 s${s} i_L(0⁻)=Vs/Rs+Is 정수`, Math.abs(a.init0 - (v.Vs / v.Rs + v.Is)) < 1e-6 && Number.isInteger(a.init0), `iL0=${a.init0}`);
-  check(`변형 s${s} τ=L/R·v_o계수=R·i_L0`, Math.abs(a.tau - v.react / v.Rload) < 1e-9 && Math.abs(a.voCoeff - v.Rload * a.init0) < 1e-6);
+  check(`변형 s${s} τ=L/R·출력 i_o(t)=i_L(0⁻)`, Math.abs(a.tau - v.react / v.Rload) < 1e-9 && a.outSym === "i_o(t)" && a.outCoeff === a.init0);
 }
 
 // ── 결과 ──────────────────────────────────────────────────────────

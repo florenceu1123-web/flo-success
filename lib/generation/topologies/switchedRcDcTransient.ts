@@ -24,7 +24,9 @@ export type SwitchedRcDcTransientGeneration = {
     initSym: string;      // "v_c(0⁻)" | "i_L(0⁻)"
     initUnit: string;     // "V" | "A"
     tau: number;          // s
-    voCoeff: number;      // v_o(t) = voCoeff·e^(−t/τ)
+    outSym: string;       // 출력: "v_o(t)" (RC) | "i_o(t)" (RL)
+    outUnit: string;      // "V" | "A"
+    outCoeff: number;     // 출력 = outCoeff·e^(−t/τ)
   };
   circuitDiagram: SwitchedRcDcCircuitDiagram;
 };
@@ -83,23 +85,23 @@ function solve(kind: "RC" | "RL", p: Combo): SwitchedRcDcTransientGeneration {
     const tau = round3(p.Rload * p.react);
     return {
       kind, values: p,
-      answer: { init0: vc0, initSym: "v_c(0⁻)", initUnit: "V", tau, voCoeff: vc0 },
+      // RC: 출력은 전압 v_o(t)=v_c(t) (C∥R).
+      answer: { init0: vc0, initSym: "v_c(0⁻)", initUnit: "V", tau, outSym: "v_o(t)", outUnit: "V", outCoeff: vc0 },
       circuitDiagram: {
         kind: "RC", vsLabel: `${p.Vs}V`, rsLabel: `${p.Rs}Ω`, isLabel: `${p.Is}A`,
         reactLabel: `${p.react}F`, rlLabel: `${p.Rload}Ω`, reactMeasLabel: "v_c(t)", voLabel: "v_o(t)",
       },
     };
   }
-  // RL
+  // RL — 출력은 ★ 전류 i_o(t)=i_L(t) ★ (L∥R, 인덕터 전류가 R_load로 흐름).
   const iL0 = round3(iL0Of(p.Vs, p.Rs, p.Is));
   const tau = round3(p.react / p.Rload);
-  const voCoeff = round3(p.Rload * iL0);
   return {
     kind, values: p,
-    answer: { init0: iL0, initSym: "i_L(0⁻)", initUnit: "A", tau, voCoeff },
+    answer: { init0: iL0, initSym: "i_L(0⁻)", initUnit: "A", tau, outSym: "i_o(t)", outUnit: "A", outCoeff: iL0 },
     circuitDiagram: {
       kind: "RL", vsLabel: `${p.Vs}V`, rsLabel: `${p.Rs}Ω`, isLabel: `${p.Is}A`,
-      reactLabel: `${p.react}H`, rlLabel: `${p.Rload}Ω`, reactMeasLabel: "i_L(t)", voLabel: "v_o(t)",
+      reactLabel: `${p.react}H`, rlLabel: `${p.Rload}Ω`, reactMeasLabel: "i_L(t)", voLabel: "i_o(t)",
     },
   };
 }
