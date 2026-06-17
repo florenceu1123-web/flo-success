@@ -35,7 +35,7 @@ import {
 } from "../lib/generation/topologies/rlcResonanceBandwidth";
 import { renderRlcResonanceBandwidthCircuit } from "../lib/renderers/rlcResonanceBandwidthCircuitRenderer";
 import { renderRlcResonanceBandwidthDualCircuit } from "../lib/renderers/rlcResonanceBandwidthDualCircuitRenderer";
-import { generateOpampTwoStage as generateOpampTwoStage2 } from "../lib/generation/topologies/opampTwoStage";
+import { generateOpampTwoStage as generateOpampTwoStage2, __originalForVerify as __originalForVerify2 } from "../lib/generation/topologies/opampTwoStage";
 import { renderOpampTwoStage as renderOpampTwoStage2 } from "../lib/renderers/opampTwoStageCircuitRenderer";
 
 let pass = 0;
@@ -202,20 +202,33 @@ for (const seed of [0, 1, 2]) {
   check(`변형 s${seed} I_ab 위상=−90`, a.IabPhase === -90, `I_ab=${a.Iab_mA}∠${a.IabPhase}`);
 }
 
-// ── [8] opampTwoStage ─────────────────────────────────────────────
-console.log("\n[8] opampTwoStage (2단 OPAMP: 비반전 → 반전, V_P→V_i·V_o)");
+// ── [8] opampTwoStage (T자 피드백 2단 OPAMP) ──────────────────────
+console.log("\n[8] opampTwoStage (1단 비반전 → 2단 T자 피드백 반전, V_P→V_i·V_o)");
 {
-  // 동적 import (파일 상단 일괄 import 유지 위해 require 스타일 회피 — 직접 import)
+  // 원본 재현 검증: Ra=Rb=1k·Rf2=7k·Rf3=10k → G2=−2.5, V_P=2 → V_i=1·V_o=−5
+  const o = __originalForVerify2();
+  check("원본 G₂=−2.5", Math.abs(o.values.G2 - -2.5) < 1e-6, `G2=${o.values.G2}`);
+  check("원본 V_i=1·V_o=−5", o.answer.Vi === 1 && o.answer.Vo === -5, `Vi=${o.answer.Vi} Vo=${o.answer.Vo}`);
+  // 원본 튜플은 생성 풀에서 제외
+  let origEmit = false;
+  for (const mode of ["exam_similar", "exam_variant"] as const)
+    for (let s = 0; s < 50; s++) {
+      const x = generateOpampTwoStage2({ seed: s, mode }).values;
+      if (x.A1 === 2 && x.Ra_k === 1 && x.Rf2_k === 7 && x.Rf3_k === 10 && x.VP === 2) origEmit = true;
+    }
+  check("원본 튜플 미생성", !origEmit);
 }
 for (const mode of ["exam_similar", "exam_variant"] as const) {
   for (const seed of [0, 1, 2]) {
     const g = generateOpampTwoStage2({ seed, mode });
     const v = g.values, a = g.answer;
     check(`${mode} s${seed} 회로 SVG`, isValidSvg(renderOpampTwoStage2(g.circuitDiagram)));
-    check(`${mode} s${seed} V_i=V_P/A₁`, Math.abs(a.Vi - v.VP / v.A1) < 1e-9 && Number.isInteger(a.Vi), `V_i=${a.Vi}`);
-    check(`${mode} s${seed} V_o=−A₂·V_P`, Math.abs(a.Vo - (-v.A2 * v.VP)) < 1e-9, `V_o=${a.Vo}`);
+    check(`${mode} s${seed} V_i=V_P/A₁ 정수`, Math.abs(a.Vi - v.VP / v.A1) < 1e-9 && Number.isInteger(a.Vi), `V_i=${a.Vi}`);
+    check(`${mode} s${seed} V_o=G₂·V_P`, Math.abs(a.Vo - v.G2 * v.VP) < 1e-6, `V_o=${a.Vo}`);
     check(`${mode} s${seed} A₁=1+Rf1/Rg1`, Math.abs(v.A1 - (1 + v.Rf1_k / v.Rg1_k)) < 1e-9);
-    check(`${mode} s${seed} A₂=Rf2/Rin2`, Math.abs(v.A2 - v.Rf2_k / v.Rin2_k) < 1e-9);
+    // T자 이득 공식 일관성
+    const g2 = -1 / (v.Ra_k * ((v.Rb_k / v.Rf2_k) * (1 / v.Ra_k + 1 / v.Rb_k + 1 / v.Rf3_k) + 1 / v.Rf3_k));
+    check(`${mode} s${seed} G₂=T자공식`, Math.abs(v.G2 - g2) < 1e-3, `G2=${v.G2}`);
   }
 }
 

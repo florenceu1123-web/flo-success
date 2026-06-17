@@ -1252,8 +1252,10 @@ export type OpampTwoStageCircuitDiagram = {
   viLabel: string;   // "v_i(t)" / "V_i"
   rg1Label: string;  // 1단 GND측 R
   rf1Label: string;  // 1단 피드백 R
-  rin2Label: string; // 2단 입력 R
-  rf2Label: string;  // 2단 피드백 R
+  rin2aLabel: string; // 2단 입력 직렬 R 1 (V_P↔N)
+  rin2bLabel: string; // 2단 입력 직렬 R 2 (N↔op2 −)
+  rf2Label: string;  // 2단 피드백 R (op2 (−)↔V_o)
+  rf3Label: string;  // op2 추가 저항 (V_P↔V_o 직접 연결)
   vpLabel: string;   // "V_P"
   voLabel: string;   // "V_o"
 };
