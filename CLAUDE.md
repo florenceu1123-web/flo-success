@@ -608,6 +608,13 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - ★ **Vision 대응 2겹**: (1) extractComponentInventory에 "능동소자(삼각형 OPAMP) 추출 최우선 규칙"(라벨 없는 삼각형도 OPAMP, 연산증폭기 언급 시 개수만큼 필수) — OPAMP 추출 0/3→5/5. (2) analyzeImage에 "2단 OPAMP V_P·V_i·V_o 보존 규칙". classifier는 **opamp 맥락 + V_P(중간노드) given + V_i·V_o 도출(기호 또는 '입력 전압·출력 전압') + 전달함수 아님**으로 cascade/generic **앞에** 매치. 실이미지 라우팅 2/4→5/5.
 - 값(이득 A₁∈{2,3}·A₂∈{2..5}·V_P)은 규칙 기반 구성(예시 목록 아님), V_i=V_P/A₁ 정수·V_o 정수 보장. 파일: `lib/generation/topologies/opampTwoStage.ts`·`runOpampTwoStagePipeline.ts`·`lib/renderers/opampTwoStageCircuitRenderer.ts`(비반전 U₁ + 반전 U₂ 전용 렌더러). circuitType `opamp_two_stage`, diagramType `opamp_two_stage_circuit`. ※ 원본의 2단 정확한 배선(1k·1k·10k·7k로 V_o=−5)은 이미지로 특정 불가 → 구조 동일·표준 반전 2단으로 재현(유사문제는 값이 달라야 정상).
 
+## AC 휘트스톤 브리지 + 테브난 + 최대평균전력 (임용 7번 — `ac_bridge_max_power`) 전용 archetype
+- 원본: 교류원 V(∠0°) + 다이아몬드 4-arm 브리지(좌상 −jXc1·우상 R2·좌하 jXl·우하 R4) + 단자 A·B에 부하 R_L. 단자 개방 시 V_A·V_B·테브난(Z_TH) 구하고 순저항 최대평균전력 R_L 도출.
+- ★ generic universal_ac는 브리지(다이아몬드+A·B 가교) 구조를 잃고 임의 병렬회로로 변질 → figure·답 모두 깨짐 → 전용 결정론 archetype.
+- 닫힌형: V_A=V·Xl/(Xl−Xc1)(좌 리액티브 분압), V_B=V·R4/(R2+R4)(우 저항 분압), V_TH=V_A−V_B. Z_TH=(Z1∥Z3)+(Z2∥Z4)=Rpar−jXpar (Xpar=Xc1·Xl/(Xl−Xc1)). R_L=|Z_TH|, P_max=|V_TH|²·R_L/((Rpar+R_L)²+Xpar²). 원본(V=4·−j2·6·j4·6)→V_A=8·V_B=2·V_TH=6·Z_TH=3−j4·R_L=5·P=2.25.
+- 값은 규칙 기반(Pythagorean (Rpar,Xpar)로 |Z_TH| 정수, V는 V_A·V_B·V_TH 정수 되게), 원본 튜플 제외. classifier 0-PRE-AC-BRIDGE-MAXPOWER: I=0+V≥1+L>0+C>0+테브난+최대전력+(단자A·B/V_A·V_B/브리지) → universal_ac 앞 매치. 2전원 theveninMaxPower와 I=0로 구분. analyzeImage에 브리지 추출 규칙(테브난·최대전력·단자A·B 보존).
+- 파일: `lib/generation/topologies/acBridgeMaxPower.ts`·`runAcBridgeMaxPowerPipeline.ts`(3단계)·`lib/renderers/acBridgeCircuitRenderer.ts`((가) 다이아몬드 4-arm 대각소자 회전배치 + 중앙 R_L, (나) 전원단락 브리지=Z_TH + 중앙 R_L). diagramType `ac_bridge_circuit`/`ac_bridge_thevenin_circuit`. semantic normalize(등가·multi 유지, 파형·상태 면제).
+
 ## OPAMP finite open-loop gain + 블록도 (예: 임용 11번)
 - (가) 회로: V_in 외부 핀(전압원 박스 없이) + R_1(입력) + A(s) OPAMP + R_2(피드백). V+=GND, V_out 단자.
 - (나) 블록도(signal flow graph): V_in→α→Σ→A(s)→V_out, V_out→β→Σ 피드백. diagramType="block_diagram".

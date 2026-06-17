@@ -1388,6 +1388,24 @@ function decideType(args: DecideArgs): DecideResult {
     };
   }
 
+  // 0-PRE-AC-BRIDGE-MAXPOWER. AC 휘트스톤 브리지 + 테브난 + 최대평균전력 (임용 7번).
+  //   단일 교류원 + 4-arm 브리지(L·C·R) + 단자 A·B 부하 R_L. ★ generic universal_ac는 브리지
+  //   (다이아몬드 4-arm + A·B 가교) 구조를 잃고 임의 병렬회로로 변질 → 전용 archetype 필수.
+  //   2전원 theveninMaxPower(위)와 구분: 전류원 없음(I=0). 시그니처: 테브난+최대전력+(단자A·B/V_A·V_B/브리지).
+  {
+    const bridgeSig = /v_?a\b|v_?b\b|단자\s*a|단자\s*b|브리지|bridge|휘트스톤|wheatstone|v_?th|z_?th/i.test(text);
+    const isMaxPB = matchesKeyword(text, MAX_POWER_KEYWORDS);
+    const isThevB = matchesKeyword(text, ["테브난", "thevenin", "등가 임피던스", "등가임피던스", "등가 회로"]);
+    if (counts.I === 0 && counts.V >= 1 && counts.L > 0 && counts.C > 0 && isMaxPB && isThevB && bridgeSig) {
+      return {
+        type: "ac_bridge_max_power",
+        params: {},
+        confidence: "high",
+        reasoning: `단일 AC원 + L·C·R 브리지 + 테브난 + 최대전력 + 단자A·B → ac_bridge_max_power (임용 7번, universal_ac 브리지 상실 차단)`,
+      };
+    }
+  }
+
   // 0-PRE-AC-RLC-BANDWIDTH. 직렬 RLC 공진 + 대역폭 (임용 11번) — universal_ac보다 먼저.
   //   원본: ω₀·C 주어지고 L 도출·V_ab 페이저·**대역폭 β=R/L**·R변경 시 β₁/β₂.
   //   ★ generic universal_ac 쿼리추론은 "공진주파수·C 찾기"라는 엉뚱한 generic 문제를 만들어

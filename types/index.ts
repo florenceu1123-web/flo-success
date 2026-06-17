@@ -370,6 +370,8 @@ export type DiagramType =
   | "rlc_resonance_bandwidth_circuit" // 직렬 RLC 공진+대역폭 (임용 11번) — R–[C₁∥C₂]–L + 단자 a·b (고정 슬롯)
   | "rlc_resonance_bandwidth_dual_circuit" // 위의 쌍대(기출변형) — 병렬 RLC(전류원∥R_d∥[L₁+L₂]∥C_d), I_ab 측정
   | "opamp_two_stage_circuit" // 2단 OPAMP (1단 비반전 → 2단 반전), V_P·V_i·V_o (임용 2번)
+  | "ac_bridge_circuit"           // AC 휘트스톤 브리지 (가) — 4-arm + R_L 가교 (임용 7번)
+  | "ac_bridge_thevenin_circuit"  // 위의 테브난 등가 (나) — V_TH·Z_TH·R_L
   | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
 
 /**
@@ -1258,6 +1260,28 @@ export type OpampTwoStageCircuitDiagram = {
   rf3Label: string;  // op2 추가 저항 (V_P↔V_o 직접 연결)
   vpLabel: string;   // "V_P"
   voLabel: string;   // "V_o"
+};
+
+/**
+ * ac_bridge_circuit payload — AC 휘트스톤 브리지 (가, 임용 7번).
+ *   다이아몬드: 상단노드 T, 하단노드 G(=GND), 좌마디 A, 우마디 B.
+ *   Z1=T→A(좌상), Z2=T→B(우상), Z3=A→G(좌하, V_A), Z4=B→G(우하, V_B), R_L: A↔B.
+ *   전원 V는 좌측 (T↔G).
+ */
+export type AcBridgeCircuitDiagram = {
+  vLabel: string;    // "V_rms=4∠0°V"
+  z1Label: string;   // 좌상 (예: "−j2Ω")
+  z2Label: string;   // 우상 (예: "6Ω")
+  z3Label: string;   // 좌하 (예: "j4Ω") — V_A
+  z4Label: string;   // 우하 (예: "6Ω") — V_B
+  rlLabel: string;   // "R_L"
+};
+
+/** ac_bridge_thevenin_circuit payload — 테브난 등가 (나). V_TH 직렬 Z_TH → 단자 A·B → R_L. */
+export type AcBridgeTheveninCircuitDiagram = {
+  vthLabel: string;  // "V_TH"
+  zthLabel: string;  // "Z_TH"
+  rlLabel: string;   // "R_L"
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

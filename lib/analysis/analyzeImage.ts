@@ -444,6 +444,15 @@ path로 라우팅되어 universal_ac_pwl 파이프라인이 호출되지 못한�
 (이 케이스는 classifier가 rlc_resonance_bandwidth로 라우팅하여 결정론 3단계 풀이가 적용된다.
 "대역폭"·"β" 키워드 누락 시 universal_ac로 떨어져 엉뚱한 generic 공진문제가 생성된다.)
 
+【AC 휘트스톤 브리지 + 테브난 + 최대전력 추출 — 절대 규칙 (임용 7번류)】
+- 교류원 + **다이아몬드/브리지 4-arm**(좌상·우상·좌하·우하에 −jX(C)·R·jX(L)·R) + 가운데 단자 **A·B**에 부하 R_L이
+  가교된 회로에서, **단자 A·B를 개방해 V_A·V_B·테브난 등가(Z_TH)** 를 구하고 **최대 평균 전력 R_L**을 구하는 형식이면:
+- ★ interpretation에 ★ "테브난", "최대 (평균) 전력", "단자 A", "단자 B"(또는 "V_A", "V_B") ★ 를 모두 명시 ★.
+- componentInventory에 4개 arm 소자(−jX 커패시터·jX 인덕터·저항 2개)를 빠짐없이. (전류원 없음 — 단일 교류 전압원.)
+- ★ 절대 금지 ★: 브리지를 일반 직렬/병렬로 요약하거나 테브난·단자 A·B를 누락하는 것.
+(이 케이스는 classifier가 ac_bridge_max_power로 라우팅. 키워드 누락 시 universal_ac로 떨어져 브리지 구조가
+일반 병렬회로로 변질되어 figure·답이 모두 틀린다.)
+
 【electronics OPAMP 회로 추출 — 절대 규칙】
 - OPAMP component는 R/V/I와 동일하게 componentInventory에 모두 포함하고, topologySignature.branches에도 명시한다.
 - OPAMP가 회로에 K개 있으면 inventory에 "OPAMP" K번, branches에도 K개 별도 entry.

@@ -34,6 +34,7 @@ const TESTS = [
   { type: "async_preset_ripple_counter", subject: "digital_logic", topic: "비동기 SET/RESET D-FF 카운터", topicKey: "flipflop_counter" },
   { type: "rlc_resonance_bandwidth", subject: "circuit_theory", topic: "직렬 RLC 공진 대역폭", topicKey: "rlc_response" },
   { type: "opamp_two_stage", subject: "electronics", topic: "2단 OPAMP 응용회로", topicKey: "opamp" },
+  { type: "ac_bridge_max_power", subject: "circuit_theory", topic: "AC 브리지 테브난 최대전력", topicKey: "rlc_response" },
   // acDcSuperpositionRc — universal_ac + params 플래그로 트리거 (임용 12번 AC+DC 중첩 RC)
   { type: "universal_ac",          subject: "circuit_theory", topic: "AC+DC 중첩 RC",      topicKey: "rlc_response", params: { acDcSuperpositionRc: true } },
   // viTheveninMaxPower — max_power_transfer + 2전압원·2전류원 params로 maxpower 파이프라인 내 분기 (임용 5번)

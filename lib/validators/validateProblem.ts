@@ -31,6 +31,8 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "rlc_resonance_bandwidth_circuit", // 직렬 RLC 공진+대역폭 (가) = topology figure
   "rlc_resonance_bandwidth_dual_circuit", // 위의 쌍대(기출변형) 병렬 RLC = topology figure
   "opamp_two_stage_circuit", // 2단 OPAMP (임용 2번) = topology figure
+  "ac_bridge_circuit", // AC 휘트스톤 브리지 (가, 임용 7번) = topology figure
+  "ac_bridge_thevenin_circuit", // 테브난 등가 (나) = topology figure
 ]);
 
 /**

@@ -37,6 +37,8 @@ import { renderRlcResonanceBandwidthCircuit } from "../lib/renderers/rlcResonanc
 import { renderRlcResonanceBandwidthDualCircuit } from "../lib/renderers/rlcResonanceBandwidthDualCircuitRenderer";
 import { generateOpampTwoStage as generateOpampTwoStage2, __originalForVerify as __originalForVerify2 } from "../lib/generation/topologies/opampTwoStage";
 import { renderOpampTwoStage as renderOpampTwoStage2 } from "../lib/renderers/opampTwoStageCircuitRenderer";
+import { generateAcBridgeMaxPower as generateAcBridgeMaxPower2, __originalBridgeForVerify as __originalBridgeForVerify2 } from "../lib/generation/topologies/acBridgeMaxPower";
+import { renderAcBridgeCircuit as renderAcBridgeCircuit2, renderAcBridgeThevenin as renderAcBridgeThevenin2 } from "../lib/renderers/acBridgeCircuitRenderer";
 
 let pass = 0;
 let fail = 0;
@@ -229,6 +231,34 @@ for (const mode of ["exam_similar", "exam_variant"] as const) {
     // T자 이득 공식 일관성
     const g2 = -1 / (v.Ra_k * ((v.Rb_k / v.Rf2_k) * (1 / v.Ra_k + 1 / v.Rb_k + 1 / v.Rf3_k) + 1 / v.Rf3_k));
     check(`${mode} s${seed} G₂=T자공식`, Math.abs(v.G2 - g2) < 1e-3, `G2=${v.G2}`);
+  }
+}
+
+// ── [9] acBridgeMaxPower (AC 휘트스톤 브리지 + 테브난 + 최대전력) ──
+console.log("\n[9] acBridgeMaxPower (AC 브리지 + 테브난 + 최대평균전력)");
+{
+  const o = __originalBridgeForVerify2().answer;
+  check("원본 V_A=8·V_B=2·V_TH=6·Z_TH=3−j4·R_L=5·P=2.25",
+    o.VA === 8 && o.VB === 2 && o.VTH === 6 && o.Rpar === 3 && o.Xpar === 4 && o.absZth === 5 && o.RL === 5 && o.Pmax === 2.25,
+    `V_A=${o.VA} V_B=${o.VB} V_TH=${o.VTH} Z=${o.Rpar}-j${o.Xpar} R_L=${o.RL} P=${o.Pmax}`);
+  let origEmit = false;
+  for (const mode of ["exam_similar", "exam_variant"] as const)
+    for (let s = 0; s < 40; s++) {
+      const v = generateAcBridgeMaxPower2({ seed: s, mode }).values;
+      if (v.V === 4 && v.Xc1 === 2 && v.Xl === 4 && v.R2 === 6) origEmit = true;
+    }
+  check("원본 튜플 미생성", !origEmit);
+}
+for (const mode of ["exam_similar", "exam_variant"] as const) {
+  for (const seed of [0, 1, 2]) {
+    const g = generateAcBridgeMaxPower2({ seed, mode });
+    const v = g.values, a = g.answer;
+    check(`${mode} s${seed} 브리지 SVG`, isValidSvg(renderAcBridgeCircuit2(g.bridgeDiagram)));
+    check(`${mode} s${seed} 테브난 SVG`, isValidSvg(renderAcBridgeThevenin2(g.theveninDiagram)));
+    // 분압·병렬·최대전력 불변식
+    check(`${mode} s${seed} V_A=V·Xl/(Xl−Xc1)`, Math.abs(a.VA - v.V * v.Xl / (v.Xl - v.Xc1)) < 1e-6);
+    check(`${mode} s${seed} V_B=V·R4/(R2+R4)`, Math.abs(a.VB - v.V * v.R4 / (v.R2 + v.R4)) < 1e-6);
+    check(`${mode} s${seed} |Z_TH| 정수·R_L=|Z_TH|`, Number.isInteger(a.absZth) && a.RL === a.absZth, `|Z|=${a.absZth}`);
   }
 }
 
