@@ -35,6 +35,8 @@ import {
 } from "../lib/generation/topologies/rlcResonanceBandwidth";
 import { renderRlcResonanceBandwidthCircuit } from "../lib/renderers/rlcResonanceBandwidthCircuitRenderer";
 import { renderRlcResonanceBandwidthDualCircuit } from "../lib/renderers/rlcResonanceBandwidthDualCircuitRenderer";
+import { generateOpampTwoStage as generateOpampTwoStage2 } from "../lib/generation/topologies/opampTwoStage";
+import { renderOpampTwoStage as renderOpampTwoStage2 } from "../lib/renderers/opampTwoStageCircuitRenderer";
 
 let pass = 0;
 let fail = 0;
@@ -198,6 +200,23 @@ for (const seed of [0, 1, 2]) {
   check(`변형 s${seed} β₁=1/(R_d·C_d)`, Math.abs(a.beta1 - 1 / (Rd * Cd)) < 1, `β₁=${a.beta1}`);
   check(`변형 s${seed} β₁/β₂=R₂d/R_d`, Math.abs(a.ratio - v.R2d_kohm / v.Rd_kohm) < 1e-6, `비=${a.ratio}`);
   check(`변형 s${seed} I_ab 위상=−90`, a.IabPhase === -90, `I_ab=${a.Iab_mA}∠${a.IabPhase}`);
+}
+
+// ── [8] opampTwoStage ─────────────────────────────────────────────
+console.log("\n[8] opampTwoStage (2단 OPAMP: 비반전 → 반전, V_P→V_i·V_o)");
+{
+  // 동적 import (파일 상단 일괄 import 유지 위해 require 스타일 회피 — 직접 import)
+}
+for (const mode of ["exam_similar", "exam_variant"] as const) {
+  for (const seed of [0, 1, 2]) {
+    const g = generateOpampTwoStage2({ seed, mode });
+    const v = g.values, a = g.answer;
+    check(`${mode} s${seed} 회로 SVG`, isValidSvg(renderOpampTwoStage2(g.circuitDiagram)));
+    check(`${mode} s${seed} V_i=V_P/A₁`, Math.abs(a.Vi - v.VP / v.A1) < 1e-9 && Number.isInteger(a.Vi), `V_i=${a.Vi}`);
+    check(`${mode} s${seed} V_o=−A₂·V_P`, Math.abs(a.Vo - (-v.A2 * v.VP)) < 1e-9, `V_o=${a.Vo}`);
+    check(`${mode} s${seed} A₁=1+Rf1/Rg1`, Math.abs(v.A1 - (1 + v.Rf1_k / v.Rg1_k)) < 1e-9);
+    check(`${mode} s${seed} A₂=Rf2/Rin2`, Math.abs(v.A2 - v.Rf2_k / v.Rin2_k) < 1e-9);
+  }
 }
 
 // ── 결과 ──────────────────────────────────────────────────────────

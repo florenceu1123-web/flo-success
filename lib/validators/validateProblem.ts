@@ -30,6 +30,7 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "async_preset_counter_circuit", // 비동기 SET/RESET D-FF 응용회로 (가) = topology figure
   "rlc_resonance_bandwidth_circuit", // 직렬 RLC 공진+대역폭 (가) = topology figure
   "rlc_resonance_bandwidth_dual_circuit", // 위의 쌍대(기출변형) 병렬 RLC = topology figure
+  "opamp_two_stage_circuit", // 2단 OPAMP (임용 2번) = topology figure
 ]);
 
 /**

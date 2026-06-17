@@ -450,6 +450,10 @@ path로 라우팅되어 universal_ac_pwl 파이프라인이 호출되지 못한�
 - 단일 OPAMP / 2단 cascade / instrumentation amp / 차동입력 amp 등은 OPAMP 개수와 입력 연결로 식별 가능 → analyze가 정확히 카운트해야 generator가 올바른 archetype 선택.
 - structureSignature.componentCounts.OPAMP에도 카운트 명시.
 - interpretation 텍스트에 "OPAMP K단", "cascade", "두 단 OPAMP" 등 구조 묘사를 한 문장 포함시켜 키워드 기반 dispatch도 가능하게.
+- ★ 2단 OPAMP에서 ★ 중간 마디 전압(V_P 등)이 주어지고 입력(V_i)·출력(V_o)을 구하라 ★ 는 형식이면
+  interpretation에 ★ "V_P", "V_i", "V_o", "구하여"(또는 "구하시오") ★ 를 모두 명시하라.
+  예: "1단 비반전·2단 반전 2단 OPAMP. V_P가 주어질 때 입력 전압 V_i와 출력 전압 V_o를 구하여 순서대로 쓰는 문제."
+  ★ 절대 금지 ★: "전달함수를 구한다"·"V_o/V_i" (이건 다른 유형 — 이 문제는 V_P given·V_i·V_o 도출).
 
 【few-shot — 2-OPAMP cascade 5번 패턴 예시】
 원본이 다음과 같은 회로(임용 5번 (가)):

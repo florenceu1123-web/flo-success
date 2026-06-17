@@ -53,6 +53,7 @@ import { renderZenerBjtRegulatorCircuit } from "./zenerBjtRegulatorCircuitRender
 import { renderAsyncPresetCounterCircuit } from "./asyncPresetCounterCircuitRenderer";
 import { renderRlcResonanceBandwidthCircuit } from "./rlcResonanceBandwidthCircuitRenderer";
 import { renderRlcResonanceBandwidthDualCircuit } from "./rlcResonanceBandwidthDualCircuitRenderer";
+import { renderOpampTwoStage } from "./opampTwoStageCircuitRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -126,6 +127,8 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderRlcResonanceBandwidthCircuit(figure.diagram as import("@/types").RlcResonanceBandwidthCircuitDiagram));
     case "rlc_resonance_bandwidth_dual_circuit":
       return wrapSvg(figure, renderRlcResonanceBandwidthDualCircuit(figure.diagram as import("@/types").RlcResonanceBandwidthDualCircuitDiagram));
+    case "opamp_two_stage_circuit":
+      return wrapSvg(figure, renderOpampTwoStage(figure.diagram as import("@/types").OpampTwoStageCircuitDiagram));
     case "vi_line_graph":
       return wrapSvg(figure, renderViLineGraph(figure.diagram as Parameters<typeof renderViLineGraph>[0]));
     default:

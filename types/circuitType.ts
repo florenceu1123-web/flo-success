@@ -66,6 +66,7 @@ export type CircuitType =
   | "sequential_dff_generic" // 디지털 순서논리 D-FF+클록+파형 상태분석 — GPT 구조추출 + 상태 시뮬 (임용 12번)
   | "async_preset_ripple_counter" // 비동기 SET/RESET D-FF 응용회로 — NOR(F) all-zero 검출로 I 패턴 비동기 적재 + 리플 T-FF 다운카운트 (출력 모두 0이면 재적재). ㉠ 적재값·㉡ 카운트 파형 도출
   | "rlc_resonance_bandwidth" // 직렬 RLC 공진 + 대역폭 (임용 11번) — ω₀·C 주어지고 L 도출·V_ab 페이저·대역폭 β=R/L·R변경 β₁/β₂
+  | "opamp_two_stage" // 2단 OPAMP(1단 비반전 ×A1 → 2단 반전 ×−A2) — V_P 주어지고 V_i·V_o 도출 (임용 2번 형식)
   // ── Universal (rule-based) ───────────────────
   | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
   | "universal_ac"          // 임의 AC 회로(R/L/C/V/I) + phasor/공진/최대전력 query — archetype-free

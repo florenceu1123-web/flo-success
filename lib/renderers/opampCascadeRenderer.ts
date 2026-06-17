@@ -124,11 +124,10 @@ export function renderOpampCascade(d: OpampCascadeDiagram): string {
   svg += `<path d="M ${u2Pins.vPlus.x} ${u2Pins.vPlus.y} L ${u2Pins.vPlus.x} ${U2_GND_Y}" stroke="black" stroke-width="2" fill="none"/>`;
   svg += renderGround(u2Pins.vPlus.x, U2_GND_Y);
 
-  // V_i bottom과 합류 node down을 horizontal wire(같은 노드)로 연결 + 단일 GND 심볼
-  svg += `<path d="M ${VI_X} ${BOT_Y} L ${NODE_LEFT_CORNER_X} ${BOT_Y}" stroke="black" stroke-width="2" fill="none"/>`;
-  svg += `<circle cx="${VI_X}" cy="${BOT_Y}" r="3" fill="black"/>`;
-  svg += `<circle cx="${NODE_LEFT_CORNER_X}" cy="${BOT_Y}" r="3" fill="black"/>`;
-  svg += renderGround(Math.round((VI_X + NODE_LEFT_CORNER_X) / 2), BOT_Y);
+  // V_i bottom·R_6 bottom을 ★ 각각 독립 GND 심볼 ★ 로 (사용자 피드백: 노드로 묶지 말고 각각 그라운드).
+  //   가로 합류 wire 제거 — 두 단자가 별개 ground로 내려간다.
+  svg += renderGround(VI_X, BOT_Y);
+  svg += renderGround(NODE_LEFT_CORNER_X, BOT_Y);
 
   svg += `</svg>`;
   return svg;

@@ -369,6 +369,7 @@ export type DiagramType =
   | "async_preset_counter_circuit" // 비동기 SET/RESET D-FF 응용회로 (가) — NOR(F) 적재 + 리플 T-FF (고정 슬롯)
   | "rlc_resonance_bandwidth_circuit" // 직렬 RLC 공진+대역폭 (임용 11번) — R–[C₁∥C₂]–L + 단자 a·b (고정 슬롯)
   | "rlc_resonance_bandwidth_dual_circuit" // 위의 쌍대(기출변형) — 병렬 RLC(전류원∥R_d∥[L₁+L₂]∥C_d), I_ab 측정
+  | "opamp_two_stage_circuit" // 2단 OPAMP (1단 비반전 → 2단 반전), V_P·V_i·V_o (임용 2번)
   | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
 
 /**
@@ -1241,6 +1242,20 @@ export type RlcResonanceBandwidthDualCircuitDiagram = {
   l1Label: string;  // "2.5H"
   l2Label: string;  // "1.5H"
   cdLabel: string;  // "C" (미지)
+};
+
+/**
+ * opamp_two_stage_circuit payload — 2단 OPAMP (임용 2번 형식).
+ *   1단 비반전(V_i→+, Rg1→GND, Rf1 피드백) → V_P → 2단 반전(Rin2, Rf2 피드백, +→GND) → V_o.
+ */
+export type OpampTwoStageCircuitDiagram = {
+  viLabel: string;   // "v_i(t)" / "V_i"
+  rg1Label: string;  // 1단 GND측 R
+  rf1Label: string;  // 1단 피드백 R
+  rin2Label: string; // 2단 입력 R
+  rf2Label: string;  // 2단 피드백 R
+  vpLabel: string;   // "V_P"
+  voLabel: string;   // "V_o"
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

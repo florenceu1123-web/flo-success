@@ -600,6 +600,14 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - 라우팅: route.ts에서 `circuitType∈{switched_rl,rl_step}` + inventory에 종속원(CCVS/CCCS/VCVS/VCCS) → `runSwitchedRlDependentPipeline` (**topology_driven보다 우선**). hasWaveformEvolution·hasStateTransition=false 강제(v_o(t)는 학생 도출, waveform figure 면제). `analogMeshRenderer`에서 detect dispatch.
 - 닫힌형 해 (값 R1=2,Ra=4,Ro=6,L=3,k=2 고정 + V1·V2 가변): 예 V1=60·V2=12 → i_L 3→1A, v_o 18→6V, τ=0.5s, i_L(t)=1+2e^(−2t).
 
+## 2단 OPAMP — 비반전→반전, V_P 주어지고 V_i·V_o 도출 (임용 2번 — `opamp_two_stage`) 전용 archetype
+- 원본: V_i → [1단 비반전 ×A₁] → V_P → [2단 반전 ×−A₂] → V_o. **V_P 값 주어질 때 V_i·V_o를 순서대로** 도출.
+  - 1단: V_i→(+), Rg1→GND·Rf1 피드백 → V_P=(1+Rf1/Rg1)·V_i. [확정: V_i=V_P/A₁]
+  - 2단: V_P→Rin2→(−), Rf2 피드백, (+)→GND → V_o=−(Rf2/Rin2)·V_P=−A₂·V_P.
+- ★ generic opamp/opamp_generic·opamp_cascade_voltage_divider(전달함수 V_o/V_i)는 이 "V_P given·V_i·V_o 도출" 구조를 재현 못 함(다른 문제·garbage) → 전용 결정론 archetype.
+- ★ **Vision 대응 2겹**: (1) extractComponentInventory에 "능동소자(삼각형 OPAMP) 추출 최우선 규칙"(라벨 없는 삼각형도 OPAMP, 연산증폭기 언급 시 개수만큼 필수) — OPAMP 추출 0/3→5/5. (2) analyzeImage에 "2단 OPAMP V_P·V_i·V_o 보존 규칙". classifier는 **opamp 맥락 + V_P(중간노드) given + V_i·V_o 도출(기호 또는 '입력 전압·출력 전압') + 전달함수 아님**으로 cascade/generic **앞에** 매치. 실이미지 라우팅 2/4→5/5.
+- 값(이득 A₁∈{2,3}·A₂∈{2..5}·V_P)은 규칙 기반 구성(예시 목록 아님), V_i=V_P/A₁ 정수·V_o 정수 보장. 파일: `lib/generation/topologies/opampTwoStage.ts`·`runOpampTwoStagePipeline.ts`·`lib/renderers/opampTwoStageCircuitRenderer.ts`(비반전 U₁ + 반전 U₂ 전용 렌더러). circuitType `opamp_two_stage`, diagramType `opamp_two_stage_circuit`. ※ 원본의 2단 정확한 배선(1k·1k·10k·7k로 V_o=−5)은 이미지로 특정 불가 → 구조 동일·표준 반전 2단으로 재현(유사문제는 값이 달라야 정상).
+
 ## OPAMP finite open-loop gain + 블록도 (예: 임용 11번)
 - (가) 회로: V_in 외부 핀(전압원 박스 없이) + R_1(입력) + A(s) OPAMP + R_2(피드백). V+=GND, V_out 단자.
 - (나) 블록도(signal flow graph): V_in→α→Σ→A(s)→V_out, V_out→β→Σ 피드백. diagramType="block_diagram".

@@ -48,6 +48,7 @@ import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runSrFfMuxSequentialPipeline } from "@/lib/pipeline/runSrFfMuxSequentialPipeline";
 import { runAsyncPresetCounterPipeline } from "@/lib/pipeline/runAsyncPresetCounterPipeline";
 import { runRlcResonanceBandwidthPipeline } from "@/lib/pipeline/runRlcResonanceBandwidthPipeline";
+import { runOpampTwoStagePipeline } from "@/lib/pipeline/runOpampTwoStagePipeline";
 import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
 import { runTheveninSwitchedRcPipeline } from "@/lib/pipeline/runTheveninSwitchedRcPipeline";
 import { runOpampCascadePipeline } from "@/lib/pipeline/runOpampCascadePipeline";
@@ -198,6 +199,8 @@ export async function POST(req: NextRequest) {
     const isAsyncPresetCounter = analysis?.circuitType?.type === "async_preset_ripple_counter";
     // rlc_resonance_bandwidth: 페이저 정상상태 단일 회로 figure — 파형·등가·상태·multi 모두 면제.
     const isRlcResonanceBandwidth = analysis?.circuitType?.type === "rlc_resonance_bandwidth";
+    // opamp_two_stage: 단일 회로 figure DC 해석 — 파형·상태·multi 면제.
+    const isOpampTwoStage = analysis?.circuitType?.type === "opamp_two_stage";
     const isSwStatePair =
       rawSemantic.hasWaveformEvolution &&
       !hasCapOrIndInCircuit &&
@@ -212,6 +215,8 @@ export async function POST(req: NextRequest) {
       : isAsyncPresetCounter
       ? { ...rawSemantic, hasStateTransition: false, hasWaveformEvolution: true, requiresMultiFigure: true }
       : isRlcResonanceBandwidth
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isOpampTwoStage
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
       : isAcDcSuperposition
         ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false }
@@ -620,6 +625,14 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (circuitType === "opamp_two_stage" && subjectKey === "electronics") {
+      log.info("dispatch", { route: "opamp_two_stage_pipeline", count: n, mode });
+      problems = await runOpampTwoStagePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else if (circuitType === "opamp_cascade_voltage_divider" && subjectKey === "electronics") {
       log.info("dispatch", { route: "opamp_cascade_pipeline", count: n, mode });
       problems = await runOpampCascadePipeline({
@@ -954,6 +967,8 @@ function shouldUseTopologyDriven(
   if (circuitType === "opamp_cascade_voltage_divider") return false;
   // opamp_generic은 GPT 구조추출 netlist 경로 — topology-driven 우회.
   if (circuitType === "opamp_generic") return false;
+  // opamp_two_stage는 전용 결정론 generator+renderer (임용 2번). topology-driven 우회.
+  if (circuitType === "opamp_two_stage") return false;
   // thevenin_dependent_generic도 GPT 구조추출 + 종속원 보존 경로 — topology-driven 우회.
   if (circuitType === "thevenin_dependent_generic") return false;
 

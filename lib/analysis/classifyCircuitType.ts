@@ -155,6 +155,25 @@ export function classifyCircuitType(
         reasoning: `[PRE-SUBJECT] opamp 맥락 + DC전원 ${vCountPS}개(C ${cCountPS})${solveResistorKw ? " + 저항역산" : ""} + 전달함수·발진 아님 → 범용 netlist 경로 (opamp_generic)`,
       };
     }
+    // ★ 2단 OPAMP "V_P(중간노드) 주어지고 V_i·V_o 도출" (임용 2번) — cascade(전달함수)보다 먼저.
+    //   판별: opamp 맥락 + 중간노드 전압(V_P) given + V_i·V_o 모두 구함 + 전달함수(V_o/V_i) 아님.
+    //   임용 10번 cascade는 전달함수(transferFnKw)라 제외됨 → 충돌 없음.
+    {
+      const givenMidV = /v_?p\b|중간\s*전압|마디\s*전압|node voltage|전압\s*v_?p/i.test(textPS);
+      // V_i·V_o 기호 또는 "입력 전압…출력 전압" 표현 양쪽 인정 (Vision 표현 흔들림 대응).
+      const findViVo =
+        ((/v_?i\b/i.test(textPS) && /v_?o\b/i.test(textPS)) ||
+          /입력\s*전압[\s\S]*출력\s*전압|출력\s*전압[\s\S]*입력\s*전압/.test(textPS)) &&
+        /(구하|계산|순서대로|쓰시오)/.test(textPS);
+      if (opampStrongCtxPS && givenMidV && findViVo && !transferFnKw && (opampPS >= 2 || multiOpampTextPS || rPS >= 4)) {
+        return {
+          type: "opamp_two_stage",
+          params: {},
+          confidence: "high",
+          reasoning: `[PRE-SUBJECT] 2단 OPAMP + V_P(중간노드) given + V_i·V_o 도출 + 전달함수 아님 → opamp_two_stage (임용 2번, cascade 앞)`,
+        };
+      }
+    }
     if (opampQualifies && rPS >= 4 && cascadePS) {
       classifierLog.info("classify_result", {
         type: "opamp_cascade_voltage_divider",
