@@ -48,13 +48,19 @@ export function renderSwitchedRcDcCircuit(d: D): string {
   t.push(text((SW_L + SW_R) / 2, TOP - 22, "t=0", { size: 11, weight: 600 }));
   w.push(line(SW_R, TOP, C_X, TOP));
 
-  // ── 가지3: C (v_c) ──
-  capacitor(s, C_X, TOP + 18, BOT - 18);
-  w.push(line(C_X, TOP, C_X, TOP + 18));
-  w.push(line(C_X, BOT - 18, C_X, BOT));
+  // ── 가지3: 리액티브 (RC=커패시터 / RL=코일) ──
+  if (d.kind === "RL") {
+    vInductor(s, C_X, TOP + 16, BOT - 16);
+    w.push(line(C_X, TOP, C_X, TOP + 16));
+    w.push(line(C_X, BOT - 16, C_X, BOT));
+  } else {
+    capacitor(s, C_X, TOP + 18, BOT - 18);
+    w.push(line(C_X, TOP, C_X, TOP + 18));
+    w.push(line(C_X, BOT - 18, C_X, BOT));
+  }
   s.push(dot(C_X, TOP));
-  t.push(text(C_X + 14, (TOP + BOT) / 2 - 8, d.cLabel ?? "C", { size: 11, weight: 600, anchor: "start" }));
-  t.push(text(C_X - 14, (TOP + BOT) / 2 + 4, d.vcLabel ?? "v_c", { size: 11, weight: 700, fill: ACCENT, anchor: "end" }));
+  t.push(text(C_X + 14, (TOP + BOT) / 2 - 8, d.reactLabel ?? (d.kind === "RL" ? "L" : "C"), { size: 11, weight: 600, anchor: "start" }));
+  t.push(text(C_X - 14, (TOP + BOT) / 2 + 4, d.reactMeasLabel ?? (d.kind === "RL" ? "i_L" : "v_c"), { size: 11, weight: 700, fill: ACCENT, anchor: "end" }));
 
   // ── 가지4: R_load (v_o) ──
   w.push(line(C_X, TOP, RL_X, TOP));
@@ -94,6 +100,12 @@ function capacitor(out: string[], x: number, y1: number, y2: number): void {
     `<line x1="${x}" y1="${y1}" x2="${x}" y2="${cy - g}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>` +
     `<line x1="${x}" y1="${cy + g}" x2="${x}" y2="${y2}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`,
   );
+}
+function vInductor(out: string[], x: number, y1: number, y2: number): void {
+  const n = 4, r = (y2 - y1) / (n * 2);
+  let p = `M${x},${y1}`;
+  for (let i = 0; i < n; i++) p += ` A${r},${r} 0 0 1 ${x},${y1 + r * (2 * i + 2)}`;
+  out.push(`<path d="${p}" fill="none" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`);
 }
 function vResistor(out: string[], x: number, y1: number, y2: number): void {
   const a = 7, teeth = 6, step = (y2 - y1) / teeth;

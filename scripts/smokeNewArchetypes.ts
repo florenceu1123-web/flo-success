@@ -268,26 +268,31 @@ for (const mode of ["exam_similar", "exam_variant"] as const) {
 console.log("\n[10] switchedRcDcTransient (t=0 스위치 개방 RC: v_c(0⁻) + v_o(t))");
 {
   const o = __origRc().answer;
-  check("원본 v_c(0⁻)=6V·τ=5s", o.vc0 === 6 && o.tau === 5, `vc0=${o.vc0} τ=${o.tau}`);
+  check("원본(RC) v_c(0⁻)=6V·τ=5s", o.init0 === 6 && o.tau === 5, `init0=${o.init0} τ=${o.tau}`);
   let orig = false;
-  for (const m of ["exam_similar", "exam_variant"] as const)
-    for (let s = 0; s < 60; s++) {
-      const v = genSwRc({ seed: s, mode: m }).values;
-      if (v.Vs === 5 && v.Rs === 1 && v.Is === 4 && v.Rload === 2 && v.C === 2.5) orig = true;
-    }
+  for (let s = 0; s < 60; s++) {
+    const v = genSwRc({ seed: s, mode: "exam_similar" }).values;
+    if (v.Vs === 5 && v.Rs === 1 && v.Is === 4 && v.Rload === 2 && v.react === 2.5) orig = true;
+  }
   check("원본 튜플 미생성", !orig);
 }
-for (const m of ["exam_similar", "exam_variant"] as const) {
-  for (const s of [0, 1, 2]) {
-    const g = genSwRc({ seed: s, mode: m });
-    const v = g.values, a = g.answer;
-    check(`${m} s${s} 회로 SVG`, isValidSvg(renderSwRc(g.circuitDiagram)));
-    // 닫힌형 불변식: v_c(0⁻)=(Vs/Rs+Is)/(1/Rs+1/Rl) 정수, τ=Rl·C
-    const vc = (v.Vs / v.Rs + v.Is) / (1 / v.Rs + 1 / v.Rload);
-    check(`${m} s${s} v_c(0⁻) 공식·정수`, Math.abs(a.vc0 - vc) < 1e-6 && Number.isInteger(a.vc0), `vc0=${a.vc0}`);
-    check(`${m} s${s} τ=R·C`, Math.abs(a.tau - v.Rload * v.C) < 1e-9, `τ=${a.tau}`);
-    check(`${m} s${s} v_o 계수=v_c(0⁻)`, a.coeff === a.vc0);
-  }
+// 유사 = RC (커패시터): v_c(0⁻)=(Vs/Rs+Is)/(1/Rs+1/Rl), τ=Rl·C
+for (const s of [0, 1, 2]) {
+  const g = genSwRc({ seed: s, mode: "exam_similar" });
+  const v = g.values, a = g.answer;
+  check(`유사(RC) s${s} 회로 SVG·kind`, isValidSvg(renderSwRc(g.circuitDiagram)) && g.kind === "RC");
+  const vc = (v.Vs / v.Rs + v.Is) / (1 / v.Rs + 1 / v.Rload);
+  check(`유사 s${s} v_c(0⁻) 공식·정수`, Math.abs(a.init0 - vc) < 1e-6 && Number.isInteger(a.init0), `vc0=${a.init0}`);
+  check(`유사 s${s} τ=R·C·v_o계수=v_c(0⁻)`, Math.abs(a.tau - v.Rload * v.react) < 1e-9 && a.voCoeff === a.init0);
+}
+// 변형 = RL (코일): i_L(0⁻)=Vs/Rs+Is, τ=L/Rl, v_o계수=Rl·i_L(0⁻)
+for (const s of [0, 1, 2]) {
+  const g = genSwRc({ seed: s, mode: "exam_variant" });
+  const v = g.values, a = g.answer;
+  check(`변형(RL) s${s} 회로 SVG·kind=RL`, isValidSvg(renderSwRc(g.circuitDiagram)) && g.kind === "RL");
+  check(`변형 s${s} 코일 라벨(H)`, /H$/.test(g.circuitDiagram.reactLabel) && g.circuitDiagram.reactMeasLabel === "i_L(t)");
+  check(`변형 s${s} i_L(0⁻)=Vs/Rs+Is 정수`, Math.abs(a.init0 - (v.Vs / v.Rs + v.Is)) < 1e-6 && Number.isInteger(a.init0), `iL0=${a.init0}`);
+  check(`변형 s${s} τ=L/R·v_o계수=R·i_L0`, Math.abs(a.tau - v.react / v.Rload) < 1e-9 && Math.abs(a.voCoeff - v.Rload * a.init0) < 1e-6);
 }
 
 // ── 결과 ──────────────────────────────────────────────────────────

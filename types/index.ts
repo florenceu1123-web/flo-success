@@ -1290,12 +1290,13 @@ export type AcBridgeTheveninCircuitDiagram = {
  *   좌: V_s(+R_s) ∥ I_s, ─[SW t=0]─ 우: C(v_c) ∥ R_load(v_o). 개방 시 우측 C∥R_load 방전.
  */
 export type SwitchedRcDcCircuitDiagram = {
+  kind: "RC" | "RL";       // 유사=RC(커패시터), 변형=RL(코일)
   vsLabel: string;   // "5V"
   rsLabel: string;   // "1Ω"
   isLabel: string;   // "4A"
-  cLabel: string;    // "2.5F"
+  reactLabel: string;     // "2.5F" (RC) 또는 "2H" (RL)
   rlLabel: string;   // "2Ω"
-  vcLabel: string;   // "v_c(t)"
+  reactMeasLabel: string; // "v_c(t)" (RC) 또는 "i_L(t)" (RL)
   voLabel: string;   // "v_o(t)"
 };
 
