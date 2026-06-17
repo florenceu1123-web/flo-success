@@ -103,25 +103,33 @@ export function renderAcParallelBranchesCircuit(netlist: CircuitNetlist): string
   svg += `<text x="${V_S_X - 26}" y="${V_S_MID_Y + 14}" text-anchor="end" font-size="11" fill="#666">−</text>`;
   svg += `<path d="M ${V_S_X} ${V_S_MID_Y + 20} L ${V_S_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
 
-  // ── L_1 vertical (N_L → GND) ──────────────────────────────
-  svg += `<path d="M ${N_L_X} ${TOP_Y} L ${N_L_X} ${L_1_MID_Y - IND_HALF}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += renderInductorVertical(N_L_X, L_1_MID_Y);
-  svg += `<text x="${N_L_X + 14}" y="${L_1_MID_Y - 2}" font-size="12" font-weight="700" fill="#1e3a8a">L_1</text>`;
-  svg += `<text x="${N_L_X + 14}" y="${L_1_MID_Y + 12}" font-size="11" fill="#374151">${escapeSvg(L_1.value ?? "")}</text>`;
-  // I_L1 화살표 (L_1 좌측)
-  svg += `<path d="M ${N_L_X - 30} ${L_1_MID_Y - 14} L ${N_L_X - 30} ${L_1_MID_Y + 14}" stroke="black" fill="none" stroke-width="1.5" marker-end="url(#apb_arrow)"/>`;
-  svg += `<text x="${N_L_X - 36}" y="${L_1_MID_Y + 4}" text-anchor="end" font-size="11" font-weight="700" fill="#dc2626">I_L1</text>`;
-  svg += `<path d="M ${N_L_X} ${L_1_MID_Y + IND_HALF} L ${N_L_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // ── N_L 가지 (type에 따라 코일/커패시터) ──────────────────
+  {
+    const cap = L_1.type === "C";
+    const half = cap ? CAP_HALF : IND_HALF;
+    const nm = cap ? "C_1" : "L_1", im = cap ? "I_C1" : "I_L1";
+    svg += `<path d="M ${N_L_X} ${TOP_Y} L ${N_L_X} ${L_1_MID_Y - half}" stroke="black" fill="none" stroke-width="2"/>`;
+    svg += cap ? capVert(N_L_X, L_1_MID_Y) : renderInductorVertical(N_L_X, L_1_MID_Y);
+    svg += `<text x="${N_L_X + 14}" y="${L_1_MID_Y - 2}" font-size="12" font-weight="700" fill="#1e3a8a">${nm}</text>`;
+    svg += `<text x="${N_L_X + 14}" y="${L_1_MID_Y + 12}" font-size="11" fill="#374151">${escapeSvg(L_1.value ?? "")}</text>`;
+    svg += `<path d="M ${N_L_X - 30} ${L_1_MID_Y - 14} L ${N_L_X - 30} ${L_1_MID_Y + 14}" stroke="black" fill="none" stroke-width="1.5" marker-end="url(#apb_arrow)"/>`;
+    svg += `<text x="${N_L_X - 36}" y="${L_1_MID_Y + 4}" text-anchor="end" font-size="11" font-weight="700" fill="#dc2626">${im}</text>`;
+    svg += `<path d="M ${N_L_X} ${L_1_MID_Y + half} L ${N_L_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  }
 
-  // ── L_2 vertical (N_R → GND) ──────────────────────────────
-  svg += `<path d="M ${N_R_X} ${TOP_Y} L ${N_R_X} ${L_2_MID_Y - IND_HALF}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += renderInductorVertical(N_R_X, L_2_MID_Y);
-  svg += `<text x="${N_R_X + 14}" y="${L_2_MID_Y - 2}" font-size="12" font-weight="700" fill="#1e3a8a">L_2</text>`;
-  svg += `<text x="${N_R_X + 14}" y="${L_2_MID_Y + 12}" font-size="11" fill="#374151">${escapeSvg(L_2.value ?? "")}</text>`;
-  // I_L2 화살표
-  svg += `<path d="M ${N_R_X - 30} ${L_2_MID_Y - 14} L ${N_R_X - 30} ${L_2_MID_Y + 14}" stroke="black" fill="none" stroke-width="1.5" marker-end="url(#apb_arrow)"/>`;
-  svg += `<text x="${N_R_X - 36}" y="${L_2_MID_Y + 4}" text-anchor="end" font-size="11" font-weight="700" fill="#dc2626">I_L2</text>`;
-  svg += `<path d="M ${N_R_X} ${L_2_MID_Y + IND_HALF} L ${N_R_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // ── N_R 가지 1 (type에 따라 코일/커패시터) ────────────────
+  {
+    const cap = L_2.type === "C";
+    const half = cap ? CAP_HALF : IND_HALF;
+    const nm = cap ? "C_2" : "L_2", im = cap ? "I_C2" : "I_L2";
+    svg += `<path d="M ${N_R_X} ${TOP_Y} L ${N_R_X} ${L_2_MID_Y - half}" stroke="black" fill="none" stroke-width="2"/>`;
+    svg += cap ? capVert(N_R_X, L_2_MID_Y) : renderInductorVertical(N_R_X, L_2_MID_Y);
+    svg += `<text x="${N_R_X + 14}" y="${L_2_MID_Y - 2}" font-size="12" font-weight="700" fill="#1e3a8a">${nm}</text>`;
+    svg += `<text x="${N_R_X + 14}" y="${L_2_MID_Y + 12}" font-size="11" fill="#374151">${escapeSvg(L_2.value ?? "")}</text>`;
+    svg += `<path d="M ${N_R_X - 30} ${L_2_MID_Y - 14} L ${N_R_X - 30} ${L_2_MID_Y + 14}" stroke="black" fill="none" stroke-width="1.5" marker-end="url(#apb_arrow)"/>`;
+    svg += `<text x="${N_R_X - 36}" y="${L_2_MID_Y + 4}" text-anchor="end" font-size="11" font-weight="700" fill="#dc2626">${im}</text>`;
+    svg += `<path d="M ${N_R_X} ${L_2_MID_Y + half} L ${N_R_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  }
 
   // ── R vertical (R_BR_X → GND) ─────────────────────────────
   svg += `<path d="M ${R_BR_X} ${TOP_Y} L ${R_BR_X} ${R_MID_Y - RES_HALF}" stroke="black" fill="none" stroke-width="2"/>`;
@@ -130,17 +138,29 @@ export function renderAcParallelBranchesCircuit(netlist: CircuitNetlist): string
   svg += `<text x="${R_BR_X + 14}" y="${R_MID_Y + 12}" font-size="11" fill="#374151">${escapeSvg(R.value ?? "")}</text>`;
   svg += `<path d="M ${R_BR_X} ${R_MID_Y + RES_HALF} L ${R_BR_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
 
-  // ── C vertical (C_BR_X → GND, V_C 측정) ───────────────────
-  svg += `<path d="M ${C_BR_X} ${TOP_Y} L ${C_BR_X} ${C_MID_Y - CAP_HALF}" stroke="black" fill="none" stroke-width="2"/>`;
-  svg += `<path d="M ${C_BR_X - 14} ${C_MID_Y - 4} L ${C_BR_X + 14} ${C_MID_Y - 4}" stroke="black" stroke-width="2.5"/>`;
-  svg += `<path d="M ${C_BR_X - 14} ${C_MID_Y + 4} L ${C_BR_X + 14} ${C_MID_Y + 4}" stroke="black" stroke-width="2.5"/>`;
-  svg += `<text x="${C_BR_X + 16}" y="${C_MID_Y - 4}" font-size="12" font-weight="700" fill="#1e3a8a">C</text>`;
-  svg += `<text x="${C_BR_X + 16}" y="${C_MID_Y + 14}" font-size="11" fill="#374151">${escapeSvg(C.value ?? "")}</text>`;
-  // V_C +/- 마크 (C 좌측)
-  svg += `<text x="${C_BR_X - 18}" y="${C_MID_Y - 4}" text-anchor="end" font-size="11" fill="#666">+</text>`;
-  svg += `<text x="${C_BR_X - 18}" y="${C_MID_Y + 14}" text-anchor="end" font-size="11" fill="#666">−</text>`;
-  svg += `<text x="${C_BR_X - 26}" y="${C_MID_Y + 5}" text-anchor="end" font-size="11" font-weight="700" fill="#dc2626">V_C</text>`;
-  svg += `<path d="M ${C_BR_X} ${C_MID_Y + 4} L ${C_BR_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // ── N_R 특수 가지 (type에 따라 커패시터/코일) — V 측정 ─────
+  {
+    const ind = C.type === "L";
+    const nm = ind ? "L" : "C", measV = ind ? "V" : "V_C";
+    if (ind) {
+      svg += `<path d="M ${C_BR_X} ${TOP_Y} L ${C_BR_X} ${C_MID_Y - IND_HALF}" stroke="black" fill="none" stroke-width="2"/>`;
+      svg += renderInductorVertical(C_BR_X, C_MID_Y);
+      svg += `<path d="M ${C_BR_X} ${C_MID_Y + IND_HALF} L ${C_BR_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+      // 인덕터 가지(주어진 I_L) 전류 화살표
+      svg += `<path d="M ${C_BR_X - 30} ${C_MID_Y - 14} L ${C_BR_X - 30} ${C_MID_Y + 14}" stroke="black" fill="none" stroke-width="1.5" marker-end="url(#apb_arrow)"/>`;
+      svg += `<text x="${C_BR_X - 36}" y="${C_MID_Y + 4}" text-anchor="end" font-size="11" font-weight="700" fill="#dc2626">I_L</text>`;
+    } else {
+      svg += `<path d="M ${C_BR_X} ${TOP_Y} L ${C_BR_X} ${C_MID_Y - CAP_HALF}" stroke="black" fill="none" stroke-width="2"/>`;
+      svg += `<path d="M ${C_BR_X - 14} ${C_MID_Y - 4} L ${C_BR_X + 14} ${C_MID_Y - 4}" stroke="black" stroke-width="2.5"/>`;
+      svg += `<path d="M ${C_BR_X - 14} ${C_MID_Y + 4} L ${C_BR_X + 14} ${C_MID_Y + 4}" stroke="black" stroke-width="2.5"/>`;
+      svg += `<text x="${C_BR_X - 18}" y="${C_MID_Y - 4}" text-anchor="end" font-size="11" fill="#666">+</text>`;
+      svg += `<text x="${C_BR_X - 18}" y="${C_MID_Y + 14}" text-anchor="end" font-size="11" fill="#666">−</text>`;
+      svg += `<text x="${C_BR_X - 26}" y="${C_MID_Y + 5}" text-anchor="end" font-size="11" font-weight="700" fill="#dc2626">${measV}</text>`;
+      svg += `<path d="M ${C_BR_X} ${C_MID_Y + 4} L ${C_BR_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+    }
+    svg += `<text x="${C_BR_X + 16}" y="${C_MID_Y - 4}" font-size="12" font-weight="700" fill="#1e3a8a">${nm}</text>`;
+    svg += `<text x="${C_BR_X + 16}" y="${C_MID_Y + 14}" font-size="11" fill="#374151">${escapeSvg(C.value ?? "")}</text>`;
+  }
 
   // ── Bottom rail (단일 GND) ────────────────────────────────
   svg += `<path d="M ${V_S_X} ${BOT_Y} L ${C_BR_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
@@ -190,6 +210,16 @@ function renderInductorVertical(cx: number, cy: number): string {
     path += `<path d="M ${cx} ${yStart} A ${stepH / 2} ${stepH / 2} 0 0 0 ${cx} ${yEnd}" stroke="black" fill="none" stroke-width="2"/>`;
   }
   return path;
+}
+
+/** 세로 커패시터 (두 수평 plate) — dual에서 L 자리에 사용. */
+function capVert(cx: number, cy: number): string {
+  return (
+    `<path d="M ${cx - 14} ${cy - 4} L ${cx + 14} ${cy - 4}" stroke="black" stroke-width="2.5"/>` +
+    `<path d="M ${cx - 14} ${cy + 4} L ${cx + 14} ${cy + 4}" stroke="black" stroke-width="2.5"/>` +
+    `<path d="M ${cx} ${cy - CAP_HALF} L ${cx} ${cy - 4}" stroke="black" stroke-width="2"/>` +
+    `<path d="M ${cx} ${cy + 4} L ${cx} ${cy + CAP_HALF}" stroke="black" stroke-width="2"/>`
+  );
 }
 
 function renderGroundSymbol(cx: number, y: number): string {

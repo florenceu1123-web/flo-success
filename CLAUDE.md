@@ -554,8 +554,9 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
   2. **I_L2 + I_S** — I_L2 = V_C/(jωL_2), I_R = V_C/R, KCL at N_R: I_S = I_L2 + I_R + I_C
   3. **I_R1** — KCL at N_L: I_R1 = I_L1 + I_S, 시간영역 i_R1(t) = |I_R1|·√2·cos(ωt+∠I_R1)
 - 값 페어 사전 정의 + 복소수 계산 자동 derive. 원본 임용 5번: ω=10, R_top=20, L1=1, L2=0.1, R=1, C=0.1, I_L1=20∠-90°, I_C=20∠90° → V_C=20∠0°, I_L2=20∠-90°, I_R=20∠0°, I_S=20∠0°, **I_R1=20√2∠-45°** (즉 i_R1(t)=40cos(10t-45°)).
-- classifier: ac_superposition보다 우선. 트리거: AC + V·I + R + L≥2 + C + (단자 a·b 없음) + 가지전류 키워드.
+- classifier: ★ universal_ac보다 먼저 매치 ★ (0-PRE-AC-PB: R + L≥2 + C + AC + 단자 a·b 없음). universal_ac가 먼저 잡으면 topology-driven generic으로 변질(L_leg2 노드 겹침)되므로 그 앞에 둠. 전용 generator + 전용 렌더러(`renderAcParallelBranchesCircuit`, analogMeshRenderer가 `hasAcParallelBranches`로 디스패치) 활용.
 - semantic normalize: phasor 정상상태이므로 hasWaveformEvolution=false 강제 (waveform figure 면제).
+- ★ **기출변형유형 = 코일↔커패시터 교환 (dual)**: V_s+R_top+I_s+(C₁∥C₂∥R∥L). |Z| 보존 매핑 C₁=1/(ω²L₁)·C₂=1/(ω²L₂)·L=1/(ω²C). 주어진 I_C1·I_L → V(N_R)=I_L·jωL, I_C2=V·jωC₂, KCL로 I_S·I_R1. `generateAcParallelBranchesDual`(결정론), netlist는 id 유지(L_1·L_2·C)하되 type만 C·C·L로 swap → 렌더러가 type 기반으로 코일/커패시터 분기 그림. pipeline에서 `mode==="exam_variant"`면 dual(결정론 텍스트, GPT textwriter 우회). 원본 dual 검산: V=20∠180°·I_R1=20√2∠−135°.
 
 ## AC 다중 전원 + 중첩의 원리 (예: 임용 10번 — AC V_s + AC I_s + R/L/C, phasor)
 - 입력 전원 표기는 phasor 형식(`20∠-90°V`, `4∠0°A`) 또는 시간영역(`v_s(t)=20cos(ωt-90°)`) 둘 다 가능.

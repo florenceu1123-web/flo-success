@@ -46,6 +46,7 @@ export type AcParallelBranchesGeneration = {
     I_S_mag: number;  I_S_ang: number;
     I_R1_mag: number; I_R1_ang: number;
   };
+  dual?: boolean; // true면 코일↔커패시터 교환(기출변형): N_L·N_R 가지 C, 특수가지 L.
 };
 
 type Pair = {
@@ -197,6 +198,63 @@ export function generateAcParallelBranches(args: {
       I_R_mag: round4(cMag(d.I_R)), I_R_ang: round4(cAng(d.I_R)),
       I_S_mag: round4(cMag(d.I_S)), I_S_ang: round4(cAng(d.I_S)),
       I_R1_mag: round4(cMag(d.I_R1)), I_R1_ang: round4(cAng(d.I_R1)),
+    },
+  };
+}
+
+/**
+ * 기출변형유형 = 코일↔커패시터 교환 (dual). |Z| 보존 매핑:
+ *   L1→C1=1/(ω²L1), L2→C2=1/(ω²L2), C→L=1/(ω²C). R·R_top·I_s 동일.
+ *   주어진 전류: 원본 I_L1(N_L 가지)→I_C1, 원본 I_C(특수가지)→I_L. id는 유지(렌더러 type 기반).
+ */
+export function generateAcParallelBranchesDual(args: { seed?: number }): AcParallelBranchesGeneration {
+  const rand = makeRand(args.seed);
+  const p = pick(PAIRS, rand);
+  const C1 = 1 / (p.omega * p.omega * p.L1);
+  const C2 = 1 / (p.omega * p.omega * p.L2);
+  const Lnew = 1 / (p.omega * p.omega * p.C);
+
+  // dual derive (imped 부호 반전, 특수가지=L)
+  const Z_special: Cplx = { re: 0, im: 1 / (p.omega * p.C) };   // jωLnew = j/(ωC)
+  const Z2: Cplx = { re: 0, im: -p.omega * p.L2 };               // 1/(jωC2) = -jωL2
+  const I_C1 = fromPolar(p.I_L1_mag, p.I_L1_ang);                // N_L 가지(이제 C1)
+  const I_L = fromPolar(p.I_C_mag, p.I_C_ang);                   // 특수가지(이제 L)
+  const V_NR = cMul(I_L, Z_special);
+  const I_C2 = cDiv(V_NR, Z2);
+  const I_R = { re: V_NR.re / p.R, im: V_NR.im / p.R };
+  const I_S = cAdd(cAdd(I_C2, I_R), I_L);
+  const I_R1 = cAdd(I_C1, I_S);
+
+  const components: CircuitComponent[] = [
+    { id: "V_s", type: "V", value: "V_s (AC)", pins: [{ id: "p", node: "VS_top", side: "top" }, { id: "n", node: "GND", side: "bottom" }] },
+    { id: "R_top", type: "R", value: `${p.R_top}Ω`, pins: [{ id: "p", node: "VS_top", side: "left" }, { id: "n", node: "N_L", side: "right" }] },
+    { id: "L_1", type: "C", value: `${fmt(C1)}F`, pins: [{ id: "p", node: "N_L", side: "top" }, { id: "n", node: "GND", side: "bottom" }] }, // 이제 커패시터
+    { id: "I_S", type: "I", value: "I_S (?)", pins: [{ id: "p", node: "N_R", side: "right" }, { id: "n", node: "N_L", side: "left" }] },
+    { id: "L_2", type: "C", value: `${fmt(C2)}F`, pins: [{ id: "p", node: "N_R", side: "top" }, { id: "n", node: "GND", side: "bottom" }] }, // 이제 커패시터
+    { id: "R", type: "R", value: `${p.R}Ω`, pins: [{ id: "p", node: "N_R", side: "top" }, { id: "n", node: "GND", side: "bottom" }] },
+    { id: "C", type: "L", value: `${fmt(Lnew)}H`, pins: [{ id: "p", node: "N_R", side: "top" }, { id: "n", node: "GND", side: "bottom" }] }, // 이제 인덕터
+  ];
+  const nodeAnnotations: NodeAnnotation[] = [{ node: "N_R", label: "v(+)", style: "label_only" }];
+  const measurementMarks: MeasurementMark[] = [
+    { kind: "voltage", refs: ["N_R", "GND"], label: "V" },
+    { kind: "current", refs: ["R_top"], label: "I_R1" },
+    { kind: "current", refs: ["L_1"], label: `I_C1 = ${p.I_L1_mag}∠${p.I_L1_ang}°` },
+    { kind: "current", refs: ["L_2"], label: "I_C2" },
+    { kind: "current", refs: ["C"], label: `I_L = ${p.I_C_mag}∠${p.I_C_ang}°` },
+  ];
+
+  return {
+    netlist: { components, ground: "GND", nodeAnnotations, measurementMarks },
+    dual: true,
+    values: {
+      omega: p.omega, R_top: p.R_top, L1: C1, L2: C2, R: p.R, C: Lnew,
+      I_L1_mag: p.I_L1_mag, I_L1_ang: p.I_L1_ang,
+      I_C_mag: p.I_C_mag, I_C_ang: p.I_C_ang,
+      V_C_mag: round4(cMag(V_NR)), V_C_ang: round4(cAng(V_NR)),
+      I_L2_mag: round4(cMag(I_C2)), I_L2_ang: round4(cAng(I_C2)),
+      I_R_mag: round4(cMag(I_R)), I_R_ang: round4(cAng(I_R)),
+      I_S_mag: round4(cMag(I_S)), I_S_ang: round4(cAng(I_S)),
+      I_R1_mag: round4(cMag(I_R1)), I_R1_ang: round4(cAng(I_R1)),
     },
   };
 }
