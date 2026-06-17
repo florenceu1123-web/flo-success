@@ -372,6 +372,7 @@ export type DiagramType =
   | "opamp_two_stage_circuit" // 2단 OPAMP (1단 비반전 → 2단 반전), V_P·V_i·V_o (임용 2번)
   | "ac_bridge_circuit"           // AC 휘트스톤 브리지 (가) — 4-arm + R_L 가교 (임용 7번)
   | "ac_bridge_thevenin_circuit"  // 위의 테브난 등가 (나) — V_TH·Z_TH·R_L
+  | "switched_rc_dc_circuit"      // t=0 스위치 개방 RC (임용 2번) — V_s+R_s∥I_s ─SW─ C∥R_load
   | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
 
 /**
@@ -1282,6 +1283,20 @@ export type AcBridgeTheveninCircuitDiagram = {
   vthLabel: string;  // "V_TH"
   zthLabel: string;  // "Z_TH"
   rlLabel: string;   // "R_L"
+};
+
+/**
+ * switched_rc_dc_circuit payload — t=0 스위치 개방 RC (임용 2번).
+ *   좌: V_s(+R_s) ∥ I_s, ─[SW t=0]─ 우: C(v_c) ∥ R_load(v_o). 개방 시 우측 C∥R_load 방전.
+ */
+export type SwitchedRcDcCircuitDiagram = {
+  vsLabel: string;   // "5V"
+  rsLabel: string;   // "1Ω"
+  isLabel: string;   // "4A"
+  cLabel: string;    // "2.5F"
+  rlLabel: string;   // "2Ω"
+  vcLabel: string;   // "v_c(t)"
+  voLabel: string;   // "v_o(t)"
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

@@ -50,6 +50,7 @@ import { runAsyncPresetCounterPipeline } from "@/lib/pipeline/runAsyncPresetCoun
 import { runRlcResonanceBandwidthPipeline } from "@/lib/pipeline/runRlcResonanceBandwidthPipeline";
 import { runOpampTwoStagePipeline } from "@/lib/pipeline/runOpampTwoStagePipeline";
 import { runAcBridgeMaxPowerPipeline } from "@/lib/pipeline/runAcBridgeMaxPowerPipeline";
+import { runSwitchedRcDcTransientPipeline } from "@/lib/pipeline/runSwitchedRcDcTransientPipeline";
 import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
 import { runTheveninSwitchedRcPipeline } from "@/lib/pipeline/runTheveninSwitchedRcPipeline";
 import { runOpampCascadePipeline } from "@/lib/pipeline/runOpampCascadePipeline";
@@ -204,6 +205,8 @@ export async function POST(req: NextRequest) {
     const isOpampTwoStage = analysis?.circuitType?.type === "opamp_two_stage";
     // ac_bridge_max_power: (가)브리지+(나)테브난등가 2-figure, 페이저 정상상태 — 파형·상태 면제(등가/multi 유지).
     const isAcBridge = analysis?.circuitType?.type === "ac_bridge_max_power";
+    // switched_rc_dc_transient: 단일 회로 figure. v_o(t)는 학생 도출 → 파형·상태·multi 면제.
+    const isSwitchedRcDc = analysis?.circuitType?.type === "switched_rc_dc_transient";
     const isSwStatePair =
       rawSemantic.hasWaveformEvolution &&
       !hasCapOrIndInCircuit &&
@@ -223,6 +226,8 @@ export async function POST(req: NextRequest) {
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
       : isAcBridge
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
+      : isSwitchedRcDc
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
       : isAcDcSuperposition
         ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false }
         : isRlcResonanceMaxPower
@@ -408,6 +413,14 @@ export async function POST(req: NextRequest) {
       }
       problems = await runUniversalDcPipeline({
         analysis,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "switched_rc_dc_transient" && subjectKey === "circuit_theory") {
+      log.info("dispatch", { route: "switched_rc_dc_transient_pipeline", count: n, mode });
+      problems = await runSwitchedRcDcTransientPipeline({
+        analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
         topicKey: expectedTopicKey,
@@ -984,6 +997,8 @@ function shouldUseTopologyDriven(
   if (circuitType === "opamp_two_stage") return false;
   // ac_bridge_max_power는 전용 결정론 generator+브리지 렌더러 (임용 7번). topology-driven 우회.
   if (circuitType === "ac_bridge_max_power") return false;
+  // switched_rc_dc_transient는 전용 결정론 generator+렌더러 (임용 2번). topology-driven 우회.
+  if (circuitType === "switched_rc_dc_transient") return false;
   // thevenin_dependent_generic도 GPT 구조추출 + 종속원 보존 경로 — topology-driven 우회.
   if (circuitType === "thevenin_dependent_generic") return false;
 

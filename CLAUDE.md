@@ -608,6 +608,13 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - ★ **Vision 대응 2겹**: (1) extractComponentInventory에 "능동소자(삼각형 OPAMP) 추출 최우선 규칙"(라벨 없는 삼각형도 OPAMP, 연산증폭기 언급 시 개수만큼 필수) — OPAMP 추출 0/3→5/5. (2) analyzeImage에 "2단 OPAMP V_P·V_i·V_o 보존 규칙". classifier는 **opamp 맥락 + V_P(중간노드) given + V_i·V_o 도출(기호 또는 '입력 전압·출력 전압') + 전달함수 아님**으로 cascade/generic **앞에** 매치. 실이미지 라우팅 2/4→5/5.
 - 값(이득 A₁∈{2,3}·A₂∈{2..5}·V_P)은 규칙 기반 구성(예시 목록 아님), V_i=V_P/A₁ 정수·V_o 정수 보장. 파일: `lib/generation/topologies/opampTwoStage.ts`·`runOpampTwoStagePipeline.ts`·`lib/renderers/opampTwoStageCircuitRenderer.ts`(비반전 U₁ + 반전 U₂ 전용 렌더러). circuitType `opamp_two_stage`, diagramType `opamp_two_stage_circuit`. ※ 원본의 2단 정확한 배선(1k·1k·10k·7k로 V_o=−5)은 이미지로 특정 불가 → 구조 동일·표준 반전 2단으로 재현(유사문제는 값이 달라야 정상).
 
+## t=0 스위치 개방 RC — DC정상상태 v_c(0⁻) + 방전 v_o(t) (임용 2번 — `switched_rc_dc_transient`) 전용 archetype
+- 원본: 좌측 [V_s(+R_s) ∥ I_s(전류원)] ─[SW t=0 개방]─ 우측 [C(v_c) ∥ R_load(v_o)]. t<0 DC정상상태 v_c(0⁻), t≥0 방전 v_o(t).
+- ★ generic switched_rc는 "τ·V_C(t=…)" generic 문제(지저분한 수치)를 만들어 원본의 "v_c(0⁻) 정상상태 + v_o(t) 방전" 구조를 잃음 → 전용 결정론 archetype.
+- 닫힌형: v_c(0⁻)=(V_s/R_s+I_s)/(1/R_s+1/R_load) (C 개방). t≥0 SW 개방 → 좌측 분리, C가 R_load로 방전: τ=R_load·C, v_o(t)=v_c(t)=v_c(0⁻)·e^(−t/τ). 원본(5V·1Ω·4A·2Ω·2.5F)→v_c(0⁻)=6V·τ=5s·v_o=6e^(−0.2t).
+- 값은 규칙 기반(V_s·R_s·I_s·R_load·C 조합 → v_c(0⁻) 정수·τ 0.5배수 rejection), 원본 튜플 제외. classifier 0-pre-pre-rc2: SW + 순수RC(C≥1·L=0) + 전류원(I≥1) + DC + v_c(0⁻)/v_o(t)/정상상태 키워드 + 테브난·점선 아님 → thevenin_switched_rc·generic switched_rc 앞에 매치.
+- 파일: `lib/generation/topologies/switchedRcDcTransient.ts`·`runSwitchedRcDcTransientPipeline.ts`(2단계)·`lib/renderers/switchedRcDcCircuitRenderer.ts`(V_s+R_s∥I_s ─SW─ C∥R_load 5가지). diagramType `switched_rc_dc_circuit`. semantic normalize(파형·상태·multi 면제, v_o(t)는 학생 도출).
+
 ## AC 휘트스톤 브리지 + 테브난 + 최대평균전력 (임용 7번 — `ac_bridge_max_power`) 전용 archetype
 - 원본: 교류원 V(∠0°) + 다이아몬드 4-arm 브리지(좌상 −jXc1·우상 R2·좌하 jXl·우하 R4) + 단자 A·B에 부하 R_L. 단자 개방 시 V_A·V_B·테브난(Z_TH) 구하고 순저항 최대평균전력 R_L 도출.
 - ★ generic universal_ac는 브리지(다이아몬드+A·B 가교) 구조를 잃고 임의 병렬회로로 변질 → figure·답 모두 깨짐 → 전용 결정론 archetype.

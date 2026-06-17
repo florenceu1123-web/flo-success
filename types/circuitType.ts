@@ -68,6 +68,7 @@ export type CircuitType =
   | "rlc_resonance_bandwidth" // 직렬 RLC 공진 + 대역폭 (임용 11번) — ω₀·C 주어지고 L 도출·V_ab 페이저·대역폭 β=R/L·R변경 β₁/β₂
   | "opamp_two_stage" // 2단 OPAMP(1단 비반전 ×A1 → 2단 반전 ×−A2) — V_P 주어지고 V_i·V_o 도출 (임용 2번 형식)
   | "ac_bridge_max_power" // AC 휘트스톤 브리지 + 테브난 등가 + 최대평균전력 (임용 7번) — V_A·V_B·Z_TH·R_L 도출
+  | "switched_rc_dc_transient" // t=0 스위치 개방 RC (임용 2번) — t<0 DC정상상태 v_c(0⁻) + t≥0 방전 v_o(t)
   // ── Universal (rule-based) ───────────────────
   | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
   | "universal_ac"          // 임의 AC 회로(R/L/C/V/I) + phasor/공진/최대전력 query — archetype-free

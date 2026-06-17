@@ -33,6 +33,7 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "opamp_two_stage_circuit", // 2단 OPAMP (임용 2번) = topology figure
   "ac_bridge_circuit", // AC 휘트스톤 브리지 (가, 임용 7번) = topology figure
   "ac_bridge_thevenin_circuit", // 테브난 등가 (나) = topology figure
+  "switched_rc_dc_circuit", // t=0 스위치 개방 RC (임용 2번) = topology figure
 ]);
 
 /**

@@ -1545,6 +1545,19 @@ function decideType(args: DecideArgs): DecideResult {
   const isACTextLocal = matchesKeyword(text, AC_PHASOR_KEYWORDS);
   const hasJImpedanceLocal = /[+\-]?\bj\s*\d+\s*[Ωohm]/i.test(text) || /∠/.test(text);
   const hasNoAcSignal = !isACTextLocal && !hasACInventory && !hasJImpedanceLocal;
+  // 0-pre-pre-rc2. t=0 스위치 개방 RC + 전류원 + DC정상상태 v_c(0⁻) + 방전 v_o(t) (임용 2번).
+  //   ★ generic switched_rc는 "τ·V_C(t)" generic 문제(지저분)를 만들어 원본 구조 상실 → 전용 archetype.
+  //   thevenin_switched_rc(테브난/점선박스)와 구분: 테브난·점선 키워드 없이 v_c(0⁻)·v_o(t)·정상상태.
+  const isDcSsRcKw = matchesKeyword(text, ["정상상태", "정상 상태", "직류 정상", "v_c(0", "v_o(t)", "초깃값", "방전"]);
+  if (hasSwitchInferred && isPureRc && counts.I >= 1 && hasNoAcSignal && isDcSsRcKw && !isThevenSwitchedRcKw) {
+    return {
+      type: "switched_rc_dc_transient",
+      params: {},
+      confidence: "high",
+      reasoning: `SW 개방 + 순수 RC + 전류원(I=${counts.I}) + DC정상상태 v_c(0⁻)·v_o(t) → switched_rc_dc_transient (임용 2번, generic switched_rc 차단)`,
+    };
+  }
+
   if (
     hasSwitchInferred && isPureRc && counts.V > 0 && counts.I > 0 && hasNoAcSignal &&
     (isThevenSwitchedRcKw || hasStageKw)

@@ -39,6 +39,8 @@ import { generateOpampTwoStage as generateOpampTwoStage2, __originalForVerify as
 import { renderOpampTwoStage as renderOpampTwoStage2 } from "../lib/renderers/opampTwoStageCircuitRenderer";
 import { generateAcBridgeMaxPower as generateAcBridgeMaxPower2, __originalBridgeForVerify as __originalBridgeForVerify2 } from "../lib/generation/topologies/acBridgeMaxPower";
 import { renderAcBridgeCircuit as renderAcBridgeCircuit2, renderAcBridgeThevenin as renderAcBridgeThevenin2 } from "../lib/renderers/acBridgeCircuitRenderer";
+import { generateSwitchedRcDcTransient as genSwRc, __originalRcForVerify as __origRc } from "../lib/generation/topologies/switchedRcDcTransient";
+import { renderSwitchedRcDcCircuit as renderSwRc } from "../lib/renderers/switchedRcDcCircuitRenderer";
 
 let pass = 0;
 let fail = 0;
@@ -259,6 +261,32 @@ for (const mode of ["exam_similar", "exam_variant"] as const) {
     check(`${mode} s${seed} V_A=V·Xl/(Xl−Xc1)`, Math.abs(a.VA - v.V * v.Xl / (v.Xl - v.Xc1)) < 1e-6);
     check(`${mode} s${seed} V_B=V·R4/(R2+R4)`, Math.abs(a.VB - v.V * v.R4 / (v.R2 + v.R4)) < 1e-6);
     check(`${mode} s${seed} |Z_TH| 정수·R_L=|Z_TH|`, Number.isInteger(a.absZth) && a.RL === a.absZth, `|Z|=${a.absZth}`);
+  }
+}
+
+// ── [10] switchedRcDcTransient (t=0 스위치 개방 RC) ──────────────
+console.log("\n[10] switchedRcDcTransient (t=0 스위치 개방 RC: v_c(0⁻) + v_o(t))");
+{
+  const o = __origRc().answer;
+  check("원본 v_c(0⁻)=6V·τ=5s", o.vc0 === 6 && o.tau === 5, `vc0=${o.vc0} τ=${o.tau}`);
+  let orig = false;
+  for (const m of ["exam_similar", "exam_variant"] as const)
+    for (let s = 0; s < 60; s++) {
+      const v = genSwRc({ seed: s, mode: m }).values;
+      if (v.Vs === 5 && v.Rs === 1 && v.Is === 4 && v.Rload === 2 && v.C === 2.5) orig = true;
+    }
+  check("원본 튜플 미생성", !orig);
+}
+for (const m of ["exam_similar", "exam_variant"] as const) {
+  for (const s of [0, 1, 2]) {
+    const g = genSwRc({ seed: s, mode: m });
+    const v = g.values, a = g.answer;
+    check(`${m} s${s} 회로 SVG`, isValidSvg(renderSwRc(g.circuitDiagram)));
+    // 닫힌형 불변식: v_c(0⁻)=(Vs/Rs+Is)/(1/Rs+1/Rl) 정수, τ=Rl·C
+    const vc = (v.Vs / v.Rs + v.Is) / (1 / v.Rs + 1 / v.Rload);
+    check(`${m} s${s} v_c(0⁻) 공식·정수`, Math.abs(a.vc0 - vc) < 1e-6 && Number.isInteger(a.vc0), `vc0=${a.vc0}`);
+    check(`${m} s${s} τ=R·C`, Math.abs(a.tau - v.Rload * v.C) < 1e-9, `τ=${a.tau}`);
+    check(`${m} s${s} v_o 계수=v_c(0⁻)`, a.coeff === a.vc0);
   }
 }
 
