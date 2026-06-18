@@ -56,6 +56,7 @@ import { renderRlcResonanceBandwidthDualCircuit } from "./rlcResonanceBandwidthD
 import { renderOpampTwoStage } from "./opampTwoStageCircuitRenderer";
 import { renderAcBridgeCircuit, renderAcBridgeThevenin } from "./acBridgeCircuitRenderer";
 import { renderSwitchedRcDcCircuit } from "./switchedRcDcCircuitRenderer";
+import { renderDffStateDesignCircuit } from "./dffStateDesignCircuitRenderer";
 import { renderTruthTable } from "./truth_table";
 import { renderWaveform } from "./waveform";
 
@@ -137,6 +138,8 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderAcBridgeThevenin(figure.diagram as import("@/types").AcBridgeTheveninCircuitDiagram));
     case "switched_rc_dc_circuit":
       return wrapSvg(figure, renderSwitchedRcDcCircuit(figure.diagram as import("@/types").SwitchedRcDcCircuitDiagram));
+    case "dff_state_design_circuit":
+      return wrapSvg(figure, renderDffStateDesignCircuit(figure.diagram as import("@/types").DffStateDesignCircuitDiagram));
     case "vi_line_graph":
       return wrapSvg(figure, renderViLineGraph(figure.diagram as Parameters<typeof renderViLineGraph>[0]));
     default:

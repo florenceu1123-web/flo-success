@@ -41,6 +41,8 @@ import { generateAcBridgeMaxPower as generateAcBridgeMaxPower2, __originalBridge
 import { renderAcBridgeCircuit as renderAcBridgeCircuit2, renderAcBridgeThevenin as renderAcBridgeThevenin2 } from "../lib/renderers/acBridgeCircuitRenderer";
 import { generateSwitchedRcDcTransient as genSwRc, __originalRcForVerify as __origRc } from "../lib/generation/topologies/switchedRcDcTransient";
 import { renderSwitchedRcDcCircuit as renderSwRc } from "../lib/renderers/switchedRcDcCircuitRenderer";
+import { generateDffStateDesign } from "../lib/generation/topologies/dffStateDesign";
+import { renderDffStateDesignCircuit } from "../lib/renderers/dffStateDesignCircuitRenderer";
 
 let pass = 0;
 let fail = 0;
@@ -293,6 +295,25 @@ for (const s of [0, 1, 2]) {
   check(`변형 s${s} 코일 라벨(H)`, /H$/.test(g.circuitDiagram.reactLabel) && g.circuitDiagram.reactMeasLabel === "i_L(t)");
   check(`변형 s${s} i_L(0⁻)=Vs/Rs+Is 정수`, Math.abs(a.init0 - (v.Vs / v.Rs + v.Is)) < 1e-6 && Number.isInteger(a.init0), `iL0=${a.init0}`);
   check(`변형 s${s} τ=L/R·출력 i_o(t)=i_L(0⁻)`, Math.abs(a.tau - v.react / v.Rload) < 1e-9 && a.outSym === "i_o(t)" && a.outCoeff === a.init0);
+}
+
+// ── [11] dffStateDesign (D-FF 2개 상태도 설계: ㉠~㉣ + 게이트 ㉮·㉯) ──
+console.log("\n[11] dffStateDesign (D-FF 2개 상태도→D입력→게이트)");
+for (const mode of ["exam_similar", "exam_variant"] as const) {
+  for (const seed of [0, 1]) {
+    const g = generateDffStateDesign({ seed, mode });
+    const svg = renderDffStateDesignCircuit(g.circuitDiagram);
+    check(`${mode} s${seed} 회로 SVG`, isValidSvg(svg), `${(svg as string).length}자`);
+    // 4-cycle 자율 순환 (00에서 시작, 4개 distinct state)
+    check(`${mode} s${seed} 4-cycle`, g.cycleSeq.length === 4 && new Set(g.cycleSeq).size === 4, g.cycleSeq.map((s) => `${(s >> 1) & 1}${s & 1}`).join("→"));
+    // 다음상태 빈칸 ㉠~㉣ 4개
+    check(`${mode} s${seed} 다음상태 ㉠~㉣ 4개`, g.nextAnswers.length === 4);
+    // D-FF: D = 다음상태 → 상태표 D_A·D_B = 다음상태 비트와 일치
+    const tableOk = g.stateTable.rows.every((r) => (r.outputs ?? [])[0] === (r.outputs ?? [])[2] && (r.outputs ?? [])[1] === (r.outputs ?? [])[3]);
+    check(`${mode} s${seed} D=다음상태 (표 일관성)`, tableOk);
+    // 게이트 ㉮·㉯ 도출 (단일 게이트로 떨어짐 — "복합" 아님)
+    check(`${mode} s${seed} ㉮·㉯ 단일게이트`, g.dAGate !== "복합" && g.dBGate !== "복합", `㉮=${g.dAGate}, ㉯=${g.dBGate}`);
+  }
 }
 
 // ── 결과 ──────────────────────────────────────────────────────────

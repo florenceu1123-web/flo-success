@@ -51,6 +51,7 @@ import { runRlcResonanceBandwidthPipeline } from "@/lib/pipeline/runRlcResonance
 import { runOpampTwoStagePipeline } from "@/lib/pipeline/runOpampTwoStagePipeline";
 import { runAcBridgeMaxPowerPipeline } from "@/lib/pipeline/runAcBridgeMaxPowerPipeline";
 import { runSwitchedRcDcTransientPipeline } from "@/lib/pipeline/runSwitchedRcDcTransientPipeline";
+import { runDffStateDesignPipeline } from "@/lib/pipeline/runDffStateDesignPipeline";
 import { runSequenceDetectorPipeline } from "@/lib/pipeline/runSequenceDetectorPipeline";
 import { runTheveninSwitchedRcPipeline } from "@/lib/pipeline/runTheveninSwitchedRcPipeline";
 import { runOpampCascadePipeline } from "@/lib/pipeline/runOpampCascadePipeline";
@@ -207,6 +208,9 @@ export async function POST(req: NextRequest) {
     const isAcBridge = analysis?.circuitType?.type === "ac_bridge_max_power";
     // switched_rc_dc_transient: 단일 회로 figure. v_o(t)는 학생 도출 → 파형·상태·multi 면제.
     const isSwitchedRcDc = analysis?.circuitType?.type === "switched_rc_dc_transient";
+    // dff_state_design: (가)상태도+(나)상태표+(다)구현회로 3-figure. 자율 순환(상태 천이는
+    //  있으나 스위치 t<0/t>0 상태쌍 figure는 아님)·파형 없음 → hasStateTransition·waveform off, multi 유지.
+    const isDffStateDesign = analysis?.circuitType?.type === "dff_state_design";
     const isSwStatePair =
       rawSemantic.hasWaveformEvolution &&
       !hasCapOrIndInCircuit &&
@@ -228,6 +232,8 @@ export async function POST(req: NextRequest) {
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
       : isSwitchedRcDc
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isDffStateDesign
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
       : isAcDcSuperposition
         ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false }
         : isRlcResonanceMaxPower
@@ -302,7 +308,7 @@ export async function POST(req: NextRequest) {
       "flipflop_mixed_app", "tff_state_table_blank", "ff_with_waveform",
       "flipflop_counter", "combinational_gate", "sequence_detector", "fsm",
       "sr_ff_mux_sequential", "waveform_analysis", "mux_implementation",
-      "async_preset_ripple_counter",
+      "async_preset_ripple_counter", "dff_state_design",
     ]);
     if (subjectKey === "digital_logic" && (!circuitType || !DIGITAL_CIRCUIT_TYPES.has(circuitType))) {
       log.warn("digital_subject_circuittype_coerced", { from: circuitType, to: "universal_digital" });
@@ -867,6 +873,14 @@ export async function POST(req: NextRequest) {
     } else if (circuitType === "async_preset_ripple_counter" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "async_preset_ripple_counter_pipeline", count: n, mode });
       problems = await runAsyncPresetCounterPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "dff_state_design" && subjectKey === "digital_logic") {
+      log.info("dispatch", { route: "dff_state_design_pipeline", count: n, mode });
+      problems = await runDffStateDesignPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

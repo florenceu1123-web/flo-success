@@ -747,6 +747,15 @@ system prompt에도 동일 규칙 박힘: `lib/prompts/system.ts`의 `[LOGIC_DAG
 - figure 3개: (가) `concept_diagram`(입력 없는 ring 상태도), (나) `truth_table`(현재상태·다음상태·SR입력 S_A R_A S_B R_B, ×=don't care), (다) `sr_ff_mux_sequential_circuit`(전용 fixed-slot 렌더러).
 - 파일: `lib/generation/topologies/srFfMuxSequential.ts`(결정론 generator — 여기표·SOP·MUX분해 모두 cycle에서 도출, GPT 없음), `lib/pipeline/runSrFfMuxSequentialPipeline.ts`(결정론 텍스트), `lib/renderers/srFfMuxSequentialCircuitRenderer.ts`(전용 렌더러: MUX 사다리꼴×4 + SR-FF box×2 + 공통 선택선 + 클럭). classifier는 **디지털 분기 최상단**(SR/RS-FF + MUX + 순차문맥 + T-FF 아님) → `sequential_dff_generic`·`universal_digital`보다 먼저 매치.
 
+## D 플립플롭 2개 상태도 순서회로 설계 (임용 9번 정보과 — `dff_state_design`) 전용 archetype
+- 원본: 입력 없는 **2-bit 자율 순환 상태도**(가, 예 00→01→10→11→00) → **상태표**(나, 현재상태 Q_A·Q_B | 다음상태 ㉠~㉣ | D입력 D_A·D_B) → **D 플립플롭 2개 + 논리 게이트(㉮·㉯) 구현**(다). D-FF는 D=다음상태(여기표 불필요) → D_A·D_B를 Q_A·Q_B의 함수로 최소화 → 게이트.
+- ★ 위 `sr_ff_mux_sequential`(SR-FF+MUX4)과 **다름** — 이쪽은 **D-FF+게이트**. generic `fsm`(Mealy 입력 X·출력 Z 날조)·`sequential_dff_generic`(입력파형)은 이 "상태도→D입력→게이트" 형식을 잃음 → 전용 archetype 필수.
+- ★ **Vision 대응**: Vision이 D-FF를 J-K로 오독하면 `fsm`(JK 상태표)으로 빠짐 → `analyzeImage`에 "플립플롭 종류는 상태표 입력 열로 판별(D_A/D_B→D, J/K→J-K), 자율 순환이면 입력 X·출력 y 날조 금지" 규칙. classifier는 **D 플립플롭 + 상태도/상태표 + 게이트 구현 + 자율 순환(Mealy 입출력·MUX 없음)** 으로 `universal_digital`보다 먼저 매치, **J-K면 양보**(`hasJkFfLocal` 가드 → fsm/sequential_dff_generic).
+- 풀이 3단계(결정론): [1] 상태도→상태표 다음상태 ㉠~㉣, [2] D 입력(D=다음상태), [3] D_A·D_B를 (Q_A,Q_B) 2변수 카르노맵으로 최소화 → 게이트 ㉮(D_A)·㉯(D_B) 종류.
+- 모드: `exam_similar`=cycle [00→01→10→11](업카운터: D_A=Q_A⊕Q_B(XOR)·D_B=Q_B'(NOT)) / `exam_variant`=cycle [00→10→11→01](D_A=Q_B'(NOT)·D_B=Q_A(버퍼)). CYCLE_POOL은 **D_A·D_B가 단일 게이트로 떨어지는 4-cycle만** 선별(gateName 4-bit 매핑: AND/OR/XOR/XNOR/NAND/NOR/버퍼/NOT/상수).
+- figure 3개: (가) `concept_diagram`(입력 없는 ring 상태도), (나) `truth_table`(현재상태·다음상태(㉠~㉣)·D입력, outputLabels=[Q_A(t+1),Q_B(t+1),D_A,D_B]), (다) `dff_state_design_circuit`(전용 fixed-slot: D-FF 2개 + 게이트 ㉮·㉯(빈칸 점선박스) → D 핀, Q_A·Q_B 피드백 트렁크, 공통 CLK).
+- 파일: `lib/generation/topologies/dffStateDesign.ts`(결정론 generator — nextOf·D입력·SOP·게이트 모두 cycle에서 도출, `minimizeSop` 사용, GPT 없음), `lib/pipeline/runDffStateDesignPipeline.ts`(결정론 3단계 텍스트), `lib/renderers/dffStateDesignCircuitRenderer.ts`. circuitType `dff_state_design`, diagramType `dff_state_design_circuit`. types·validateProblem `CIRCUIT_FIGURE_TYPES`·route dispatch(fsm 앞)·DIGITAL_CIRCUIT_TYPES·semantic normalize(상태천이·파형 off, multi 유지)·smokeNewArchetypes[11]·smokeAll 등록.
+
 ## 비동기 SET/RESET D-FF 응용회로 — 자동재적재 리플 다운카운터 (`async_preset_ripple_counter`) 전용 archetype
 - 원본(정보·전자 임용): **비동기 SET·RESET을 갖는 D-FF 3개** 응용회로. I₀I₁I₂(예: 101) 고정 입력, 초깃값 Q=000. [단계1] 구간 ㉠의 Q₀Q₁Q₂ 값, [단계2] 구간 ㉡의 출력 파형 도시.
 - ★ **확정된 동작** (사용자 정답으로 검증):

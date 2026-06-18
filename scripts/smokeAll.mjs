@@ -36,6 +36,7 @@ const TESTS = [
   { type: "opamp_two_stage", subject: "electronics", topic: "2단 OPAMP 응용회로", topicKey: "opamp" },
   { type: "ac_bridge_max_power", subject: "circuit_theory", topic: "AC 브리지 테브난 최대전력", topicKey: "rlc_response" },
   { type: "switched_rc_dc_transient", subject: "circuit_theory", topic: "t=0 스위치 개방 RC", topicKey: "transient_rc" },
+  { type: "dff_state_design", subject: "digital_logic", topic: "D-FF 2개 상태도 순서회로 설계", topicKey: "flipflop_counter" },
   // acDcSuperpositionRc — universal_ac + params 플래그로 트리거 (임용 12번 AC+DC 중첩 RC)
   { type: "universal_ac",          subject: "circuit_theory", topic: "AC+DC 중첩 RC",      topicKey: "rlc_response", params: { acDcSuperpositionRc: true } },
   // viTheveninMaxPower — max_power_transfer + 2전압원·2전류원 params로 maxpower 파이프라인 내 분기 (임용 5번)

@@ -373,6 +373,7 @@ export type DiagramType =
   | "ac_bridge_circuit"           // AC 휘트스톤 브리지 (가) — 4-arm + R_L 가교 (임용 7번)
   | "ac_bridge_thevenin_circuit"  // 위의 테브난 등가 (나) — V_TH·Z_TH·R_L
   | "switched_rc_dc_circuit"      // t=0 스위치 개방 RC (임용 2번) — V_s+R_s∥I_s ─SW─ C∥R_load
+  | "dff_state_design_circuit"    // D-FF 2개 + 게이트 구현 회로 (임용 9번 정보과 (다))
   | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
 
 /**
@@ -1298,6 +1299,18 @@ export type SwitchedRcDcCircuitDiagram = {
   rlLabel: string;   // "2Ω"
   reactMeasLabel: string; // "v_c(t)" (RC) 또는 "i_L(t)" (RL)
   voLabel: string;   // "v_o(t)"
+};
+
+/**
+ * dff_state_design_circuit payload — D-FF 2개 + 게이트 구현 (임용 9번 정보과 (다)).
+ *   ㉮ 게이트 → D_A → FF_A → Q_A,  ㉯ 게이트 → D_B → FF_B → Q_B. Q_A·Q_B 피드백, 공통 CLK.
+ *   게이트는 빈칸(㉮·㉯) — 학생이 도출.
+ */
+export type DffStateDesignCircuitDiagram = {
+  gateASym: string;   // "㉮"
+  gateBSym: string;   // "㉯"
+  gateAInputs: string[]; // ㉮ 입력 라벨 (예: ["Q_A","Q_B"])
+  gateBInputs: string[];
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

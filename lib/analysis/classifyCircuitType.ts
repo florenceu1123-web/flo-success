@@ -543,6 +543,38 @@ export function classifyCircuitType(
       }
     }
 
+    // ★ D 플립플롭 2개 상태도 순차회로 설계 (임용 9번 정보과) — 전용 archetype.
+    //   원본: 입력 없는 2-bit 자율 순환 상태도(가) → 상태표(나, ㉠~㉣·D입력 빈칸) →
+    //         D-FF 2개 + 게이트(㉮·㉯) 구현(다). D-FF는 D=다음상태 → D_A·D_B를 Q의 함수로 최소화→게이트.
+    //   ★ generic fsm(Mealy 입력 X·출력 Z)·sequential_dff_generic(입력파형)은 이 "상태도→D입력→게이트"
+    //     형식을 잃음 → 전용 archetype. SR-FF·MUX 아님(위에서 양보), J-K 아님(아래 fsm으로 양보).
+    //   트리거: D 플립플롭 + 상태도/상태표 + 게이트 구현 문맥 + 자율 순환(입력 X·출력 Z 없음).
+    {
+      const hasDFfLocal = matchesKeyword(text, [
+        "d 플립플롭", "d-ff", "d 플립", "d-플립", "d flip-flop", "d flipflop", "d_a", "d_b",
+      ]);
+      const hasJkFfLocal = matchesKeyword(text, [
+        "j-k", "jk 플립플롭", "jk-ff", "j-k 플립플롭", "j-k flip", "jk flip",
+      ]);
+      const hasStateGraph = matchesKeyword(text, [
+        "상태도", "상태 천이도", "상태천이도", "state diagram", "상태표", "상태 표", "state table",
+      ]);
+      const hasGateImpl = matchesKeyword(text, [
+        "게이트", "gate", "논리 게이트", "논리게이트", "구현", "설계", "순서 논리 회로", "순서논리회로",
+      ]);
+      const hasMuxLocalD = matchesKeyword(text, ["멀티플렉서", "multiplexer", "mux", "선택선"]);
+      // Mealy 입출력(입력 X·출력 Z/y) 신호가 명시되면 일반 FSM → 양보. 자율 순환만 이 archetype.
+      const hasMealyIo = matchesKeyword(text, ["입력 x", "출력 z", "출력 y", "mealy", "moore"]);
+      if (hasDFfLocal && !hasJkFfLocal && hasStateGraph && hasGateImpl && !hasMuxLocalD && !hasMealyIo) {
+        return {
+          type: "dff_state_design",
+          params: {},
+          confidence: "high",
+          reasoning: "digital_logic + D 플립플롭 + 상태도/상태표 + 게이트 구현(자율 순환) → D-FF 상태도 설계 (임용 9번 정보과)",
+        };
+      }
+    }
+
     // ★ Universal digital — N-변수 M-함수 K-map 결합 (임용 8번 형식 등).
     //   기존 combinational_gate(3-var 2-out)에 안 맞는 N-var/M-func 케이스 흡수.
     //   트리거 (OR — 어느 하나라도 매치하면 universal_digital):

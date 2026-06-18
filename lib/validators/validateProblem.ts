@@ -34,6 +34,7 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "ac_bridge_circuit", // AC 휘트스톤 브리지 (가, 임용 7번) = topology figure
   "ac_bridge_thevenin_circuit", // 테브난 등가 (나) = topology figure
   "switched_rc_dc_circuit", // t=0 스위치 개방 RC (임용 2번) = topology figure
+  "dff_state_design_circuit", // D-FF 2개 + 게이트 구현 (임용 9번 정보과 (다)) = topology figure
 ]);
 
 /**
