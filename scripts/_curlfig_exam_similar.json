@@ -1,0 +1,1 @@
+{"id":"fig_em_1","label":"정사각형 폐경로 선적분과 자계의 회전(∇×H)","role":"concept_diagram","diagramType":"em_field_diagram","diagram":{"geometry":"square_loop_curl","title":"자계 H 속의 정사각형 폐경로와 회전(∇×H)","labels":{"field":"H = 40x^2 a_z [A/m]","side":"\\ell = 2","center":"(x_0, 0, 0)","sideNum":"2","target":"x_0 = 1 일 때 \\nabla\\times\\mathbf{H} = ?"}}}
