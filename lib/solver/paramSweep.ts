@@ -95,6 +95,80 @@ export function maximizeOverParam(
     : { aStar: ba, valueStar: bv, atBoundary };
 }
 
+export type SolveTargetResult = {
+  /** 지표가 목표값이 되는 파라미터 값 */
+  aStar: number;
+  /** 그 지점에서 실제로 계산된 지표 (목표와의 오차 확인용) */
+  value: number;
+  /** 구간 안에서 찾은 해의 개수 — 2 이상이면 문제가 유일하게 결정되지 않는다 */
+  rootCount: number;
+};
+
+/**
+ * 지표가 **주어진 목표값**이 되는 파라미터를 찾는다 (최대화가 아니라 역산).
+ *
+ * "R_L에 흐르는 전류가 1A가 되도록 하는 a" 같은 형식에 쓴다. 구간을 훑어 (지표 − 목표)의
+ * 부호가 바뀌는 곳을 모두 찾고, 각각을 이분법으로 조인다.
+ * ★ 해가 2개 이상이면 문제가 유일하게 결정되지 않으므로 호출자가 rootCount로 걸러낼 수 있다.
+ *   (해가 없으면 null — 억지로 근사값을 내지 않는다.)
+ */
+export function solveParamForTarget(
+  build: ParamNetworkFn,
+  metric: ParamMetricFn,
+  target: number,
+  opts: { min?: number; max?: number; coarse?: number; tol?: number } = {},
+): SolveTargetResult | null {
+  const min = opts.min ?? 0.05;
+  const max = opts.max ?? 200;
+  const coarse = opts.coarse ?? 2000;
+  const tol = opts.tol ?? 1e-9;
+
+  const f = (a: number) => {
+    const v = evaluateAt(build, metric, a);
+    return Number.isFinite(v) ? v - target : NaN;
+  };
+
+  const roots: number[] = [];
+  let prevA = min, prevF = f(min);
+  if (Number.isFinite(prevF) && Math.abs(prevF) < tol) roots.push(prevA);
+  for (let i = 1; i <= coarse; i++) {
+    const a = min + ((max - min) * i) / coarse;
+    const fa = f(a);
+    if (!Number.isFinite(fa)) { prevA = a; prevF = fa; continue; }
+    if (Number.isFinite(prevF) && prevF !== 0 && (prevF < 0) !== (fa < 0)) {
+      // 이분법으로 조인다.
+      let lo = prevA, hi = a, flo = prevF;
+      for (let k = 0; k < 200 && hi - lo > 1e-13; k++) {
+        const mid = (lo + hi) / 2;
+        const fm = f(mid);
+        if (!Number.isFinite(fm)) break;
+        if ((flo < 0) !== (fm < 0)) hi = mid; else { lo = mid; flo = fm; }
+      }
+      const r = (lo + hi) / 2;
+      // 같은 해를 중복으로 담지 않는다.
+      if (!roots.some((x) => Math.abs(x - r) < 1e-6)) roots.push(r);
+    } else if (Math.abs(fa) < tol && !roots.some((x) => Math.abs(x - a) < 1e-6)) {
+      roots.push(a);
+    }
+    prevA = a; prevF = fa;
+  }
+
+  if (roots.length === 0) return null;
+  const aStar = roots[0];
+  return { aStar, value: evaluateAt(build, metric, aStar), rootCount: roots.length };
+}
+
+/** 저항에 흐르는 전류(크기) 지표 — |I| = |V_R| / R. */
+export function resistorCurrentMetric(resistorId: string): ParamMetricFn {
+  return (res, net) => {
+    const r = net.resistors.find((x) => x.id === resistorId);
+    if (!r) return NaN;
+    const va = res.nodeVoltages[r.a] ?? 0;
+    const vb = res.nodeVoltages[r.b] ?? 0;
+    return Math.abs(va - vb) / r.R;
+  };
+}
+
 export type RationalFit = {
   /** 분자 계수 (낮은 차수부터): num[0] + num[1]·a + ... */
   num: number[];

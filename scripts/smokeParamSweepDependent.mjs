@@ -119,5 +119,27 @@ ok("CCCS → VCCS, g = β/R = 3/4", (nc.vccs ?? []).length === 1 && close(nc.vcc
 ok("CCCS 회로 해 = 60 V", close(solveMNA(withCccs).nodeVoltages.N2, 60),
   `V=${solveMNA(withCccs).nodeVoltages.N2.toFixed(4)}`);
 
-console.log(`\n=== ${pass} PASS / ${fail} FAIL ===`);
+// ─── [6] 파라미터 역산 — "지표가 목표값이 되는 a" (임용 5번 노튼 등가 형식) ───
+console.log("\n[6] 파라미터 역산 solveParamForTarget");
+const { solveParamForTarget, resistorCurrentMetric } = await import("../lib/solver/paramSweep.ts");
+
+// 검산 가능한 단순 회로: 12V ─ a[Ω] ─ R_L(4Ω) ─ GND.  I = 12/(a+4)
+const series = (a) => ({
+  nodeIds: ["T", "N"], groundId: "GND",
+  resistors: [{ id: "Ra", a: "T", b: "N", R: a }, { id: "RL", a: "N", b: "GND", R: 4 }],
+  vsources: [{ id: "V1", a: "T", b: "GND", V: 12 }], isources: [],
+});
+// I_L = 1A  →  12/(a+4) = 1  →  a = 8
+const r1 = solveParamForTarget(series, resistorCurrentMetric("RL"), 1);
+ok("I_L=1A 되는 a = 8", r1 && Math.abs(r1.aStar - 8) < 1e-6, r1 ? `a=${r1.aStar.toFixed(6)} (해 ${r1.rootCount}개)` : "실패");
+ok("해가 유일", r1?.rootCount === 1, String(r1?.rootCount));
+// I_L = 2A  →  a = 2
+const r2 = solveParamForTarget(series, resistorCurrentMetric("RL"), 2);
+ok("I_L=2A 되는 a = 2", r2 && Math.abs(r2.aStar - 2) < 1e-6, r2 ? `a=${r2.aStar.toFixed(6)}` : "실패");
+// 도달 불가한 목표는 null (12/(a+4) < 3 for a>0)
+ok("도달 불가한 목표 → null", solveParamForTarget(series, resistorCurrentMetric("RL"), 10) === null);
+// 목표를 실제로 만족하는지 재확인
+ok("찾은 a에서 지표가 목표와 일치", r1 && Math.abs(r1.value - 1) < 1e-9, r1 ? String(r1.value) : "-");
+
+console.log(`\n=== 최종 ${pass} PASS / ${fail} FAIL ===`);
 process.exit(fail ? 1 : 0);
