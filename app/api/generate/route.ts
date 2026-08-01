@@ -25,7 +25,7 @@ import { runSwitchedRlcStepPipeline } from "@/lib/pipeline/runSwitchedRlcStepPip
 import { runSwitchedRlc5legPipeline } from "@/lib/pipeline/runSwitchedRlc5legPipeline";
 import { runDcSupermeshPipeline } from "@/lib/pipeline/runDcSupermeshPipeline";
 import { runDcSupernodePipeline } from "@/lib/pipeline/runDcSupernodePipeline";
-import { runParamMaxPowerPipeline, detectParamMaxPower, isParamMaxPowerForm, paramMaxPowerFailureReason } from "@/lib/pipeline/runParamMaxPowerPipeline";
+import { runParamMaxPowerPipeline, detectParamMaxPower, isParamMaxPowerForm, isSymbolicParamCircuitForm, paramMaxPowerFailureReason } from "@/lib/pipeline/runParamMaxPowerPipeline";
 import { runSupernodeDepMaxPowerPipeline, detectSupernodeDepMaxPower } from "@/lib/pipeline/runSupernodeDepMaxPowerPipeline";
 import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourcePipeline";
 import { runInductorRampSlopePipeline, detectInductorRampSlope } from "@/lib/pipeline/runInductorRampSlopePipeline";
@@ -836,6 +836,22 @@ export async function POST(req: NextRequest) {
     } else     if (paramMaxProblems.length > 0) {
       log.info("dispatch", { route: "param_max_power_pipeline", count: n, mode });
       problems = paramMaxProblems;
+    } else if (mode !== "gpt_generated" && !isParamMaxPowerForm(analysis) && isSymbolicParamCircuitForm(analysis)) {
+      // ★ 기호 파라미터를 구하는 문제인데 그 형식을 재현할 전용 경로가 아직 없다.
+      //   범용(universal_dc·topology_driven)으로 넘기면 **전원이 통째로 사라진 다른 회로**를
+      //   만들어낸다(실측: 임용 5번 노튼 등가 — 발문은 "전류원을 개방"인데 생성 회로엔 전원이 없었다).
+      //   구조·원리 유사성이 절대 규칙이므로, 다른 문제를 내느니 실패를 알린다.
+      log.warn("symbolic_param_no_archetype", { topic: analysis?.topic });
+      return NextResponse.json(
+        {
+          error:
+            `유사문제를 만들지 못했습니다 — 원본과 다른 회로로 문제를 내지 않으려고 생성을 중단했습니다.\n` +
+            `사유: 소자값이 기호(예: a[Ω])로 주어지고 그 값을 구하는 유형인데, 이 형식을 그대로 ` +
+            `재현하는 전용 경로가 아직 없습니다. 범용 경로로 만들면 전원이 사라진 다른 회로가 됩니다.\n` +
+            `이 유형에 대한 지원을 추가하는 중입니다.`,
+        },
+        { status: 422 },
+      );
     } else if (mode !== "gpt_generated" && isParamMaxPowerForm(analysis)) {
       // ★ 형식은 이 유형이 맞는데 회로 복원에 실패했다. 기존 체인으로 넘기면 topology_driven 등이
       //   **원본과 무관한 회로를 새로 지어낸다**(실측 신고: 생판 다른 테브난 회로 생성).

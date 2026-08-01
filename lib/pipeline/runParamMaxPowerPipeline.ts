@@ -157,6 +157,41 @@ export function isParamMaxPowerForm(analysis: AnalysisResult | null | undefined)
   return detectNetlistParam(netlist) !== null;
 }
 
+/**
+ * 소자값이 **기호 파라미터**로 주어지고 그 파라미터를 구하라는 문제인가 (형식 판정).
+ *
+ * ★ 이 형식은 전용 경로가 없으면 범용(universal_dc·topology_driven)이 받아서
+ *   **전원이 통째로 사라진 엉뚱한 회로**를 만들어낸다(실측: 임용 5번 노튼 등가 —
+ *   발문은 "전류원을 개방"이라는데 생성된 회로엔 전원이 하나도 없었다).
+ *   구조·원리 유사성이 절대 규칙이므로, 그럴 바엔 실패를 알리는 편이 낫다.
+ */
+export function isSymbolicParamCircuitForm(analysis: AnalysisResult | null | undefined): boolean {
+  const text = [analysis?.topic, analysis?.interpretation, ...(analysis?.relatedConcepts ?? [])]
+    .filter(Boolean).join(" ");
+  if (!text.trim()) return false;
+  // ★ 소자값이 기호인지는 **inventory**로 판단하는 것이 가장 확실하다 — Vision 요약 문장에는
+  //   "a[Ω]"이 안 적히고 "a 값"만 남는 경우가 많다(실측: 임용 5번 노튼 등가).
+  //   inventory가 비어 있을 때만 본문 표기로 대신 판단한다.
+  const inv = analysis?.componentInventory ?? [];
+  const symbolicInInventory = inv.some(
+    (c) => ["R", "V", "I", "C", "L"].includes(c.type) && parseParamCoefficient(c.value, "a") !== null,
+  );
+  const symbolicValue =
+    symbolicInInventory ||
+    (inv.length === 0 && (
+      /(^|[^A-Za-z])\d*\s*a\s*\[\s*(Ω|ohm|V|A)\s*\]/i.test(text) ||
+      /(^|[^A-Za-z])\d*\s*a\s*(Ω|옴)/i.test(text) ||
+      /R_?[A-Za-z]?\s*=\s*\d*\s*a(?![A-Za-z])/i.test(text)
+    ));
+  // 그 파라미터를 구하라는 요구 (한글 조사에 `\b`가 안 통하므로 형태를 열거)
+  const asksForParam =
+    /(^|[^A-Za-z])a\s*(값|를|의)\s*(구|찾|결정)/.test(text) ||
+    /(^|[^A-Za-z])a\s*값/.test(text) ||
+    /되도록\s*하는\s*(^|[^A-Za-z])?a/.test(text) ||
+    /변수\s*a|파라미터\s*a/.test(text);
+  return symbolicValue && asksForParam;
+}
+
 /** 복원 실패 사유를 사람이 읽을 수 있게 (실패 안내에 쓴다). */
 export function paramMaxPowerFailureReason(analysis: AnalysisResult | null | undefined): string | null {
   const netlist = inventoryToNetlist(analysis);

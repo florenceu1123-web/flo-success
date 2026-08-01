@@ -125,5 +125,29 @@ ok("종속원 오독본 사유", /종속/.test(paramMaxPowerFailureReason(misrea
 ok("정상 회로는 실패 사유 없음", paramMaxPowerFailureReason(analysis) === null);
 ok("파라미터 없는 평범한 회로는 형식 자체가 아님", isParamMaxPowerForm(plain) === false);
 
+// ─── [9] 기호 파라미터 유형인데 전용 경로가 없으면 생성 금지 ───
+console.log("\n[9] 기호 파라미터 + 전용 경로 없음 → 명시적 실패");
+const { isSymbolicParamCircuitForm } = await import("../lib/pipeline/runParamMaxPowerPipeline.ts");
+const mk = (topic, interpretation, relatedConcepts = []) => ({ topic, interpretation, relatedConcepts, fillInTheBlanks: [] });
+// 임용 5번(노튼 등가 + 파라미터 a) — 실측 Vision 요약 형태
+const norton = mk("노튼 등가 회로 변환",
+  "전압원과 전류원이 포함된 회로에서 점선 영역을 노튼 등가 회로로 변환하고 A와 B 단자에 부하 저항 R_L을 연결한 회로이다. R_L에 흐르는 전류 I_L = 1[A]이 되도록 하는 a 값을 구한다. 저항은 a[Ω], 2a[Ω], 2[Ω]이다.",
+  ["노튼 등가", "중첩의 원리"]);
+norton.componentInventory = [
+  { id: "V1", type: "V", value: "4V", pins: ["T","GND"] },
+  { id: "I1", type: "I", value: "4A", pins: ["T","N1"] },
+  { id: "R1", type: "R", value: "a[Ω]", pins: ["T","N1"] },
+  { id: "R2", type: "R", value: "2[Ω]", pins: ["T","GND"] },
+  { id: "R3", type: "R", value: "2a[Ω]", pins: ["N1","GND"] },
+  { id: "R4", type: "R", value: "a[Ω]", pins: ["N1","GND"] },
+];
+ok("노튼+파라미터 형식 감지", isSymbolicParamCircuitForm(norton) === true);
+ok("임용 6번(최대전력)도 형식 감지", isSymbolicParamCircuitForm(analysis) === true);
+// 음성 — 수치만 있는 평범한 회로
+ok("수치 회로는 미발화", isSymbolicParamCircuitForm(mk("노드 해석", "20Ω과 8Ω 저항, 18V 전원이 있는 회로에서 V(n1)을 구한다", [])) === false);
+ok("기호는 있지만 구하라는 요구 없으면 미발화",
+   isSymbolicParamCircuitForm(mk("회로 해석", "저항 a[Ω]이 포함된 회로에서 전류 I를 구한다", [])) === false);
+ok("빈 분석은 미발화", isSymbolicParamCircuitForm(null) === false);
+
 console.log(`\n=== 최종 ${pass} PASS / ${fail} FAIL ===`);
 process.exit(fail ? 1 : 0);
