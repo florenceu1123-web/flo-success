@@ -111,6 +111,14 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     if (svg) return svg;
   }
 
+  // 0.03 제너 클리퍼 + 적분기 (임용 2번) — 전용 fixed-slot.
+  //   ★ 아래 0.05 OPAMP 분기보다 **앞**이어야 한다. 뒤에 두면 그 분기가 먼저 가져가
+  //     회로를 직렬로 펴고 제너를 하나만 그린다(실측 사용자 화면).
+  if (detectZenerClipperCircuit(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=zenerClipperIntegrator");
+    return renderZenerClipperCircuit(netlist);
+  }
+
   // 0.05 OPAMP가 포함된 회로 — archetype-aware dispatch.
   //   Wien Bridge처럼 generic 6-카테고리 모델이 못 다루는 archetype은 전용 renderer로.
   //   ❌ renderOpAmpCircuit 확장으로 해결 / ✅ archetype별 별도 renderer 추가.
@@ -184,12 +192,6 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   }
   // 0.074 테브난+최대전력+종속전원 (임용 7·9번류) — 전용 fixed-slot.
   //   generic mesh는 이 회로를 세로 가지들로 펼쳐 원본 사다리 구조·단자 a·b를 잃는다(실측 신고).
-  // 0.070 제너 클리퍼 + 적분기 (임용 2번) — 전용 fixed-slot.
-  //   범용은 이 회로를 직렬로 펴서 제너를 하나만 그리고 귀환 경로를 잃는다(실측).
-  if (detectZenerClipperCircuit(netlist)) {
-    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=zenerClipperIntegrator");
-    return renderZenerClipperCircuit(netlist);
-  }
   // 0.071 노튼 등가 + 파라미터 역산 (임용 5번) — (가)·(나) 전용 fixed-slot.
   if (detectNortonOriginal(netlist)) {
     if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=nortonOriginal");

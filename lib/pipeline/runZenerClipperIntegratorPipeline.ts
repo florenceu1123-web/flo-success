@@ -56,13 +56,13 @@ function buildCircuitNetlist(inst: ZenerClipperInstance): CircuitNetlist {
   return {
     ground: "GND",
     components: [
-      { id: "R_in", type: "R", value: `${num(rin)}[kΩ]`, pins: [{ node: "VS" }, { node: "N1" }] },
-      { id: "D_Z1", type: "D", value: `V_Z1=${num(vz)}[V]`, pins: [{ node: "N1" }, { node: "MID" }] },
-      { id: "D_Z2", type: "D", value: `V_Z2=${num(vz)}[V]`, pins: [{ node: "MID" }, { node: "V1" }] },
-      { id: "U1", type: "OPAMP", value: "ideal", pins: [{ node: "GND" }, { node: "N1" }, { node: "V1" }] },
-      { id: "R_int", type: "R", value: `${num(rint)}[kΩ]`, pins: [{ node: "V1" }, { node: "N2" }] },
-      { id: "C_f", type: "C", value: `${num(cap)}[μF]`, pins: [{ node: "N2" }, { node: "VO" }] },
-      { id: "U2", type: "OPAMP", value: "ideal", pins: [{ node: "GND" }, { node: "N2" }, { node: "VO" }] },
+      { id: "R_in", type: "R", value: `${num(rin)}[kΩ]`, pins: [{ id: "p", node: "VS" }, { id: "n", node: "N1" }] },
+      { id: "D_Z1", type: "D", value: `V_Z1=${num(vz)}[V]`, pins: [{ id: "p", node: "N1" }, { id: "n", node: "MID" }] },
+      { id: "D_Z2", type: "D", value: `V_Z2=${num(vz)}[V]`, pins: [{ id: "p", node: "MID" }, { id: "n", node: "V1" }] },
+      { id: "U1", type: "OPAMP", value: "ideal", pins: [{ id: "vp", node: "GND" }, { id: "vn", node: "N1" }, { id: "vo", node: "V1" }] },
+      { id: "R_int", type: "R", value: `${num(rint)}[kΩ]`, pins: [{ id: "p", node: "V1" }, { id: "n", node: "N2" }] },
+      { id: "C_f", type: "C", value: `${num(cap)}[μF]`, pins: [{ id: "p", node: "N2" }, { id: "n", node: "VO" }] },
+      { id: "U2", type: "OPAMP", value: "ideal", pins: [{ id: "vp", node: "GND" }, { id: "vn", node: "N2" }, { id: "vo", node: "VO" }] },
     ],
   } as unknown as CircuitNetlist;
 }
