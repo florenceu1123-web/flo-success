@@ -11,12 +11,12 @@ type Props = {
   onChange: (m: GenerationMode) => void;
 };
 
-const MODES: GenerationMode[] = ["exam_similar", "exam_variant"];
+const MODES: GenerationMode[] = ["exam_similar", "exam_variant", "gpt_generated"];
 
-/** 두 가지 생성 모드 선택 (기출유사유형 / 기출변형유형) */
+/** 세 가지 생성 모드 선택 (기출유사유형 / 기출변형유형 / GPT생성유형) */
 export default function GenerationModeSelector({ selected, onChange }: Props) {
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-3 gap-2">
       {MODES.map((m) => {
         const active = selected === m;
         return (
