@@ -13,6 +13,44 @@ import {
 const log = createLogger("lib/pipeline/runSwitchedRcDcTransientPipeline");
 
 /**
+ * t=0 스위치 개방 RC (임용 2번) 재검출 — generate 단계 안전망.
+ *
+ * ★ 프론트(app/page.tsx)가 analysis를 React state에 담아 "생성"마다 재사용하므로,
+ *   분류기가 정상이어도 이전에 만들어진 stale circuitType(transient_rc·switched_rc 등)이
+ *   그대로 넘어오면 generic 경로로 빠져 **C가 직렬로 그려지고 v_c(0⁻) 소문항이 사라진다**(실측 신고).
+ *   circuitType과 무관하게 텍스트·inventory 시그니처로 판정해 route에서 교정한다.
+ *   (jk_sync_counter·active_lowpass_filter 등과 동일한 패턴.)
+ *
+ * 시그니처: 스위치 + 순수 RC(C≥1·L 없음) + 전류원 + DC(교류 신호 없음)
+ *           + v_c(0⁻)·v_o(t)·정상상태 키워드. 테브난·점선박스면 thevenin_switched_rc에 양보.
+ */
+export function detectSwitchedRcDcTransient(analysis?: AnalysisResult | null): boolean {
+  if (!analysis) return false;
+  const text = [
+    analysis.topic ?? "",
+    analysis.interpretation ?? "",
+    (analysis.relatedConcepts ?? []).join(" "),
+    (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+  ].join(" ").toLowerCase();
+  if (!text.trim()) return false;
+
+  const inv = analysis.componentInventory ?? [];
+  const countOf = (t: string) => inv.filter((c) => (c.type ?? "").toUpperCase() === t).length;
+  const hasSwitch = countOf("SW") > 0 || /스위치|switch|t\s*=\s*0/.test(text);
+  const hasCap = countOf("C") > 0 || /커패시터|capacitor|축전기|v_c|콘덴서/.test(text);
+  const hasInductor = countOf("L") > 0 || /인덕터|inductor|코일/.test(text);
+  const hasCurrentSource = countOf("I") > 0 || /전류원/.test(text);
+  // 교류면 이 유형이 아님(중첩·페이저 계열에 양보).
+  const isAc = /교류|정현파|페이저|∠|cos\s*\(|sin\s*\(|위상/.test(text);
+  // 테브난·점선박스 구조는 형제 archetype(thevenin_switched_rc) 소관.
+  const isThevenin = /테브난|thevenin|등가\s*회로|점선/.test(text);
+  const dcSteadyState =
+    /정상\s*상태|직류\s*정상|v_c\(0|v_o\(t\)|초깃값|초기값|방전/.test(text);
+
+  return hasSwitch && hasCap && !hasInductor && hasCurrentSource && !isAc && !isThevenin && dcSteadyState;
+}
+
+/**
  * t=0 스위치 개방 RC (임용 2번) — 결정론 파이프라인. GPT 없음.
  *  [1] t<0 DC정상상태 v_c(0⁻), [2] t≥0 방전 v_o(t)=v_c(0⁻)·e^(−t/τ).
  */

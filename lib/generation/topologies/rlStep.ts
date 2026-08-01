@@ -116,13 +116,21 @@ function buildSimpleEnergizing(rand: () => number): RlStepGeneration {
     branches: [
       { id: "br_V1", role: "input_source_leg", orientation: "vertical", fromNode: "top", toNode: "GND",
         components: [{ type: "V", role: "voltage_source", order: 1, required: true, idOverride: "V1" }] },
+      // ★ 스위치를 상단 rail에 R과 함께 넣는다 (2026-07-26).
+      //   RL step 문제는 "t=0에 스위치를 닫은 뒤"가 전제인데 SW를 빼고 그리면 원본과 달라지고,
+      //   학생이 t=0의 의미를 읽을 수 없다(실측 신고: "회로는 맞는데 스위치가 없어").
+      //   CLAUDE.md "모든 component(V_s·SW·R·L)는 같은 직렬 loop의 일부" 규칙과도 일치.
       { id: "br_R1", role: "top_rail", orientation: "horizontal", fromNode: "top", toNode: "a",
-        components: [{ type: "R", role: "resistor", order: 1, required: true, idOverride: "R1" }] },
+        components: [
+          { type: "SW", role: "switch", order: 1, required: true, idOverride: "SW1" },
+          { type: "R", role: "resistor", order: 2, required: true, idOverride: "R1" },
+        ] },
       { id: "br_L1", role: "load_leg", orientation: "vertical", fromNode: "a", toNode: "GND",
         components: [{ type: "L", role: "inductor", order: 1, required: true, idOverride: "L1" }] },
     ],
     values: [
       { branchId: "br_V1", componentRole: "voltage_source", type: "V", value: `${V1}V` },
+      { branchId: "br_R1", componentRole: "switch", type: "SW", value: "t=0" },
       { branchId: "br_R1", componentRole: "resistor", type: "R", value: `${R1_ohm}Ω` },
       { branchId: "br_L1", componentRole: "inductor", type: "L", value: `${L1_mH}mH` },
     ],

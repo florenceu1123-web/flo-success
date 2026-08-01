@@ -7,12 +7,38 @@ import { verifyWithSpice } from "@/lib/verification/verifyWithSpice";
 import {
   TOPIC_LABEL,
   type AnalysisResult,
+  type DcTheveninEquivCircuitDiagram,
+  type FigureVariant,
   type GeneratedProblem,
   type GenerationMode,
   type TopicKey,
 } from "@/types";
 
 const log = createLogger("lib/pipeline/runTheveninPipeline");
+
+/**
+ * (나) 등가회로 figure — V_T 직렬 R_T → 단자 a·b.
+ *
+ * ★ 이 파이프라인은 오랫동안 (가) 회로 figure 하나만 냈다. 그런데 테브난·등가 문제는
+ *   roleTriggers가 `equivalent_circuit` role을 필수로 요구하므로 **매번**
+ *   `missing_figure_variant: equivalent_circuit` 검증 실패가 났다(실측 신고).
+ *   원본 임용 형식도 (가) 원회로 + (나) 등가회로 2-figure다.
+ * ★ 값은 라벨(R_T·V_T 기호)로만 두어 정답을 누설하지 않는다 — 학생이 구할 대상.
+ */
+function buildEquivalentFigure(idSuffix: string | number, vtPlusTop = true): FigureVariant {
+  const equiv: DcTheveninEquivCircuitDiagram = {
+    rtLabel: "R_T[Ω]",
+    vtLabel: "V_T[V]",
+    vtPlusTop,
+  };
+  return {
+    id: `fig_thev_equiv_${idSuffix}`,
+    label: "(나) 테브난 등가 회로",
+    role: "equivalent_circuit",
+    diagramType: "dc_thevenin_equiv_circuit",
+    diagram: equiv as unknown as Record<string, unknown>,
+  };
+}
 
 /**
  * Thevenin 회로이론 문제 end-to-end 파이프라인.
@@ -66,8 +92,9 @@ export async function runTheveninPipeline(args: {
       };
       return assembleProblem({
         text, netlist: gen.netlist,
-        figureLabel: "주어진 회로 (노턴 형식, 쌍대)", figureRole: "original_circuit",
+        figureLabel: "(가) 주어진 회로 (노턴 형식, 쌍대)", figureRole: "original_circuit",
         figureIdSuffix: i + 1, topicKey,
+        extraFigures: [buildEquivalentFigure(i + 1)],
       });
     });
   }
@@ -84,8 +111,9 @@ export async function runTheveninPipeline(args: {
     const text = await writeTheveninText({ generation: gen, mode, topicLabel, contextHint });
     return assembleProblem({
       text, netlist: gen.netlist,
-      figureLabel: "주어진 회로", figureRole: "original_circuit",
+      figureLabel: "(가) 주어진 회로", figureRole: "original_circuit",
       figureIdSuffix: i + 1, topicKey,
+      extraFigures: [buildEquivalentFigure(i + 1)],
     });
   });
 }

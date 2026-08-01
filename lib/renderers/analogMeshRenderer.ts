@@ -18,10 +18,14 @@ import { hasSwitchedRlc5leg, renderSwitchedRlc5legCircuit } from "./switchedRlc5
 import { hasAcParallelBranches, renderAcParallelBranchesCircuit } from "./acParallelBranchesCircuitRenderer";
 import { detectCrossPattern, renderCrossLayout } from "./crossLayoutCircuitRenderer";
 import { detectFourNodeImyong, renderFourNodeImyong } from "./fourNodeImyongRenderer";
+import { detectTheveninDependent, renderTheveninDependentCircuit } from "./theveninDependentCircuitRenderer";
+import { detectTheveninDepVoltage, renderTheveninDepVoltageCircuit } from "./theveninDepVoltageCircuitRenderer";
+import { detectAcSuperpositionCircuit, renderAcSuperpositionCircuit } from "./acSuperpositionCircuitRenderer";
 import { detectAcDcSuperposition, renderAcDcSuperpositionCircuit } from "./acDcSuperpositionCircuitRenderer";
 import { detectAcDcSuperpositionDual, renderAcDcSuperpositionDualCircuit } from "./acDcSuperpositionDualCircuitRenderer";
 import { detectAcTheveninMaxPower, renderAcTheveninMaxPowerCircuit } from "./acTheveninMaxPowerCircuitRenderer";
 import { detectSwitchedRlDependent, renderSwitchedRlDependentCircuit } from "./switchedRlDependentCircuitRenderer";
+import { detectSwitchedRlDepI, renderSwitchedRlDepICircuit } from "./switchedRlDepICircuitRenderer";
 import { detectSourceTransformCircuit, renderSourceTransformCircuit } from "./sourceTransformRatioCircuitRenderer";
 import { detectOpampDifferenceAmpCircuit, renderOpampDifferenceAmpCircuit } from "./opampDifferenceAmpCircuitRenderer";
 
@@ -111,13 +115,22 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     if (hasWienBridgeOscillator(netlist)) {
       return renderWienBridgeOscillatorCircuit(netlist);
     }
+    // ★ OPAMP 결선 검증 실패 시 graceful fallback (crossLayout 선례와 동일 원칙):
+    //   예전엔 raw <pre> 에러 텍스트를 회로 자리에 그대로 노출했다(실측 신고:
+    //   "OPAMP1: OPAMP feedback branch 누락"). 사용자에게 에러 문자열을 보이는 대신
+    //   generic netlist 렌더러로 넘긴다. 결함 자체는 validateFigures의 opamp_wiring_invalid가
+    //   문제 단위 검증 실패로 보고하므로 조용히 묻히지 않는다.
     const opampErrors = validateOpAmpCircuit(netlist);
     if (opampErrors.length > 0) {
-      return `<pre>${escapeSvg(opampErrors.join("\n"))}</pre>`;
+      if (typeof console !== "undefined") {
+        console.warn("[analogMeshRenderer] opamp_validation_failed", opampErrors);
+      }
+      // fall through → 아래 generic 경로가 그린다.
+    } else {
+      const svg = renderOpAmpCircuit(netlist);
+      if (svg) return svg;
+      // null → multi-OPAMP, 아래 generic fallback으로
     }
-    const svg = renderOpAmpCircuit(netlist);
-    if (svg) return svg;
-    // null → multi-OPAMP, 아래 generic fallback으로
   }
   // 0.053 AC parallel branches (임용 5번) — V_s+R_top+L_1+I_S(horizontal)+L_2+R+C 전용 layout.
   if (hasAcParallelBranches(netlist)) {
@@ -158,6 +171,33 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     if (svg) return svg;
   }
 
+  // 0.073 AC 중첩 (임용 10번) — V·I 전원 + 마디 a에서 점선 가지로 내려가는 R+C, 단자 a·b.
+  {
+    const acs = detectAcSuperpositionCircuit(netlist);
+    if (acs) {
+      if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=acSuperposition");
+      return renderAcSuperpositionCircuit(netlist, acs);
+    }
+  }
+  // 0.074 테브난+최대전력+종속전원 (임용 7·9번류) — 전용 fixed-slot.
+  //   generic mesh는 이 회로를 세로 가지들로 펼쳐 원본 사다리 구조·단자 a·b를 잃는다(실측 신고).
+  // 0.073 종속 **전압원**(k·v_x) + 테브난 (임용 6번) — 전용 fixed-slot이 (가)·(나)를 모두 그린다.
+  //   ★ 이 검사가 없으면 아래 theveninDependent(종속 전류원용)나 generic mesh가 가져가
+  //     종속 전압원을 **저항 기호로** 그린다(2026-07-29 사용자 화면 실측).
+  if (detectTheveninDepVoltage(netlist)) {
+    const svg = renderTheveninDepVoltageCircuit(netlist);
+    if (svg) {
+      if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=theveninDepVoltage");
+      return svg;
+    }
+  }
+  {
+    const dep = detectTheveninDependent(netlist);
+    if (dep) {
+      if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=theveninDependent");
+      return renderTheveninDependentCircuit(netlist, dep);
+    }
+  }
   // 0.075 4-노드 imyong 10번 형식 — V·+단자(VS_PLUS) ≠ V1 케이스. universal_dc 핵심 형식.
   //   사용자 명시 layout 제약:
   //     VS_PLUS 좌상, V1 중상, V2 우상, GND 중하; V 소스는 좌측 leg vertical, 직접 VS_PLUS-GND 세로 금지.
@@ -183,6 +223,13 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   if (detectSwitchedRlDependent(netlist)) {
     if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=switchedRlDependent");
     const svg = renderSwitchedRlDependentCircuit(netlist);
+    if (svg) return svg;
+  }
+
+  // 0.07845 스위치 RL + 종속 전류원(k·iₙ) 과도응답 (임용 2024 전기 B-5).
+  if (detectSwitchedRlDepI(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=switchedRlDepI");
+    const svg = renderSwitchedRlDepICircuit(netlist);
     if (svg) return svg;
   }
 
@@ -218,12 +265,22 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   }
 
   // 1. Ground / top 분류
-  const { topNodes, groundIds } = classifyNodes(netlist);
+  const { topNodes: allTopNodes, groundIds } = classifyNodes(netlist);
 
   // 1.1 ground도 없고 top도 비어있으면 의미 없음 — fallback
-  if (groundIds.size === 0 || topNodes.length === 0) {
+  if (groundIds.size === 0 || allTopNodes.length === 0) {
     return renderNetlistEdgeSVG(netlist);
   }
+
+  // 1.5 Fork 병렬 펜던트 레그 — hub에 매달린 다중 직렬 pendant 레그를 병렬 vertical chain으로.
+  //   (fork leg가 저항 몸통을 가로질러 "저항 중앙에 노드"처럼 보이는 문제 해결. 조건 안 맞으면 no-op.)
+  const {
+    legsByRoot: parallelLegsByRoot,
+    consumed: consumedIds,
+    internalNodes: chainInternalNodes,
+  } = extractParallelPendantLegs(netlist, groundIds);
+  // 체인 내부 mid 노드는 top rail node가 아님 (root는 유지).
+  const topNodes = allTopNodes.filter((n) => !chainInternalNodes.has(n));
 
   // 2. Top node 좌표
   const topPos = new Map<string, Point>();
@@ -240,6 +297,8 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   for (const c of netlist.components) {
     if (c.type === "GND") continue;
     if (!c.pins || c.pins.length < 2) continue;
+    // fork 병렬 펜던트 레그로 흡수된 component는 별도 렌더 (5.5c).
+    if (consumedIds.has(c.id)) continue;
 
     // legRoot 있으면 그 root top node 아래 vertical chain
     if (c.legRoot && topNodes.includes(c.legRoot)) {
@@ -280,9 +339,23 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   let cumulativeX = LEFT_X;
   for (const n of orderedTopNodes) {
     topPos.set(n, { x: cumulativeX, y: TOP_Y });
-    const extraSlots = Math.max(0, (verticalsByTopNode.get(n)?.length ?? 0) - 1);
+    // 이 노드에 매달린 병렬 slot 수 = 단일 vertical + fork 병렬 pendant 레그. 다음 노드가 침범 못하도록 예약.
+    const slotCount =
+      (verticalsByTopNode.get(n)?.length ?? 0) + (parallelLegsByRoot.get(n)?.length ?? 0);
+    const extraSlots = Math.max(0, slotCount - 1);
     cumulativeX += X_PITCH + extraSlots * VERTICAL_PARALLEL_GAP;
   }
+
+  // 4.0 fork 병렬 pendant 레그의 x 좌표 (root x 오른쪽으로 vertical 다음 slot부터 spread).
+  const parallelLegPlacements: { root: string; chain: CircuitComponent[]; x: number }[] = [];
+  for (const [root, chains] of parallelLegsByRoot) {
+    const base = verticalsByTopNode.get(root)?.length ?? 0;
+    const tx = topPos.get(root)?.x ?? 0;
+    chains.forEach((chain, j) => {
+      parallelLegPlacements.push({ root, chain, x: tx + (base + j) * VERTICAL_PARALLEL_GAP });
+    });
+  }
+  const parallelLegXs = parallelLegPlacements.map((p) => p.x);
 
   // 4. Vertical 슬롯 할당 (같은 top node에 여러 vertical이 있으면 spread)
   const verticals: VPlace[] = [];
@@ -323,8 +396,10 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   // ======================
   const parts: string[] = [];
 
-  // 5.1 Top rail wires (인접 top node 사이에 horizontal component가 없을 때만)
-  parts.push(renderTopRailWires(orderedTopNodes, topPos, horizontals));
+  // 5.1 Top rail wires (인접 top node 사이에 horizontal component가 없을 때만).
+  //   ★ horizontal로 연결 안 된(별개 sub-circuit) 두 top node 사이엔 false wire 금지 → groupOf 가드.
+  const railGroupOf = computeHorizontalGroups(orderedTopNodes, horizontals);
+  parts.push(renderTopRailWires(orderedTopNodes, topPos, horizontals, railGroupOf));
 
   // 5.2 Top stubs — offset된 vertical (xSlot>0)에 대해 top rail에서 vertical x까지 가로 stub
   for (const v of verticals) {
@@ -346,7 +421,7 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     const tx = topPos.get(rootNode)?.x ?? 0;
     preChainXs.push(tx + existingSlots * VERTICAL_PARALLEL_GAP);
   }
-  const allVerticalXs = [...verticals.map(verticalX), ...preChainXs];
+  const allVerticalXs = [...verticals.map(verticalX), ...preChainXs, ...parallelLegXs];
   if (allVerticalXs.length >= 2) {
     const xMin = Math.min(...allVerticalXs);
     const xMax = Math.max(...allVerticalXs);
@@ -445,11 +520,27 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     });
   }
 
-  // 5.6 Junction dots
-  parts.push(renderJunctionDots(netlist, topPos, verticals, verticalX));
+  // 5.5c Fork 병렬 pendant 레그 — hub 아래 병렬 vertical chain으로 렌더 (root→GND 순서).
+  for (const pl of parallelLegPlacements) {
+    const tx = topPos.get(pl.root)?.x ?? 0;
+    if (pl.x !== tx) {
+      parts.push(`<path d="M ${tx} ${TOP_Y} L ${pl.x} ${TOP_Y}" stroke="black" fill="none" stroke-width="2"/>`);
+    }
+    parts.push(renderVerticalChain(pl.chain, pl.x));
+    for (const c of pl.chain) obstacles.push(bboxVertical(c, pl.x));
+  }
+  // root(hub)에서 2개 이상 pendant 레그가 나가면 그 root는 fan-out junction → dot.
+  for (const [root, chains] of parallelLegsByRoot) {
+    if (chains.length < 2) continue;
+    const pos = topPos.get(root);
+    if (pos) parts.push(`<circle cx="${pos.x}" cy="${pos.y}" r="3.5" fill="black"/>`);
+  }
 
-  // 5.7 Ground symbol — bottom rail 가운데 (vertical + chain 모두 포함)
-  const groundXs = [...verticals.map(verticalX), ...chainXs];
+  // 5.6 Junction dots
+  parts.push(renderJunctionDots(netlist, topPos, verticals, verticalX, consumedIds));
+
+  // 5.7 Ground symbol — bottom rail 가운데 (vertical + chain + 병렬 pendant 레그 모두 포함)
+  const groundXs = [...verticals.map(verticalX), ...chainXs, ...parallelLegXs];
   if (groundXs.length > 0) {
     const cx = (Math.min(...groundXs) + Math.max(...groundXs)) / 2;
     parts.push(renderGroundSymbol(cx, BOT_Y));
@@ -464,6 +555,7 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
     ...Array.from(topPos.values()).map((p) => p.x),
     ...verticals.map(verticalX),
     ...chainXs,
+    ...parallelLegXs,
   ];
   const xMin = Math.min(...allXs) - 80;
   const xMax = Math.max(...allXs) + 80;
@@ -539,6 +631,91 @@ function classifyNodes(netlist: CircuitNetlist): {
     }
   }
   return { topNodes, groundIds };
+}
+
+/**
+ * Fork 병렬 펜던트 레그 추출 (2026-07-23).
+ *
+ *  문제: hub 노드(H, 비접지 degree≥3)에 ★직렬 pendant 레그가 2개 이상★ 매달리면
+ *  (예: H→R_top2→n3→R_leg2→GND, H→R_top3→n4→R_leg3→GND), mesh 분류기는 R_top2·R_top3를
+ *  horizontal로, R_leg2·R_leg3를 vertical로 쪼개서 두 R_top이 같은 rail(TOP_Y)에서 겹쳐 그려지고
+ *  한쪽 R_top이 다른 leg 노드를 가로질러 "저항 몸통 중앙으로 leg가 빠지는" 것처럼 보인다.
+ *
+ *  해결: 그런 pendant 직렬 레그(중간 노드가 전부 degree 2, 끝이 GND, component ≥2)를 hub 아래
+ *  ★병렬 vertical chain★으로 렌더한다. 각 chain은 root→…→GND 순서.
+ *
+ *  ⚠️ 활성 조건이 좁다(hub degree≥3 + 다중-component pendant 레그 ≥2개). 일반 직렬 rail·단일 tap·
+ *  R∥R(단일 component leg)은 건드리지 않으므로 기존 회로에 영향 없음.
+ *
+ * @returns legsByRoot(root→chain[](root→GND 순서)), consumed(체인에 흡수된 component id),
+ *          internalNodes(체인 내부 mid 노드 — top rail node에서 제외).
+ */
+function extractParallelPendantLegs(
+  netlist: CircuitNetlist,
+  groundIds: Set<string>,
+): {
+  legsByRoot: Map<string, CircuitComponent[][]>;
+  consumed: Set<string>;
+  internalNodes: Set<string>;
+} {
+  const legsByRoot = new Map<string, CircuitComponent[][]>();
+  const consumed = new Set<string>();
+  const internalNodes = new Set<string>();
+
+  const twoPin = netlist.components.filter(
+    (c) => c.type !== "GND" && (c.pins?.length ?? 0) >= 2,
+  );
+  const inc = new Map<string, CircuitComponent[]>();
+  for (const c of twoPin) {
+    for (const p of c.pins) {
+      if (!inc.has(p.node)) inc.set(p.node, []);
+      inc.get(p.node)!.push(c);
+    }
+  }
+  const deg = (n: string): number => inc.get(n)?.length ?? 0;
+  const other = (c: CircuitComponent, n: string): string =>
+    c.pins[0].node === n ? c.pins[1].node : c.pins[0].node;
+
+  for (const H of inc.keys()) {
+    if (groundIds.has(H) || deg(H) < 3) continue;
+
+    const pendantChains: { chain: CircuitComponent[]; internal: string[] }[] = [];
+    for (const e of inc.get(H)!) {
+      if (consumed.has(e.id)) continue;
+      const chain: CircuitComponent[] = [e];
+      const internal: string[] = [];
+      let viaComp = e;
+      let cur = other(e, H);
+      let ok = false;
+      while (true) {
+        if (groundIds.has(cur)) {
+          ok = true;
+          break;
+        }
+        // 중간 노드는 반드시 degree 2 (통과) — 아니면 또다른 hub/dangling이라 pendant 아님.
+        if (deg(cur) !== 2) break;
+        internal.push(cur);
+        const nextComp = inc.get(cur)!.find((c) => c !== viaComp);
+        if (!nextComp) break;
+        chain.push(nextComp);
+        viaComp = nextComp;
+        cur = other(nextComp, cur);
+        if (chain.length > 12) break; // safety
+      }
+      // ★ component ≥2 인 직렬 pendant만 대상 (단일 component leg는 기존 vertical 경로가 이미 처리).
+      if (ok && chain.length >= 2) pendantChains.push({ chain, internal });
+    }
+
+    if (pendantChains.length >= 2) {
+      legsByRoot.set(H, pendantChains.map((p) => p.chain));
+      for (const p of pendantChains) {
+        for (const c of p.chain) consumed.add(c.id);
+        for (const n of p.internal) internalNodes.add(n);
+      }
+    }
+  }
+
+  return { legsByRoot, consumed, internalNodes };
 }
 
 /**
@@ -620,15 +797,48 @@ function orderTopNodesByAdjacency(topNodes: string[], horizontals: HPlace[]): st
   return ordered;
 }
 
+/**
+ * top node를 horizontal 연결성 기준 connected component(group)로 분할.
+ *  같은 group만 top rail wire로 이어야 별개 sub-circuit(공통 GND만 공유) 사이 false wire를 막는다.
+ */
+function computeHorizontalGroups(
+  topNodes: string[],
+  horizontals: HPlace[],
+): Map<string, number> {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let r = x;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    return r;
+  };
+  for (const n of topNodes) parent.set(n, n);
+  for (const h of horizontals) {
+    if (!parent.has(h.node1) || !parent.has(h.node2)) continue;
+    parent.set(find(h.node1), find(h.node2));
+  }
+  const groupOf = new Map<string, number>();
+  const rootId = new Map<string, number>();
+  let next = 0;
+  for (const n of topNodes) {
+    const r = find(n);
+    if (!rootId.has(r)) rootId.set(r, next++);
+    groupOf.set(n, rootId.get(r)!);
+  }
+  return groupOf;
+}
+
 function renderTopRailWires(
   topNodes: string[],
   topPos: Map<string, Point>,
   horizontals: HPlace[],
+  groupOf?: Map<string, number>,
 ): string {
   let svg = "";
   for (let i = 0; i < topNodes.length - 1; i++) {
     const n1 = topNodes[i];
     const n2 = topNodes[i + 1];
+    // 별개 sub-circuit(다른 group)이면 rail wire로 잇지 않는다.
+    if (groupOf && groupOf.get(n1) !== groupOf.get(n2)) continue;
     const directly = horizontals.some(
       (h) =>
         (h.node1 === n1 && h.node2 === n2) ||
@@ -702,6 +912,7 @@ function renderJunctionDots(
   topPos: Map<string, Point>,
   verticals: VPlace[],
   verticalX: (v: VPlace) => number,
+  consumedIds?: Set<string>,
 ): string {
   let svg = "";
 
@@ -709,6 +920,8 @@ function renderJunctionDots(
   const degree = new Map<string, number>();
   for (const c of netlist.components) {
     if (c.type === "GND") continue;
+    // fork 병렬 pendant 레그로 흡수된 component는 5.5c에서 fan-out dot을 직접 그림 → 중복 방지.
+    if (consumedIds?.has(c.id)) continue;
     for (const p of c.pins ?? []) {
       if (topPos.has(p.node)) {
         degree.set(p.node, (degree.get(p.node) ?? 0) + 1);

@@ -136,17 +136,47 @@ export function generateImyong10DcNodal(args: {
 
   return Array.from({ length: args.count }, (_, i) => {
     // 각 problem마다 다른 seed → 다른 value 조합
-    const seed = baseSeed + i * 104729;
-    const values = perturbValues(seed, args.mode);
-    const defaultRvar = pick(NICE_R, makeRand(seed + 13));
-    const targetV = perturbTarget(seed + 7);
+    // ★ 답이 깔끔한 조합만 채택 — rejection sampling (2026-07-29 실측: V_1=9.767V·P=26.675W·
+    //   R=5000.00Ω(스윕 상한에 닿은 실패값)처럼 시험 문제로 쓸 수 없는 답이 나왔다).
+    //   기준: 단계별 답이 모두 0.5 배수, R 해가 스윕 범위 안(≤ 500Ω)일 것. 못 찾으면 마지막 후보 사용.
+    // ★ 답이 깔끔하도록 **역방향 설계** (2026-07-29 실측: V_1=9.767V·P=26.675W·R=5000.00Ω(스윕 상한
+    //   실패값)처럼 시험 문제로 못 쓰는 답이 나왔다). 원본도 R=35Ω·V_2=3.8V로 딱 떨어진다.
+    //   방법: [단계 3]의 목표 전압을 임의로 뽑지 않고, **깔끔한 R을 먼저 고른 뒤 그때의 V_2를 목표로 제시**한다.
+    //   그러면 R 해는 정의상 그 깔끔한 값이고, bisection 실패(경계값)도 원천적으로 사라진다.
+    //   추가로 [단계 1]의 V_1·V_2와 전력 총합도 깔끔한 조합만 채택(rejection).
+    const nice = (x: number, step = 0.5) =>
+      Number.isFinite(x) && Math.abs(x / step - Math.round(x / step)) < 1e-6;
+    const build = (s: number) => {
+      const v = perturbValues(s, args.mode);
+      const rand = makeRand(s + 13);
+      const rDefault = pick(NICE_R, rand);
+      // 목표용 R은 기본값과 다른 깔끔한 값 중에서
+      const rTargetPool = NICE_R.filter((r) => r !== rDefault);
+      const rTarget = pick(rTargetPool.length ? rTargetPool : NICE_R, makeRand(s + 29));
+      const s0 = solveNodal(v, rDefault);
+      const sT = solveNodal(v, rTarget);
+      return { v, rDefault, rTarget, s0, sT, p: calcTotalPower(v, rDefault) };
+    };
+    let seed = baseSeed + i * 104729;
+    let cand = build(seed);
+    for (let attempt = 1; attempt <= 600; attempt++) {
+      const ok =
+        nice(cand.s0.V_1) && nice(cand.s0.V_2) && nice(cand.p, 0.1) &&
+        nice(cand.sT.V_2, 0.1) && nice(cand.sT.V_1, 0.1) &&
+        Math.abs(cand.sT.V_2 - cand.s0.V_2) > 0.2;   // 단계 3이 단계 1과 확연히 달라야 문제가 성립
+      if (ok) break;
+      seed = baseSeed + i * 104729 + attempt * 7919;
+      cand = build(seed);
+    }
+    const values = cand.v;
+    const defaultRvar = cand.rDefault;
+    const R_var_solution = cand.rTarget;
+    const targetV = Math.round(cand.sT.V_2 * 10) / 10;
+    const sol0 = cand.s0, solT = cand.sT;
+    const P_total = cand.p;
     const target = { node: "V_2" as const, value: targetV };
-
-    // R_var sweep으로 target 만족 값 탐색
-    const R_var_solution = findRvar(values, target);
-    const { V_1: V_1_default, V_2: V_2_default } = solveNodal(values, defaultRvar);
-    const { V_1: V_1_target } = solveNodal(values, R_var_solution);
-    const P_total = calcTotalPower(values, defaultRvar);
+    const { V_1: V_1_default, V_2: V_2_default } = sol0;
+    const V_1_target = solT.V_1;
 
     const structure: Imyong10DcNodalStructure = {
       archetype: "IMYONG_10_DC_NODAL",

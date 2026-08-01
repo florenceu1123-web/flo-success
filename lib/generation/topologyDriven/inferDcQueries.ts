@@ -36,11 +36,43 @@ export function inferDcQueries(analysis: AnalysisResult): DcQuery[] {
     queries.push({ kind: "nodeVoltage", node: `__label:${label}`, label });
   }
 
-  // 2) total power
+  // 2) total power — "전체/총/합" 이 붙은 전력만
   if (
     /전체.*소비.*전력|전체.*전력.*소비|총.*전력|총.*소비|소비.*전력.*총|소비.*전력.*합/.test(text)
   ) {
     queries.push({ kind: "totalPower", label: "P_total" });
+  }
+
+  // 2b) 특정 저항 전력 — "N[Ω]에서 소모/소비되는 전력" 또는 "저항 R_k가 소모하는 전력".
+  //   ★ 중첩의 원리 문제(임용 전기 A-3 류)의 핵심 query. totalPower(전체/총/합)와 구분 —
+  //     "전체/총/합" 없이 특정 저항 하나의 소비전력을 물으면 resistorPower.
+  //   대상 저항은 값(N Ω)으로 지목 → "__rvalue:N" placeholder. pipeline이 원본(비perturb)
+  //     빌드로 실제 저항 id를 확정한다(id는 위치 기반이라 perturbation 후에도 안정).
+  const isTotalPower = queries.some((q) => q.kind === "totalPower");
+  if (!isTotalPower) {
+    // "12[Ω]에서 소모되는 전력", "12Ω 저항에서 소비하는 전력" 등
+    const rPowerByValue = text.match(
+      /(\d+(?:\.\d+)?)\s*\[?\s*(?:Ω|옴|ohm)\s*\]?\s*(?:저항)?\s*(?:에서|의|에)?\s*(?:소모|소비)(?:되는|하는)?\s*전력/i,
+    );
+    // "저항 R에서 소모되는 전력", "R_2가 소비하는 전력"
+    const rPowerByLabel = text.match(
+      /(?:저항\s*)?R[_]?(\d+|L|x|o)?\s*(?:에서|가|이|의|에)?\s*(?:소모|소비)(?:되는|하는)?\s*전력/i,
+    );
+    // 일반 표현: "특정 저항이 소모/소비하는 전력" (값·라벨 없이) — 대상 미지정
+    const rPowerGeneric =
+      /(?:특정|해당|한)\s*저항.*(?:소모|소비).*전력|저항.*소[모비].*전력\s*P\b/.test(text) ||
+      /전력\s*P\s*\[?\s*W/i.test(text);
+
+    if (rPowerByValue) {
+      const val = rPowerByValue[1];
+      queries.push({ kind: "resistorPower", resistorId: `__rvalue:${val}`, label: "P" });
+    } else if (rPowerByLabel && rPowerByLabel[1]) {
+      const label = `R_${rPowerByLabel[1]}`;
+      queries.push({ kind: "resistorPower", resistorId: `__rlabel:${label}`, label: "P" });
+    } else if (rPowerGeneric) {
+      // 대상 미지정 — pipeline이 기본 대상(전원 직렬 저항/첫 R)으로 fallback.
+      queries.push({ kind: "resistorPower", resistorId: "__rdefault__", label: "P" });
+    }
   }
 
   // 3) inverse R — "V_x = N V 되도록 R" 패턴
@@ -155,6 +187,134 @@ export function resolveQueryNodes(
     }
     return q;
   });
+}
+
+/**
+ * 개념형 "원리의 명칭 쓰기" lead 질문 감지 (예: 임용 전기 A-3 중첩의 원리).
+ *
+ *   원본이 (가) 원리 설명 박스 + "원리의 명칭을 쓰시오" 형식일 때, universal_dc의
+ *   순수 수치 query로는 표현 못 하는 개념형 소문항을 보존한다.
+ *
+ *   ★ 특정 문제의 값을 hardcode하는 게 아니라, 원리를 그 정의(텍스트)·빈칸 정답 형태로
+ *     인식하는 규칙 기반 감지 ([[feedback_generic_code]]). 빈칸 정답이 "…의 원리/법칙/정리"
+ *     꼴이면 그 이름을 그대로 쓰므로 테브난의 정리 등도 별도 규칙 없이 잡힌다.
+ *
+ * @returns 감지된 개념 lead, 없으면 null
+ */
+export type DcConceptLead = { principleName: string };
+
+export function inferDcConceptLead(analysis: AnalysisResult): DcConceptLead | null {
+  const blanks = analysis.fillInTheBlanks ?? [];
+  const condText = blanks.map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" ");
+  const text = [
+    analysis.topic ?? "",
+    analysis.interpretation ?? "",
+    (analysis.relatedConcepts ?? []).join(" "),
+    condText,
+  ].join(" ");
+
+  // ── (1) "명칭을 쓰라"는 지시 — ★ Vision이 원문의 "명칭"을 그대로 옮기는 경우는 드물다.
+  //   실측: 원문 "(가)의 원리에 해당하는 명칭을 쓰고"가 분석에선 "이 원리는 ____이다"로 의역됐고,
+  //   "명칭" 리터럴을 요구하던 예전 규칙이 감지에 실패해 원리 소문항이 통째로 사라졌다.
+  //   → 표현 흔들림을 정규화로 흡수 ([[feedback_gpt_format_normalization]]):
+  //     "명칭/이름을 쓰라"류 지시 **또는** 원리 자체를 답으로 요구하는 빈칸이면 인정.
+  const asksName =
+    /(?:원리|법칙|정리).*(?:명칭|이름)|(?:명칭|이름).*(?:쓰|서술|기술|답)|해석.*(?:원리|법칙|정리).*(?:명칭|이름|무엇)|무슨\s*(?:원리|법칙|정리)|어떤\s*(?:원리|법칙|정리)/.test(text);
+
+  // ── (2) 빈칸의 정답이 곧 원리·법칙·정리 이름인 경우 — "이 원리는 ____이다 → 중첩의 원리".
+  //   특정 원리를 hardcode하지 않고 이름 형태(…의 원리/법칙/정리)로 일반 인식 ([[feedback_generic_code]]).
+  //   ★ 정답 표기도 흔들린다 — 같은 이미지에서 "중첩의 원리"로 나오기도, 문장을
+  //     "____의 원리이다"로 쪼개고 정답은 "중첩"만 주기도 한다(실측). 둘 다 흡수한다.
+  const PRINCIPLE_NAME = /^[가-힣A-Za-z][가-힣A-Za-z\s·']{0,20}?(?:의\s*)?(?:원리|법칙|정리)$/;
+  const blankPrincipleName = (b: { sentence?: string; answer?: string } | null): string | null => {
+    const ans = (b?.answer ?? "").trim();
+    if (!ans) return null;
+    if (PRINCIPLE_NAME.test(ans)) return ans;
+    // "…는 ____의 원리이다" 처럼 종류어가 문장 쪽에 남은 경우 → 정답에 붙여 이름 복원.
+    const kind = (b?.sentence ?? "").match(/_{2,}\s*(?:의\s*)?(원리|법칙|정리)/)?.[1];
+    if (!kind) return null;
+    // 수치·단위가 섞인 정답(예 "P[W]")은 원리 이름이 아니다.
+    if (ans.length > 12 || /[\d[\]()Ω]/.test(ans)) return null;
+    return `${ans}의 ${kind}`;
+  };
+  const namedByBlank = blanks.map(blankPrincipleName).find((n): n is string => Boolean(n));
+
+  // ★ 빈칸 정답만으로 인정하면 오탐이 난다 — Vision은 어떤 회로 문제에든 "옴의 법칙" 같은
+  //   학습용 빈칸을 만들어 붙이기 때문. 원본이 실제로 원리를 제시(설명·정의)하는 구조,
+  //   즉 (가) 박스에 원리 설명이 있는 형식일 때만 개념 소문항으로 인정한다.
+  const presentsPrinciple =
+    /(?:원리|법칙|정리)[^.]{0,30}(?:설명|정의|서술|제시)/.test(text) ||
+    /독립\s*전원.*단독.*(?:존재|작용).*합|각\s*전원.*단독.*합/.test(text);
+
+  if (!asksName && !(namedByBlank && presentsPrinciple)) return null;
+
+  // ── (3) 원리 이름 확정. 빈칸 정답이 있으면 그걸 그대로 쓰고(테브난의 정리 등도 자동 지원),
+  //   없으면 정의문·키워드로 중첩의 원리를 인식한다.
+  if (namedByBlank) {
+    return { principleName: namedByBlank };
+  }
+  const isSuperposition =
+    /중첩(?:의)?\s*원리|superposition/i.test(text) ||
+    /독립\s*전원.*단독.*(?:존재|작용).*합|각\s*전원.*단독.*합/.test(text);
+  if (isSuperposition) {
+    return { principleName: "중첩의 원리" };
+  }
+
+  return null;
+}
+
+/**
+ * resistorPower query의 대상 저항 placeholder(__rvalue:N / __rlabel:R_k / __rdefault__)를
+ * 실제 netlist 저항 id로 해석. pipeline이 원본(비perturb) 빌드 netlist를 넘겨 호출한다.
+ *
+ *   - __rvalue:N   → value가 N Ω인 저항 (원본 값 기준, 위치-안정 id)
+ *   - __rlabel:R_k → nodeAnnotations/loadPlaceholders 라벨 매칭 (없으면 default)
+ *   - __rdefault__ → 전원(V/I 소스) 직렬 저항 우선, 없으면 첫 R
+ *
+ * @returns 해석된 저항 id, 매칭 실패 시 첫 R id
+ */
+export function resolveResistorPowerTarget(
+  placeholder: string,
+  baseNetlist: CircuitNetlist,
+): string | undefined {
+  const resistors = baseNetlist.components.filter((c) => c.type === "R");
+  if (resistors.length === 0) return undefined;
+
+  const parseR = (v: unknown): number => {
+    const m = String(v ?? "").match(/-?\d+(?:\.\d+)?/);
+    return m ? parseFloat(m[0]) : NaN;
+  };
+
+  if (placeholder.startsWith("__rvalue:")) {
+    const target = parseFloat(placeholder.slice("__rvalue:".length));
+    let best: { id: string; diff: number } | null = null;
+    for (const r of resistors) {
+      const diff = Math.abs(parseR(r.value) - target);
+      if (best === null || diff < best.diff) best = { id: r.id, diff };
+    }
+    // 값이 근접(±0.6)해야 신뢰 — 아니면 default로
+    if (best && best.diff <= 0.6) return best.id;
+  }
+
+  if (placeholder.startsWith("__rlabel:")) {
+    const label = placeholder.slice("__rlabel:".length).toUpperCase();
+    // id에 라벨 조각이 들어간 저항 우선 (예: label R_2 → id에 "2")
+    const num = label.match(/\d+/)?.[0];
+    if (num) {
+      const byId = resistors.find((r) => r.id.includes(num));
+      if (byId) return byId.id;
+    }
+  }
+
+  // __rdefault__ 또는 매칭 실패 — 전원 직렬 저항 우선
+  const sourceNodes = new Set<string>();
+  for (const c of baseNetlist.components) {
+    if (c.type === "V" || c.type === "I") {
+      for (const p of c.pins) sourceNodes.add(p.node);
+    }
+  }
+  const seriesR = resistors.find((r) => r.pins.some((p) => sourceNodes.has(p.node)));
+  return (seriesR ?? resistors[resistors.length - 1]).id;
 }
 
 /**

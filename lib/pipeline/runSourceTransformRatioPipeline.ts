@@ -86,6 +86,30 @@ export function detectSourceTransformRatio(analysis: AnalysisResult | null | und
     ...blankTexts,
   ].join(" \n ");
 
+  // ★ 배제 가드 — 임용 7번 전원변환 전압비 문제에는 "없는" 신호가 있으면 양보한다.
+  //   종속전원(VCCS/CCCS/CCVS/VCVS)·스위치(SW)·초메쉬(supermesh)/초마디(supernode)는
+  //   임용 8번(종속전류원 0.2V_3 + SW + supermesh)의 정의적 특징이며 전압비 전제와 무관하다.
+  //   이때 V_1·V_2·V_3는 단순 노드 라벨일 뿐 "전압비"가 아니므로, universal_dc
+  //   (dc_dependent_source·switched_dc·dc_supermesh)로 흡수돼야 한다. [[feedback_universal_path]]
+  const inv = analysis.componentInventory ?? [];
+  const hasDependentSource = inv.some((c) =>
+    ["VCCS", "CCCS", "CCVS", "VCVS"].includes(String(c?.type).toUpperCase()),
+  );
+  const hasSwitch =
+    inv.some((c) => String(c?.type).toUpperCase() === "SW") ||
+    /스위치|초\s*메쉬|초메시|초\s*마디|supermesh|supernode/i.test(text);
+  if (hasDependentSource || hasSwitch) return null;
+
+  // ★ 가변저항 양보 가드 (2026-07-29, 실측 신고) — 임용 10번(2전원 + **가변저항 R** 단계별 해석:
+  //   R=10Ω일 때 V_1·V_2 → 전력 총합 → V_2가 목표값이 되도록 R 조정)이 이 감지기에 걸려
+  //   전혀 다른 "전원변환 전압비" 문제로 생성됐다(로그 dispatch=source_transform_ratio_pipeline).
+  //   ★ 전원변환 전압비 원본(임용 7번)에는 **가변저항이 없다** — 고정 R로 V_1:V_2:V_3 비를 만족시킨다.
+  //   반면 임용 10번은 가변저항이 정의적 특징이다(IMYONG_10_DC_NODAL 전용 archetype 소관).
+  const hasVariableResistor =
+    /가변\s*저항|가변저항|variable\s*resistor|저항\s*r\s*(의)?\s*값을\s*조(정|절)|r을\s*조(정|절)/i.test(text) ||
+    inv.some((c) => /가변|variable/i.test(String(c?.value ?? "")));
+  if (hasVariableResistor) return null;
+
   // 전원변환 신호 (모든 Vision run에서 신뢰성 높음 — 문제의 정의적 특징)
   const hasSourceTransform =
     /전원\s*변환|소스\s*변환|source\s*transform/i.test(text) ||

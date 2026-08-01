@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { buildFromTopology } from "@/lib/generation/topologyDriven/buildFromTopology";
 import { perturbTopology, listSourceIndices } from "@/lib/generation/topologyDriven/perturbTopology";
-import { inferDcQueries, resolveQueryNodes } from "@/lib/generation/topologyDriven/inferDcQueries";
+import {
+  inferDcQueries,
+  resolveQueryNodes,
+  inferDcConceptLead,
+  resolveResistorPowerTarget,
+} from "@/lib/generation/topologyDriven/inferDcQueries";
 import { solveDcQueries, type DcQuery, type DcQueryResult } from "@/lib/solver/universalDc";
 import { validateDcResult } from "@/lib/solver/validateDcResult";
 import { writeUniversalDcText } from "@/lib/generation/topologies/universalDcTextWriter";
@@ -54,10 +59,38 @@ export async function runUniversalDcPipeline(args: {
 
   // analysis 기반 query 추출 (변형 무관 — 원본 의도 유지)
   const rawQueries = inferDcQueries(analysis);
+
+  // ── resistorPower 대상 저항 id 사전 해석 —
+  //   __rvalue:N / __rlabel:R_k / __rdefault__ placeholder를 실제 저항 id로 확정.
+  //   원본(비perturb) 토폴로지를 한 번 빌드 → valueRand가 원본 값을 그대로 쓰므로 "N Ω"
+  //   저항을 값으로 매칭 가능. id는 위치 기반이라 이후 perturbed 빌드에서도 동일 → 안정.
+  const hasResistorPowerPlaceholder = rawQueries.some(
+    (q) => q.kind === "resistorPower" && q.resistorId.startsWith("__r"),
+  );
+  if (hasResistorPowerPlaceholder) {
+    const baseGen = buildFromTopology({ topology: baseTopology, mode, seed: 1 });
+    for (const q of rawQueries) {
+      if (q.kind === "resistorPower" && q.resistorId.startsWith("__r")) {
+        const resolved = resolveResistorPowerTarget(q.resistorId, baseGen.netlistOpen);
+        if (resolved) {
+          log.info("resistor_power_target_resolved", { placeholder: q.resistorId, resistorId: resolved });
+          q.resistorId = resolved;
+        } else {
+          log.warn("resistor_power_target_unresolved", { placeholder: q.resistorId });
+        }
+      }
+    }
+  }
+
+  // ── 개념형 "원리의 명칭 쓰기" lead 감지 (예: 중첩의 원리) — 순수 수치 query로 표현
+  //   못 하는 서술형 소문항을 보존. 감지되면 텍스트 라이터가 answer/question에 반영.
+  const conceptLead = inferDcConceptLead(analysis);
+
   log.info("queries_inferred", {
     count: rawQueries.length,
     kinds: rawQueries.map((q) => q.kind).join(", "),
     labels: rawQueries.map((q) => q.label).join(" | "),
+    conceptLead: conceptLead?.principleName ?? "(none)",
   });
   // 진단: 분석이 추출한 branches 구조 — node 압축·dangling remap 확인용.
   log.info("topology_branches", {
@@ -85,42 +118,88 @@ export async function runUniversalDcPipeline(args: {
     //    각 attempt: perturb → buildFromTopology → resolve → solve → validate.
     //    첫 valid 결과 채택. 모두 invalid면 가장 valid에 근접한 attempt fallback.
     //    polarity variation은 외부 루프 — base(no-flip)에서 못 풀면 single-flip 후보들 시도.
-    const ATTEMPTS_PER_VARIATION = 8;
+    //    ★ 채택 기준(2026-07-25): "첫 valid"가 아니라 **답이 깔끔한 것**을 고른다.
+    //      임용 문제의 정답은 정수가 원칙인데, 예전엔 valid하기만 하면 즉시 채택해
+    //      P = 129.551W 같은 답이 그대로 나갔다. 우선순위:
+    //        allInteger(정수) > clean(0.5 단위) > tenth(소수 첫째) > valid > invalid fallback.
+    //      attempt는 순수 계산(perturb·MNA·solve, GPT 호출 없음)이라 넉넉히 돌려도 저렴하고,
+    //      정수 답을 찾는 즉시 조기 종료한다. 정수 조합의 비율은 회로마다 수 % 수준이라
+    //      수백 회는 돌려야 잡힌다(예전 8회/variation으론 사실상 못 잡음).
+    //    ★ inverseR query는 attempt마다 R sweep(200 sample + 이분법)을 돌아 수백 배 비싸다
+    //      → 값싼 query(노드전압·전류·전력)를 먼저 풀어 지저분하면 sweep을 건너뛴다.
+    //      (첫 attempt만은 전부 풀어 fallback 후보를 확보한다.)
+    //    ★ 탐색 폭 단계 상승(SPREAD_LADDER): exam_similar의 기본 섭동은 ±5% + nice 값 스냅이라
+    //      값이 원본으로 되돌아가 붙는다 — 즉 탐색 공간이 사실상 한 점이어서, 몇 번을 돌리든
+    //      같은 (지저분한) 답만 나왔다. 그래서 "가능한 한 원본에 가깝게, 필요한 만큼만 넓게":
+    //      spread=1로 먼저 찾고, 깔끔한 답이 없을 때만 단계적으로 폭을 넓힌다.
+    const SPREAD_LADDER = [1, 3, 6, 10];
+    const ATTEMPT_BUDGET = 1600;
+    const ATTEMPTS_PER_VARIATION = Math.max(
+      1,
+      Math.ceil(ATTEMPT_BUDGET / (polarityVariations.length * SPREAD_LADDER.length)),
+    );
     type Attempt = {
       gen: ReturnType<typeof buildFromTopology>;
       queryResults: DcQueryResult[];
       niceness: number;
       reasons: string[];
     };
-    let chosen: Attempt | null = null;
-    let bestFallback: Attempt | null = null;
+    let chosen: Attempt | null = null;          // 정수 답 (최우선)
+    let bestClean: Attempt | null = null;       // 0.5 단위까지 허용
+    let bestTenth: Attempt | null = null;       // 소수 첫째 자리까지
+    let bestValid: Attempt | null = null;       // valid하지만 지저분한 답
+    let bestFallback: Attempt | null = null;    // invalid — 최후 수단
     let totalAttempts = 0;
 
-    outer: for (let v = 0; v < polarityVariations.length; v++) {
+    outer: for (const spread of SPREAD_LADDER) {
+      for (let v = 0; v < polarityVariations.length; v++) {
       const polarityFlipIndices = polarityVariations[v];
       for (let attempt = 0; attempt < ATTEMPTS_PER_VARIATION; attempt++) {
         const localSeed = seed + totalAttempts * 104729;
         totalAttempts++;
-        const perturbedTopology = perturbTopology(baseTopology, mode, localSeed, { polarityFlipIndices });
+        const perturbedTopology = perturbTopology(baseTopology, mode, localSeed, { polarityFlipIndices, spread });
         const gen = buildFromTopology({ topology: perturbedTopology, mode, seed: localSeed });
         const resolvedQueries: DcQuery[] = resolveQueryNodes(
           rawQueries,
           gen.netlistOpen,
           analysis,
         );
-        const queryResults = solveDcQueries(gen.solverNetOpen, resolvedQueries);
+        // ── 값싼 query 먼저 → 비싼 inverseR sweep은 전망 있을 때만.
+        const cheapQueries = resolvedQueries.filter((q) => q.kind !== "inverseR");
+        const costlyQueries = resolvedQueries.filter((q) => q.kind === "inverseR");
+        let queryResults = solveDcQueries(gen.solverNetOpen, cheapQueries);
+        if (costlyQueries.length > 0) {
+          const cheapVerdict = cheapQueries.length > 0 ? validateDcResult(queryResults) : null;
+          // 첫 attempt는 무조건 완전 평가(최소 1개의 fallback 후보 확보).
+          const worthSweep =
+            totalAttempts === 1 || !cheapVerdict || (cheapVerdict.valid && cheapVerdict.clean);
+          if (!worthSweep) continue;
+          queryResults = [...queryResults, ...solveDcQueries(gen.solverNetOpen, costlyQueries)];
+        }
         const verdict = validateDcResult(queryResults);
         const att: Attempt = { gen, queryResults, niceness: verdict.niceness, reasons: verdict.reasons };
 
         if (verdict.valid) {
-          chosen = att;
-          log.info("attempt_accepted", {
-            attempt: totalAttempts - 1,
-            niceness: verdict.niceness,
-            seed: localSeed,
-            polarityFlipped: [...polarityFlipIndices],
-          });
-          break outer;
+          if (verdict.allInteger) {
+            chosen = att;
+            log.info("attempt_accepted", {
+              attempt: totalAttempts - 1,
+              grade: "integer",
+              spread,
+              niceness: verdict.niceness,
+              seed: localSeed,
+              polarityFlipped: [...polarityFlipIndices],
+            });
+            break outer;
+          }
+          if (verdict.clean) {
+            if (!bestClean || att.niceness > bestClean.niceness) bestClean = att;
+          } else if (verdict.tenth) {
+            if (!bestTenth || att.niceness > bestTenth.niceness) bestTenth = att;
+          } else if (!bestValid || att.niceness > bestValid.niceness) {
+            bestValid = att;
+          }
+          continue;
         }
         if (!bestFallback || att.niceness > bestFallback.niceness) {
           bestFallback = att;
@@ -132,13 +211,21 @@ export async function runUniversalDcPipeline(args: {
           reasons: verdict.reasons.slice(0, 3),
         });
       }
+      }
+      // 이 spread 단계에서 0.5 단위 이상으로 깔끔한 답을 이미 찾았으면 더 넓히지 않는다
+      // (원본에 최대한 가까운 값을 유지하기 위함).
+      if (bestClean) break;
     }
     const MAX_ATTEMPTS = totalAttempts;
 
-    const final = chosen ?? bestFallback!;
+    // 정수 답 없으면 0.5 단위 → 소수 첫째 → 지저분해도 valid → invalid 순으로 양보.
+    const final = chosen ?? bestClean ?? bestTenth ?? bestValid ?? bestFallback!;
     if (!chosen) {
-      log.warn("rejection_exhausted", {
+      const grade = bestClean ? "half" : bestTenth ? "tenth" : bestValid ? "messy" : "invalid";
+      log.warn("clean_answer_not_found", {
         attempts: MAX_ATTEMPTS,
+        acceptedGrade: grade,
+        results: final.queryResults.map((r) => `${r.query.label}=${r.value}${r.unit}`).join(", "),
         fallbackReasons: final.reasons.slice(0, 3),
         fallbackNiceness: final.niceness,
       });
@@ -251,6 +338,7 @@ export async function runUniversalDcPipeline(args: {
       mode,
       topicLabel,
       contextHint,
+      conceptLead,
     });
 
     const figureVariants: FigureVariant[] = [

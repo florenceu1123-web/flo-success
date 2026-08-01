@@ -53,6 +53,14 @@ export function detectFourNodeImyong(netlist: CircuitNetlist): null | {
   //   노드를 누락해 소자가 겹쳐 그려짐 → generic mesh layout으로 fallback해야 함.
   if (netlist.components.some((c) => c.type === "L" || c.type === "C")) return null;
 
+  // ★ 이 렌더러가 **표현하지 못하는 요소**가 있으면 양보한다 → generic mesh renderer가 그린다.
+  //   실측 신고: 종속 전류원 + 부하 R_L + i_x 표시가 있는 테브난 회로를 이 렌더러가 가로채는 바람에
+  //   종속원이 아예 안 그려지고(5Ω와 같은 자리에 겹침), R_L·단자 b·i_x 화살표가 모두 사라졌다.
+  //   (종속원·부하 placeholder·측정 마커는 generic 경로가 이미 지원한다.)
+  if (netlist.components.some((c) => ["CCVS", "CCCS", "VCVS", "VCCS"].includes(c.type))) return null;
+  if ((netlist.loadPlaceholders ?? []).length > 0) return null;
+  if ((netlist.measurementMarks ?? []).length > 0) return null;
+
   // V 소스 식별.
   const vSources = netlist.components.filter((c) => c.type === "V");
   if (vSources.length !== 1) return null;

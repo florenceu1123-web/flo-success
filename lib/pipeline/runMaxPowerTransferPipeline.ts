@@ -29,7 +29,12 @@ export async function runMaxPowerTransferPipeline(args: {
   //   generic max_power(vi_two_source)는 이 2V+2I 구조를 잃음 → viTheveninMaxPower로 충실 재현.
   //   3단계: [1] 개방→V_c, [2] 단락→I_ab, [3] 테브난 등가+R_L=R_th·P_L. 결정론 텍스트.
   const p = analysis?.circuitType?.params;
-  if ((p?.vSourceCount ?? 0) >= 2 && (p?.iSourceCount ?? 0) >= 2) {
+  // ★ params(vSourceCount·iSourceCount)가 없거나(stale 분석) 0이어도 inventory의 V·I 개수로 보강.
+  const inv = analysis?.componentInventory ?? [];
+  const up = (t: unknown) => String(t ?? "").toUpperCase();
+  const vN = Math.max(p?.vSourceCount ?? 0, inv.filter((c) => up(c.type) === "V").length);
+  const iN = Math.max(p?.iSourceCount ?? 0, inv.filter((c) => up(c.type) === "I").length);
+  if (vN >= 2 && iN >= 2) {
     return generateInParallel(count, async (i, seed) => {
       const gen = generateViTheveninMaxPower({ seed });
       const a = gen.answer;

@@ -18,10 +18,11 @@ export function perturbTopology(
   topology: TopologySignature,
   mode: GenerationMode,
   seed: number,
-  options?: { polarityFlipIndices?: ReadonlySet<number> },
+  options?: { polarityFlipIndices?: ReadonlySet<number>; spread?: number },
 ): TopologySignature {
   const rand = makeSeededRand(seed);
   const flip = options?.polarityFlipIndices;
+  const spread = options?.spread ?? 1;
   let sourceCounter = 0;
   const GROUND_LABELS = new Set(["GND", "gnd", "Gnd", "0", "ground", "Ground"]);
   return {
@@ -59,7 +60,7 @@ export function perturbTopology(
           }
           const t = (c.type ?? "").toUpperCase();
           const isSource = t === "V" || t === "I" || t === "VS" || t === "IS";
-          let newNumeric = perturbNumeric(parsed.numeric, c.type, mode, rand);
+          let newNumeric = perturbNumeric(parsed.numeric, c.type, mode, rand, spread);
           if (isSource) {
             const idx = sourceCounter++;
             if (flip?.has(idx) && !isGroundReferenced) {
@@ -179,18 +180,28 @@ function perturbNumeric(
   type: string,
   mode: GenerationMode,
   rand: () => number,
+  /**
+   * 탐색 폭 배수(기본 1). 파이프라인이 "정수 답"을 못 찾았을 때 단계적으로 키운다.
+   *   1 = 원본 거의 그대로, 커질수록 원본에서 멀어지되 nice 값 풀 안에서만 움직인다.
+   */
+  spread = 1,
 ): number {
   const t = (type ?? "").toUpperCase();
   const isResistor = t === "R";
   const isSource = t === "V" || t === "I";
   const isReactive = t === "L" || t === "C";
+  const widen = (lo: number, hi: number): [number, number] => [
+    Math.max(0.15, 1 - (1 - lo) * spread),
+    1 + (hi - 1) * spread,
+  ];
 
   // ★ exam_similar — 원본 거의 그대로: 매우 좁은 perturb (±5%) + nice value snap.
   //   대부분의 값은 nice 풀에서 원본으로 그대로 snap → 원본 동일.
   //   variant와의 구분: variant는 ±15%로 noticeable 차이.
+  //   ★ spread>1이면 이 폭이 커져 nice 풀의 이웃 값까지 탐색한다(정수 답 확보용).
   if (mode === "exam_similar" && !isReactive) {
-    const range = isResistor ? [0.95, 1.05] : isSource ? [0.97, 1.03] : [0.97, 1.03];
-    const factor = range[0] + rand() * (range[1] - range[0]);
+    const [lo, hi] = isResistor ? widen(0.95, 1.05) : widen(0.97, 1.03);
+    const factor = lo + rand() * (hi - lo);
     const scaled = original * factor;
     const pool = isResistor ? NICE_RESISTORS_EXT
       : t === "V" ? NICE_VOLTAGES_EXT
@@ -199,10 +210,16 @@ function perturbNumeric(
     return nearestNice(scaled, pool);
   }
 
-  // exam_variant 또는 L/C — 기존 동작 (넓은 perturb)
-  const range = mode === "exam_variant"
+  // exam_variant 또는 L/C — 기존 동작 (넓은 perturb). spread로 추가 확장 가능.
+  //   L/C는 값이 곧 시정수라 과도한 확장을 피해 spread를 절반만 반영.
+  const lcSpread = isReactive ? 1 + (spread - 1) * 0.5 : spread;
+  const base: [number, number] = mode === "exam_variant"
     ? isResistor ? [0.5, 1.8] : isSource ? [0.7, 1.4] : isReactive ? [0.85, 1.18] : [0.8, 1.25]
     : isResistor ? [0.7, 1.5] : isSource ? [0.8, 1.25] : isReactive ? [0.9, 1.12] : [0.85, 1.18];
+  const range: [number, number] = [
+    Math.max(0.15, 1 - (1 - base[0]) * lcSpread),
+    1 + (base[1] - 1) * lcSpread,
+  ];
   const factor = range[0] + rand() * (range[1] - range[0]);
   const scaled = original * factor;
   if (!Number.isFinite(scaled) || scaled === 0) return scaled;
