@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ImageUploader from "@/components/ImageUploader";
 import SubjectSelector from "@/components/SubjectSelector";
 import GenerationModeSelector from "@/components/GenerationModeSelector";
 import ProblemCountSelector from "@/components/ProblemCountSelector";
 import AnalysisPanel from "@/components/AnalysisPanel";
 import GeneratedProblems from "@/components/GeneratedProblems";
+import SubjectNotes from "@/components/SubjectNotes";
 import type {
   SubjectKey,
   GenerationMode,
@@ -22,6 +23,9 @@ type ProblemValidation = {
   figures: ValidationResult;
 };
 
+/** 상단 탭 — 문제 생성(기존 파이프라인) / 요점정리(과목별 사진첩). */
+type View = "generate" | "notes";
+
 type GenerateResponse = {
   problems: GeneratedProblem[];
   mode: GenerationMode;
@@ -31,6 +35,7 @@ type GenerateResponse = {
 };
 
 export default function Home() {
+  const [view, setView] = useState<View>("generate");
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [subject, setSubject] = useState<SubjectKey | null>(null);
@@ -43,6 +48,8 @@ export default function Home() {
   const [summary, setSummary] = useState<GenerateResponse["summary"] | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  // 오류는 alert() 대신 화면 안에 표시한다 — alert은 줄바꿈이 죽고 화면이 멈춘다.
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const runAnalyze = async (image: string, subj: SubjectKey) => {
     setIsAnalyzing(true);
@@ -57,7 +64,7 @@ export default function Home() {
       setAnalysis(data as AnalysisResult);
     } catch (e) {
       setAnalysis(null);
-      alert(`분석 실패: ${(e as Error).message}`);
+      setErrorMsg(`분석 실패: ${(e as Error).message}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -79,6 +86,7 @@ export default function Home() {
   };
 
   const resetGenerationState = () => {
+    setErrorMsg(null); // 새로 시도할 때 이전 오류는 지운다
     setProblems([]);
     setRuleSet(null);
     setValidations([]);
@@ -108,13 +116,21 @@ export default function Home() {
       setValidations(data.validations ?? []);
       setSummary(data.summary ?? null);
     } catch (e) {
-      alert(`생성 실패: ${(e as Error).message}`);
+      setErrorMsg(`생성 실패: ${(e as Error).message}`);
     } finally {
       setIsGenerating(false);
     }
   };
 
   const canGenerate = !!uploadedImage && !!subject && !isAnalyzing && !isGenerating;
+
+  // 업로드 이미지 기반 안정 키 — 사용자가 직접 입력한 풀이·정답을 localStorage에 저장/복원할 때 사용.
+  const imageKey = useMemo(() => {
+    if (!uploadedImage) return null;
+    let h = 5381;
+    for (let i = 0; i < uploadedImage.length; i++) h = ((h << 5) + h + uploadedImage.charCodeAt(i)) | 0;
+    return `img${(h >>> 0).toString(36)}`;
+  }, [uploadedImage]);
 
   return (
     <div className="min-h-screen bg-white">
@@ -131,14 +147,27 @@ export default function Home() {
               <p className="text-xs text-blue-400 mt-0.5">전자임용 유사·변형 문제 생성기</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-blue-500 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
-            OpenAI GPT
+          <div className="flex items-center gap-3">
+            <nav className="flex items-center gap-1 bg-blue-50/70 p-1 rounded-xl border border-blue-100">
+              <TabButton active={view === "generate"} onClick={() => setView("generate")}>
+                문제 생성
+              </TabButton>
+              <TabButton active={view === "notes"} onClick={() => setView("notes")}>
+                요점정리
+              </TabButton>
+            </nav>
+            <div className="hidden sm:flex items-center gap-2 text-xs text-blue-500 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
+              OpenAI GPT
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {view === "notes" ? (
+          <SubjectNotes />
+        ) : (
         <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-8">
           <div className="space-y-5">
             <Card>
@@ -173,7 +202,23 @@ export default function Home() {
           </div>
 
           <div className="space-y-5">
-            <AnalysisPanel analysis={analysis} isLoading={isAnalyzing} />
+            {errorMsg && (
+              <section className="bg-rose-50 border border-rose-200 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  {/* whitespace-pre-line — 서버가 보내는 여러 줄 안내를 줄바꿈 그대로 보여준다. */}
+                  <p className="text-sm text-rose-800 whitespace-pre-line leading-relaxed">{errorMsg}</p>
+                  <button
+                    type="button"
+                    onClick={() => setErrorMsg(null)}
+                    className="shrink-0 w-7 h-7 rounded-lg text-rose-400 hover:bg-rose-100 hover:text-rose-600 text-lg leading-none"
+                    aria-label="닫기"
+                  >
+                    ×
+                  </button>
+                </div>
+              </section>
+            )}
+            <AnalysisPanel analysis={analysis} isLoading={isAnalyzing} imageKey={imageKey} />
             <GeneratedProblems
               problems={problems}
               mode={mode}
@@ -183,8 +228,31 @@ export default function Home() {
             />
           </div>
         </div>
+        )}
       </main>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+        active ? "bg-white text-blue-700 shadow-sm" : "text-blue-400 hover:text-blue-600"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

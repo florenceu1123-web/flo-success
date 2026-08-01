@@ -47,6 +47,12 @@ scripts/*.html
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 사용자가 직접 입력·저장한 원본 문제 풀이 (런타임 생성 데이터)
+/data/
 /thevenin_generic.svg
 /seq_circuit.svg
 /seq_wave.svg
+
+# 시각 검증용 헤드리스 크롬 프로필 (scripts/verifyNotesViewer.mjs)
+/scripts/_chrome-profile/
