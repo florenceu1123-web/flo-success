@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImage, AnalyzeError } from "@/lib/analysis/analyzeImage";
 import { extractComponentInventory, pickBetterInventory, type ComponentInventoryItem } from "@/lib/analysis/extractComponentInventory";
-import { extractNodeConnectivity, mergeNodeConnectivity } from "@/lib/analysis/extractNodeConnectivity";
+import { extractNodeConnectivity, mergeNodeConnectivityAgreed } from "@/lib/analysis/extractNodeConnectivity";
+import { verifyBranchValues } from "@/lib/analysis/verifyBranchValues";
 import { compactAnalysis } from "@/lib/analysis/compactAnalysis";
 import { recoverTopologyV2 } from "@/lib/analysis/topologyRecovery";
 import { deriveCircuitMeta } from "@/lib/analysis/deriveCircuitMeta";
@@ -75,13 +76,23 @@ export async function POST(req: NextRequest) {
       effectiveInventory.some((c) => /^[+-]?\d*\.?\d*\*?[A-Za-z_]/.test(String(c.value ?? "").replace(/\[[^\]]*\]/g, "").trim()) &&
         !/^\d/.test(String(c.value ?? "").trim()));
     if (needInventory && needsPrecisePins && effectiveInventory.length > 0) {
-      const nodes = await extractNodeConnectivity({
-        image,
-        componentIds: effectiveInventory.map((c) => c.id),
-      });
-      const merged = mergeNodeConnectivity(effectiveInventory, nodes);
+      const ids = effectiveInventory.map((c) => c.id);
+      // 2회 독립 추출 후 합의한 것만 채택 — Vision 변동성을 흡수한다.
+      const [nodesA, nodesB] = await Promise.all([
+        extractNodeConnectivity({ image, componentIds: ids }),
+        extractNodeConnectivity({ image, componentIds: ids }),
+      ]);
+      const merged = mergeNodeConnectivityAgreed(effectiveInventory, nodesA, nodesB);
       log.info("node_connectivity", { repaired: merged.repaired, problem: merged.problem });
       effectiveInventory = merged.inventory;
+
+      // 연결이 합의로 확정된 소자가 있을 때만 "그 위치의 값"을 국소적으로 다시 읽어
+      // 값 배치를 교차 검증한다. (실측: 그래프는 맞는데 2Ω과 a[Ω]이 두 자리 뒤바뀌었다.)
+      if (merged.repaired > 0 && !merged.problem) {
+        const verified = await verifyBranchValues({ image, inventory: effectiveInventory });
+        log.info("branch_values", { changed: verified.changed, problem: verified.problem });
+        effectiveInventory = verified.inventory;
+      }
     }
 
     const withInventory = effectiveInventory.length > 0

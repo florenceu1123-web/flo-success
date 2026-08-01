@@ -132,6 +132,47 @@ export async function extractNodeConnectivity(args: {
   }
 }
 
+/**
+ * ★ 2회 독립 추출 후 **합의한 것만** 채택한다.
+ *
+ * Vision은 같은 이미지라도 실행마다 다르게 읽는다(실측: 한 회차는 원본과 정확히 일치했는데
+ * 다음 회차는 노드가 갈라지고 값이 엉뚱한 가지에 붙었다). inventory에 이미 쓰고 있는
+ * 2회 추출 방식을 연결에도 적용해, **두 번 모두 같은 노드 쌍이 나온 소자만** pins를 확정한다.
+ * 한쪽만 맞은 경우는 어느 쪽이 맞는지 알 수 없으므로 기존 pins를 유지한다(잘못 덮어쓰기 방지).
+ */
+export function mergeNodeConnectivityAgreed(
+  inventory: ComponentInventoryItem[],
+  nodesA: NodeConnectivity[] | null,
+  nodesB: NodeConnectivity[] | null,
+): MergeResult {
+  const a = mergeNodeConnectivity(inventory, nodesA);
+  const b = mergeNodeConnectivity(inventory, nodesB);
+  if (a.problem && b.problem) return { inventory, repaired: 0, problem: `양쪽 모두 신뢰 불가 (${a.problem} / ${b.problem})` };
+
+  const pinsOf = (list: ComponentInventoryItem[], id: string) =>
+    (list.find((c) => c.id === id)?.pins ?? []).join("|");
+
+  let repaired = 0;
+  let disagreed = 0;
+  const out = inventory.map((c) => {
+    const pa = pinsOf(a.inventory, c.id);
+    const pb = pinsOf(b.inventory, c.id);
+    const before = (c.pins ?? []).join("|");
+    if (pa && pa === pb) {
+      if (pa !== before) repaired += 1;
+      return { ...c, pins: pa.split("|") };
+    }
+    if (pa !== pb) disagreed += 1;
+    return c; // 합의 실패 — 기존 유지
+  });
+
+  return {
+    inventory: out,
+    repaired,
+    problem: disagreed > 0 ? `${disagreed}개 소자는 2회 추출이 불일치해 기존 pins 유지` : null,
+  };
+}
+
 export type MergeResult = {
   /** pins가 보정된 inventory */
   inventory: ComponentInventoryItem[];
@@ -155,13 +196,27 @@ export function mergeNodeConnectivity(
   if (!nodes || nodes.length === 0) {
     return { inventory, repaired: 0, problem: "노드 결과 없음" };
   }
-  // 소자 id → 그 소자가 나타난 노드 목록
+  // ★ 노드 이름 정규화 — Vision이 같은 노드를 "N1"·"n1"·" n1 "처럼 다르게 적으면 하나의
+  //   노드가 둘로 갈라져 회로가 통째로 달라진다(실측). 대소문자·공백을 무시해 통합하고,
+  //   접지 표기(GND/gnd/0/ground)도 "GND"로 모은다. 표시는 처음 등장한 형태를 쓴다.
+  const canon = (id: string) => {
+    const t = id.trim();
+    return /^(gnd|ground|0)$/i.test(t) ? "GND" : t.toUpperCase();
+  };
+  const display = new Map<string, string>();
+  for (const n of nodes) {
+    const k = canon(n.id);
+    if (!display.has(k)) display.set(k, k === "GND" ? "GND" : n.id.trim());
+  }
+
+  // 소자 id → 그 소자가 나타난 노드 목록 (정규화 기준)
   const appearsIn = new Map<string, string[]>();
   for (const n of nodes) {
+    const nodeName = display.get(canon(n.id))!;
     for (const c of n.components) {
       const list = appearsIn.get(c) ?? [];
       // 같은 노드가 중복으로 들어오면 한 번만 센다.
-      if (!list.includes(n.id)) list.push(n.id);
+      if (!list.includes(nodeName)) list.push(nodeName);
       appearsIn.set(c, list);
     }
   }

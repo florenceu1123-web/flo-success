@@ -24,13 +24,19 @@ export function inventoryToNetlist(analysis: AnalysisResult | null | undefined):
     { id: string; type: string; value?: string; pins?: string[] } & { control?: string; gain?: string }
   >;
   if (inv.length < 3) return null;
+  // ★ 노드 이름 정규화 — Vision이 같은 노드를 "n1"·"N1"처럼 대소문자만 다르게 적으면
+  //   하나의 노드가 둘로 갈라져 회로가 통째로 달라진다(실측). 접지 표기도 GND로 모은다.
+  const canonNode = (n: string) => {
+    const t = n.trim();
+    return /^(gnd|ground|0)$/i.test(t) ? "GND" : t.toUpperCase();
+  };
   const components: CircuitComponent[] = [];
   for (const c of inv) {
     const pins = (c.pins ?? []).filter(Boolean);
     if (pins.length < 2 && c.type !== "GND") return null; // 핀 정보가 없으면 포기
     components.push({
       ...c,
-      pins: pins.map((n) => ({ node: n })),
+      pins: pins.map((n) => ({ node: canonNode(n) })),
     } as unknown as CircuitComponent);
   }
   const hasGround = components.some((c) => (c.pins ?? []).some((p) => /^(GND|gnd|0|ground)$/i.test(p.node)));
