@@ -22,6 +22,7 @@ import { detectTheveninDependent, renderTheveninDependentCircuit } from "./theve
 import { detectTheveninDepVoltage, renderTheveninDepVoltageCircuit } from "./theveninDepVoltageCircuitRenderer";
 import { detectSupernodeDepMaxPower, renderSupernodeDepMaxPower } from "./supernodeDepMaxPowerRenderer";
 import { detectAcSuperpositionCircuit, renderAcSuperpositionCircuit } from "./acSuperpositionCircuitRenderer";
+import { detectNortonOriginal, renderNortonOriginal, detectNortonEquivalent, renderNortonEquivalent } from "./nortonParamInverseRenderer";
 import { detectAcDcSuperposition, renderAcDcSuperpositionCircuit } from "./acDcSuperpositionCircuitRenderer";
 import { detectAcDcSuperpositionDual, renderAcDcSuperpositionDualCircuit } from "./acDcSuperpositionDualCircuitRenderer";
 import { detectAcTheveninMaxPower, renderAcTheveninMaxPowerCircuit } from "./acTheveninMaxPowerCircuitRenderer";
@@ -182,6 +183,15 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   }
   // 0.074 테브난+최대전력+종속전원 (임용 7·9번류) — 전용 fixed-slot.
   //   generic mesh는 이 회로를 세로 가지들로 펼쳐 원본 사다리 구조·단자 a·b를 잃는다(실측 신고).
+  // 0.071 노튼 등가 + 파라미터 역산 (임용 5번) — (가)·(나) 전용 fixed-slot.
+  if (detectNortonOriginal(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=nortonOriginal");
+    return renderNortonOriginal(netlist);
+  }
+  if (detectNortonEquivalent(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=nortonEquivalent");
+    return renderNortonEquivalent(netlist);
+  }
   // 0.072 슈퍼노드 + 종속 전압원 + 파라미터 최대전력 (임용 6번) — 전용 fixed-slot.
   //   generic·theveninDepVoltage가 가져가면 슈퍼노드 배치와 I_x·V_B 표기를 잃는다.
   if (detectSupernodeDepMaxPower(netlist)) {
