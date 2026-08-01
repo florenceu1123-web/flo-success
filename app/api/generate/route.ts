@@ -840,9 +840,14 @@ export async function POST(req: NextRequest) {
     if (nortonProblems.length > 0) {
       log.info("dispatch", { route: "norton_param_inverse_pipeline", count: n, mode });
       problems = nortonProblems;
+      // ★ 전용 archetype이 유형의 authority다 — analyze가 이 원본을 "종속 전원"으로 잘못
+      //   분류해도(실측) family 검증이 거짓 mismatch를 내지 않도록 기준을 생성물에 맞춘다.
+      if (problems[0]?.topicKey) expectedTopicKey = problems[0].topicKey;
     } else     if (supernodeDepProblems.length > 0) {
       log.info("dispatch", { route: "supernode_dep_max_power_pipeline", count: n, mode });
       problems = supernodeDepProblems;
+      // ★ 위와 같은 이유 — 전용 archetype이 유형의 authority.
+      if (problems[0]?.topicKey) expectedTopicKey = problems[0].topicKey;
     } else     if (paramMaxProblems.length > 0) {
       log.info("dispatch", { route: "param_max_power_pipeline", count: n, mode });
       problems = paramMaxProblems;
