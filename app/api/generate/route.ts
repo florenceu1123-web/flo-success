@@ -28,6 +28,7 @@ import { runDcSupernodePipeline } from "@/lib/pipeline/runDcSupernodePipeline";
 import { runParamMaxPowerPipeline, detectParamMaxPower, isParamMaxPowerForm, isSymbolicParamCircuitForm, paramMaxPowerFailureReason } from "@/lib/pipeline/runParamMaxPowerPipeline";
 import { runSupernodeDepMaxPowerPipeline, detectSupernodeDepMaxPower } from "@/lib/pipeline/runSupernodeDepMaxPowerPipeline";
 import { runNortonParamInversePipeline, detectNortonParamInverse } from "@/lib/pipeline/runNortonParamInversePipeline";
+import { runZenerClipperIntegratorPipeline, detectZenerClipperIntegrator } from "@/lib/pipeline/runZenerClipperIntegratorPipeline";
 import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourcePipeline";
 import { runInductorRampSlopePipeline, detectInductorRampSlope } from "@/lib/pipeline/runInductorRampSlopePipeline";
 import { runAcSuperpositionPipeline, detectAcSuperposition } from "@/lib/pipeline/runAcSuperpositionPipeline";
@@ -819,6 +820,12 @@ export async function POST(req: NextRequest) {
     //   a"를 묻는 형식. 이 형식은 supernode·mesh·thevenin 어느 circuitType으로도 분류될 수 있어
     //   특정 분기 안에 두면 샌다(실측: 임용 6번이 dc_supernode로 가서 종속원·파라미터·최대화가
     //   전부 소실됨). 파라미터가 실제로 감지될 때만 발화하므로 일반 회로는 영향받지 않는다.
+    // ★ 0-PRE — 제너 클리퍼 + 적분기(임용 2번). 범용 OPAMP cascade가 가져가면 제너·적분기를
+    //   모두 잃는다(실측). inventory 구조 지문(OPAMP2+D2+C1)으로 판별한다.
+    const zenerClipProblems =
+      mode !== "gpt_generated" && detectZenerClipperIntegrator(analysis)
+        ? await runZenerClipperIntegratorPipeline({ mode: mode as GenerationMode, count: n })
+        : [];
     // ★ 0-PRE — 노튼 등가 + 파라미터 역산(임용 5번). 독립 전원만 있는 유형으로, Vision이
     //   "종속 전원"으로 잘못 요약해도 본문 서술(노튼 등가 + 기호 a + 부하 전류)로 잡는다.
     const nortonProblems =
@@ -837,7 +844,11 @@ export async function POST(req: NextRequest) {
       mode !== "gpt_generated" && detectParamMaxPower(analysis)
         ? await runParamMaxPowerPipeline({ analysis: analysis ?? null, mode: mode as GenerationMode, count: n })
         : [];
-    if (nortonProblems.length > 0) {
+    if (zenerClipProblems.length > 0) {
+      log.info("dispatch", { route: "zener_clipper_integrator_pipeline", count: n, mode });
+      problems = zenerClipProblems;
+      if (problems[0]?.topicKey) expectedTopicKey = problems[0].topicKey;
+    } else     if (nortonProblems.length > 0) {
       log.info("dispatch", { route: "norton_param_inverse_pipeline", count: n, mode });
       problems = nortonProblems;
       // ★ 전용 archetype이 유형의 authority다 — analyze가 이 원본을 "종속 전원"으로 잘못

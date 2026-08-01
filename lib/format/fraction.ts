@@ -66,7 +66,9 @@ export function fractionizeText(text: string, maxDen = 400): string {
       if (deg) return m;                                // 각도는 그대로
       // ★ 길이는 그대로 — "x = 0.03 [m]"이 "x = 3/100 [m]"이 되면 오히려 읽기 어렵다(실측:
       //   동축선로 자계 원본의 반지름 차). 각도와 같은 성격의 단위 예외이며 유형별 처리가 아니다.
-      if (LENGTH_UNIT_AFTER.test(whole.slice(offset + m.length))) return m;
+      const after = whole.slice(offset + m.length);
+      if (LENGTH_UNIT_AFTER.test(after)) return m;
+      if (BRACKETED_UNIT_AFTER.test(after)) return m;
       const v = Number(num);
       // "2.000"·"5000.00"처럼 소수점 뒤가 0뿐이면 정수로 정리한다.
       if (Number.isInteger(v)) return `${v}`;
@@ -86,6 +88,14 @@ export function fractionizeText(text: string, maxDen = 400): string {
  * 뒤에 다른 글자가 이어지면(mH·mA·m/s·m^2) 길이가 아니므로 매치하지 않는다.
  */
 const LENGTH_UNIT_AFTER = /^\s*(?:\\,)?\s*\[?\s*(?:\\mathrm\{)?(?:mm|cm|km|m)(?![A-Za-z0-9])/;
+
+/**
+ * 소수 바로 뒤에 **대괄호로 묶인 단위**가 오는 경우 — 최종 답의 물리량이므로 소수를 유지한다.
+ * `7.4\,[\mathrm{V}]` 가 `37/5\,[\mathrm{V}]` 로 바뀌면 오히려 읽기 어렵다(실측: 제너 클리퍼
+ * 원본의 V_PP). 대괄호를 **필수**로 요구하므로 페이저 표기(`2.693∠158.199° A`)처럼 단위가
+ * 그냥 붙는 경우는 기존대로 분수 변환된다.
+ */
+const BRACKETED_UNIT_AFTER = /^\s*(?:\\,)?\s*\[\s*(?:\\mathrm\{)?\s*(?:V|A|W|Ω|\\Omega|F|H|S|Hz)\s*\}?\s*\]/;
 
 function gcd(a: number, b: number): number {
   let x = Math.abs(a), y = Math.abs(b);

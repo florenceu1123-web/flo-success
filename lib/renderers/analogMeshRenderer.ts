@@ -23,6 +23,7 @@ import { detectTheveninDepVoltage, renderTheveninDepVoltageCircuit } from "./the
 import { detectSupernodeDepMaxPower, renderSupernodeDepMaxPower } from "./supernodeDepMaxPowerRenderer";
 import { detectAcSuperpositionCircuit, renderAcSuperpositionCircuit } from "./acSuperpositionCircuitRenderer";
 import { detectNortonOriginal, renderNortonOriginal, detectNortonEquivalent, renderNortonEquivalent } from "./nortonParamInverseRenderer";
+import { detectZenerClipperCircuit, renderZenerClipperCircuit } from "./zenerClipperIntegratorRenderer";
 import { detectAcDcSuperposition, renderAcDcSuperpositionCircuit } from "./acDcSuperpositionCircuitRenderer";
 import { detectAcDcSuperpositionDual, renderAcDcSuperpositionDualCircuit } from "./acDcSuperpositionDualCircuitRenderer";
 import { detectAcTheveninMaxPower, renderAcTheveninMaxPowerCircuit } from "./acTheveninMaxPowerCircuitRenderer";
@@ -183,6 +184,12 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   }
   // 0.074 테브난+최대전력+종속전원 (임용 7·9번류) — 전용 fixed-slot.
   //   generic mesh는 이 회로를 세로 가지들로 펼쳐 원본 사다리 구조·단자 a·b를 잃는다(실측 신고).
+  // 0.070 제너 클리퍼 + 적분기 (임용 2번) — 전용 fixed-slot.
+  //   범용은 이 회로를 직렬로 펴서 제너를 하나만 그리고 귀환 경로를 잃는다(실측).
+  if (detectZenerClipperCircuit(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=zenerClipperIntegrator");
+    return renderZenerClipperCircuit(netlist);
+  }
   // 0.071 노튼 등가 + 파라미터 역산 (임용 5번) — (가)·(나) 전용 fixed-slot.
   if (detectNortonOriginal(netlist)) {
     if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=nortonOriginal");
