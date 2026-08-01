@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImage, AnalyzeError } from "@/lib/analysis/analyzeImage";
 import { extractComponentInventory, pickBetterInventory, type ComponentInventoryItem } from "@/lib/analysis/extractComponentInventory";
+import { extractNodeConnectivity, mergeNodeConnectivity } from "@/lib/analysis/extractNodeConnectivity";
 import { compactAnalysis } from "@/lib/analysis/compactAnalysis";
 import { recoverTopologyV2 } from "@/lib/analysis/topologyRecovery";
 import { deriveCircuitMeta } from "@/lib/analysis/deriveCircuitMeta";
@@ -62,7 +63,27 @@ export async function POST(req: NextRequest) {
         types: fallbackInventory.map((c: { type: string }) => c.type).join(","),
       });
     }
-    const effectiveInventory = inventory.length > 0 ? inventory : fallbackInventory;
+    let effectiveInventory = inventory.length > 0 ? inventory : fallbackInventory;
+
+    // ★ 노드 중심 연결 보정 — 소자 중심 pins가 무너지는 회로에서만 추가 Vision 패스를 돈다.
+    //   실측(임용 6번): 소자·control·기호값은 3/3 정확한데 pins가 무너져 6개 소자가 A—B
+    //   한 줄 직렬로 붙었다. 접점(노드) 기준으로 물으면 시각적으로 뚜렷해 훨씬 안정적이다.
+    //   ★ 종속원이 있거나 기호 소자값이 있는 회로에만 적용 — 이런 유형은 연결이 조금만
+    //     틀려도 답이 성립하지 않는다. 나머지는 추가 비용을 쓰지 않는다.
+    const needsPrecisePins =
+      effectiveInventory.some((c) => ["CCVS", "CCCS", "VCVS", "VCCS"].includes(c.type)) ||
+      effectiveInventory.some((c) => /^[+-]?\d*\.?\d*\*?[A-Za-z_]/.test(String(c.value ?? "").replace(/\[[^\]]*\]/g, "").trim()) &&
+        !/^\d/.test(String(c.value ?? "").trim()));
+    if (needInventory && needsPrecisePins && effectiveInventory.length > 0) {
+      const nodes = await extractNodeConnectivity({
+        image,
+        componentIds: effectiveInventory.map((c) => c.id),
+      });
+      const merged = mergeNodeConnectivity(effectiveInventory, nodes);
+      log.info("node_connectivity", { repaired: merged.repaired, problem: merged.problem });
+      effectiveInventory = merged.inventory;
+    }
+
     const withInventory = effectiveInventory.length > 0
       ? { ...compact, componentInventory: effectiveInventory }
       : compact;
