@@ -132,15 +132,44 @@ function solveInverseR(
   }
 
   if (bracket) {
-    // 선형 보간 (bracket 내부라 안전)
-    const { lo, hi } = bracket;
-    const ratio = (q.targetValue - lo.V) / (hi.V - lo.V);
-    const R = lo.R + ratio * (hi.R - lo.R);
+    // ★ bracket 안에서 이분법으로 근을 정밀화한다.
+    //   예전엔 두 sample 사이 선형 보간 한 번으로 끝내서, V(R)이 비선형인 구간에서
+    //   해가 0.05%쯤 어긋났다(예: 정확히 4Ω인 답이 4.002Ω로 표기). 문제 정답이
+    //   정수로 떨어져야 하므로 잔차가 사라질 때까지 좁힌다.
+    let { lo, hi } = bracket;
+    const fOf = (R: number): number | null => {
+      try {
+        const sol = solveMNA(perturbResistor(net, q.resistorId, R));
+        return (sol.nodeVoltages[q.targetNode] ?? 0) - q.targetValue;
+      } catch {
+        return null; // singular — 이 R은 건너뛴다
+      }
+    };
+    let fLo = lo.V - q.targetValue;
+    let mid = lo.R;
+    let fMid = fLo;
+    const MAX_BISECT = 60;
+    for (let it = 0; it < MAX_BISECT; it++) {
+      // 구간 폭이 상대적으로 충분히 좁아지면 종료
+      if (hi.R - lo.R <= Math.max(1e-9, lo.R * 1e-9)) break;
+      mid = 0.5 * (lo.R + hi.R);
+      const f = fOf(mid);
+      if (f === null) break;
+      fMid = f;
+      if (Math.abs(fMid) <= 1e-9) break;
+      if (fLo * fMid <= 0) {
+        hi = { R: mid, V: fMid + q.targetValue };
+      } else {
+        lo = { R: mid, V: fMid + q.targetValue };
+        fLo = fMid;
+      }
+    }
+    const R = 0.5 * (lo.R + hi.R);
     return {
       query: q,
       value: round(R, 4),
       unit: "Ω",
-      meta: { converged: true, residual: 0, bracketed: true },
+      meta: { converged: true, residual: Math.abs(fMid), bracketed: true },
     };
   }
 

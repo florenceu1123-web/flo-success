@@ -47,7 +47,67 @@ export type SolverNetwork = {
    *  ※ feedback 네트워크 없이 사용하면 행렬이 특이해질 수 있음.
    */
   opamps?: Array<{ id: string; vp: string; vn: string; vo: string }>;
+  /**
+   * CCVS — current-controlled voltage source.  V(a) - V(b) = r · I(ctrlR)
+   *  - ctrlR: 제어 전류가 흐르는 **저항의 id**
+   *  - I(ctrlR)은 그 저항의 a→b 방향을 양으로 본다
+   *  - r: 전달 저항 [Ω]
+   *  ※ solveMNA 진입 시 등가 VCVS로 자동 변환된다(normalizeControlledSources).
+   */
+  ccvs?: Array<{ id: string; a: string; b: string; ctrlR: string; r: number }>;
+  /**
+   * CCCS — current-controlled current source.  I(a→b) = beta · I(ctrlR)
+   *  ※ solveMNA 진입 시 등가 VCCS로 자동 변환된다.
+   */
+  cccs?: Array<{ id: string; a: string; b: string; ctrlR: string; beta: number }>;
 };
+
+/**
+ * 전류 제어 종속원(CCVS·CCCS)을 **등가 전압 제어원**(VCVS·VCCS)으로 바꾼다.
+ *
+ * 제어 전류가 저항을 통과하면 옴의 법칙으로 전류가 곧 전압이다:
+ *   I(ctrlR) = ( V(p) - V(n) ) / R      (p·n = 그 저항의 a·b)
+ * 따라서
+ *   CCVS: V(a)-V(b) = r·I  ≡  VCVS  k = r / R,  제어 노드 (p, n)
+ *   CCCS: I(a→b)   = β·I  ≡  VCCS  g = β / R,  제어 노드 (p, n)
+ * 이 변환은 **근사가 아니라 항등**이므로 해가 정확히 같다.
+ *
+ * ★ 이 규칙 하나로 임용 회로의 종속원 대부분(제어 전류가 저항을 지나는 경우)이 커버된다.
+ *   제어 전류가 전압원·전류원 가지를 지나는 경우는 저항이 없어 이 변환이 불가능하므로
+ *   그대로 오류를 던진다(조용히 틀린 답을 내지 않는다).
+ */
+export function normalizeControlledSources(net: SolverNetwork): SolverNetwork {
+  const ccvsList = net.ccvs ?? [];
+  const cccsList = net.cccs ?? [];
+  if (ccvsList.length === 0 && cccsList.length === 0) return net;
+
+  const byId = new Map(net.resistors.map((r) => [r.id, r]));
+  const findR = (id: string, owner: string) => {
+    const r = byId.get(id);
+    if (!r) {
+      throw new Error(
+        `종속원 ${owner}의 제어 전류 경로 '${id}'를 저항에서 찾을 수 없습니다. ` +
+          `전류 제어 종속원은 제어 전류가 저항을 지날 때만 등가 변환할 수 있습니다.`,
+      );
+    }
+    if (!(Math.abs(r.R) > 0)) {
+      throw new Error(`종속원 ${owner}의 제어 저항 '${id}'의 값이 0이라 등가 변환할 수 없습니다.`);
+    }
+    return r;
+  };
+
+  const vcvs = [...(net.vcvs ?? [])];
+  const vccs = [...(net.vccs ?? [])];
+  for (const d of ccvsList) {
+    const rc = findR(d.ctrlR, d.id);
+    vcvs.push({ id: d.id, a: d.a, b: d.b, vca: rc.a, vcb: rc.b, k: d.r / rc.R });
+  }
+  for (const d of cccsList) {
+    const rc = findR(d.ctrlR, d.id);
+    vccs.push({ id: d.id, a: d.a, b: d.b, vca: rc.a, vcb: rc.b, g: d.beta / rc.R });
+  }
+  return { ...net, vcvs, vccs, ccvs: undefined, cccs: undefined };
+}
 
 export type SolverResult = {
   /** 각 노드의 절대 전압 (ground 기준) */
@@ -60,7 +120,9 @@ export type SolverResult = {
  * 메인 진입점. 회로를 풀어 노드 전압 + V 소스 전류 반환.
  * @throws 특이 행렬(노드가 떠 있음, ground 미연결 등) — 회로가 결정 불가
  */
-export function solveMNA(net: SolverNetwork): SolverResult {
+export function solveMNA(rawNet: SolverNetwork): SolverResult {
+  // 전류 제어 종속원이 있으면 먼저 등가 전압 제어원으로 바꾼다(없으면 그대로 통과).
+  const net = normalizeControlledSources(rawNet);
   const { nodeIds, groundId, resistors, vsources, isources } = net;
   const vccsList = net.vccs ?? [];
   const vcvsList = net.vcvs ?? [];

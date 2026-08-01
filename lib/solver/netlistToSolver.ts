@@ -55,9 +55,108 @@ class UnionFind {
   }
 }
 
-function numericOf(c: CircuitComponent): number | null {
+/**
+ * 기호 파라미터 치환 — 소자값이 `a`·`2a`·`0.5a`처럼 **기호의 상수배**로 주어진 회로를
+ * 특정 파라미터 값에서 수치 회로로 만들 때 쓴다.
+ * (임용 문제에서 "저항 R_B = 2a[Ω]에서 소비 전력이 최대가 되는 a" 형식이 흔하다.)
+ */
+export type ParamSubst = { name: string; value: number };
+
+/**
+ * "2a[Ω]"·"a[V]"·"0.5a" 같은 **파라미터의 상수배** 표기를 읽어 계수를 돌려준다.
+ * 계수가 생략되면 1, "-a"면 -1. 파라미터 이름이 없거나 형태가 다르면 null.
+ *
+ * ★ 단순 상수배만 인정한다 — "a+3"·"a^2" 같은 형태는 회로 응답이 a의 낮은 차수 유리함수라는
+ *   전제를 깨뜨릴 수 있어 받지 않는다(조용히 틀리는 것보다 못 읽는 편이 낫다).
+ */
+/**
+ * 소자값 문자열에서 "계수 + 기호" 후보를 뽑는다.
+ *
+ * ★ 단위를 정규식으로 무턱대고 떼면 안 된다 — `/…(V|A|W)$/i`로 자르면 파라미터 이름
+ *   `a` 자체가 단위 `A`로 오인돼 통째로 사라진다(실측 버그). 그래서 단위를 뗀 형태는
+ *   **떼고도 이름이 남을 때만** 후보로 추가하고, 원본 형태를 먼저 시도한다.
+ */
+function paramCandidates(raw: unknown): Array<{ coef: string; name: string }> {
+  if (typeof raw !== "string" && typeof raw !== "number") return [];
+  const s = String(raw).trim();
+  if (!s) return [];
+  // 대괄호 단위·LaTeX 장식·공백 제거: "2a[Ω]" → "2a", "$a$" → "a"
+  const stripped = s.replace(/\[[^\]]*\]/g, "").replace(/[$\\{}\s]/g, "");
+  const forms = [stripped];
+  const unit = stripped.match(/^(.*?)(Ω|ohm|Ohm|OHM|V|A|W)$/);
+  if (unit && unit[1]) forms.push(unit[1]); // 떼고도 남는 게 있을 때만
+  const out: Array<{ coef: string; name: string }> = [];
+  for (const form of forms) {
+    const m = form.match(/^([+-]?\d*\.?\d*)\*?([A-Za-z_][A-Za-z0-9_]*)$/);
+    if (m) out.push({ coef: m[1], name: m[2] });
+  }
+  return out;
+}
+
+/** 계수 문자열("", "-", "2", "0.5")을 수로. */
+function coefToNumber(coef: string): number | null {
+  if (coef === "" || coef === "+") return 1;
+  if (coef === "-") return -1;
+  const k = Number(coef);
+  return Number.isFinite(k) ? k : null;
+}
+
+/**
+ * 단위가 파라미터 이름으로 오인되지 않게 걸러낸다.
+ * ★ **대소문자를 구분해야 한다** — `/i`를 붙이면 파라미터 `a`가 전류 단위 `A`로 걸러져
+ *   감지가 통째로 실패한다(실측 버그). 임용 문제의 파라미터는 소문자(a·b·k·x)이고
+ *   단위는 대문자다. SI 접두어("10k")는 앞의 parseValue 수치 판정에서 이미 걸러진다.
+ */
+const UNIT_LIKE_NAME = /^(Ω|ohm|Ohm|V|A|W|F|H|S|Hz)$/;
+
+/**
+ * "2a[Ω]"·"a[V]"·"0.5a" 같은 **파라미터의 상수배** 표기를 읽어 계수를 돌려준다.
+ * 계수가 생략되면 1, "-a"면 -1. 파라미터 이름이 다르거나 형태가 맞지 않으면 null.
+ *
+ * ★ 단순 상수배만 인정한다 — "a+3"·"a^2" 같은 형태는 회로 응답이 a의 낮은 차수 유리함수라는
+ *   전제를 깨뜨릴 수 있어 받지 않는다(조용히 틀리는 것보다 못 읽는 편이 낫다).
+ */
+export function parseParamCoefficient(raw: unknown, paramName: string): number | null {
+  for (const cand of paramCandidates(raw)) {
+    if (cand.name.toLowerCase() !== paramName.toLowerCase()) continue;
+    const k = coefToNumber(cand.coef);
+    if (k !== null) return k;
+  }
+  return null;
+}
+
+/**
+ * 네트리스트에 기호 파라미터가 쓰였는지 — 쓰였다면 그 이름을 돌려준다.
+ * 최소 2개 소자가 같은 기호를 써야 인정한다(단발 오탐 방지).
+ */
+export function detectNetlistParam(netlist: CircuitNetlist): string | null {
+  const counts = new Map<string, number>();
+  for (const c of netlist.components ?? []) {
+    if (!["R", "V", "I"].includes(c.type)) continue;
+    // 수치로 읽히면 파라미터가 아니다 ("10kΩ"의 k를 이름으로 세지 않게).
+    const pv = parseValue(c.value);
+    if (pv && Number.isFinite(pv.numeric)) continue;
+    for (const cand of paramCandidates(c.value)) {
+      if (UNIT_LIKE_NAME.test(cand.name)) continue;
+      if (coefToNumber(cand.coef) === null) continue;
+      counts.set(cand.name, (counts.get(cand.name) ?? 0) + 1);
+      break; // 한 소자는 한 번만 센다
+    }
+  }
+  let best: string | null = null, bestN = 0;
+  for (const [name, n] of counts) if (n > bestN) { best = name; bestN = n; }
+  return bestN >= 2 ? best : null;
+}
+
+function numericOf(c: CircuitComponent, subst?: ParamSubst): number | null {
   const p = parseValue(c.value);
-  return p && Number.isFinite(p.numeric) ? p.numeric : null;
+  if (p && Number.isFinite(p.numeric)) return p.numeric;
+  // 수치로 안 읽히면 기호 파라미터로 해석해 본다 ("2a" → 2·a).
+  if (subst) {
+    const k = parseParamCoefficient(c.value, subst.name);
+    if (k !== null) return k * subst.value;
+  }
+  return null;
 }
 
 function isClosedSwitch(c: CircuitComponent): boolean {
@@ -68,7 +167,11 @@ function isClosedSwitch(c: CircuitComponent): boolean {
  * CircuitNetlist를 MNA SolverNetwork로 변환.
  *  @throws ground 노드를 찾을 수 없을 때.
  */
-export function netlistToSolverNetwork(netlist: CircuitNetlist): NetlistToSolverResult {
+export function netlistToSolverNetwork(
+  netlist: CircuitNetlist,
+  /** 기호 파라미터가 쓰인 회로를 특정 값에서 수치화할 때 지정 (예: {name:"a", value:8}). */
+  subst?: ParamSubst,
+): NetlistToSolverResult {
   const warnings: string[] = [];
   const components = netlist.components ?? [];
 
@@ -132,11 +235,23 @@ export function netlistToSolverNetwork(netlist: CircuitNetlist): NetlistToSolver
     const ref = c.control ?? parseValue(c.value)?.controlRef;
     if (!ref) return null;
     const refLc = String(ref).toLowerCase();
-    const rctrl = components.find((x) =>
+    let rctrl = components.find((x) =>
       x.type === "R" && (x.id === ref || x.id.toLowerCase() === refLc),
     );
+    // 폴백: 제어 전류 표기(`i_x`·`ix`·`I_x`)에서 첨자만 떼어 저항 id와 맞춰 본다.
+    //  Vision이 control을 안 실어 보내면 ref가 전류 이름("i_x")이라 저항 id("Rx")와 직접 안 맞는다.
+    //  첨자가 유일하게 매칭될 때만 채택 — 애매하면 포기(조용히 틀린 회로를 만들지 않는다).
+    if (!rctrl) {
+      const suffix = refLc.replace(/^i_?/, "");
+      if (suffix) {
+        const cands = components.filter(
+          (x) => x.type === "R" && x.id.toLowerCase().replace(/^r_?/, "") === suffix,
+        );
+        if (cands.length === 1) rctrl = cands[0];
+      }
+    }
     if (!rctrl || (rctrl.pins?.length ?? 0) < 2) return null;
-    const rVal = numericOf(rctrl);
+    const rVal = numericOf(rctrl, subst);
     if (rVal === null || rVal <= 0) return null;
     return { vca: rep(rctrl.pins[0].node), vcb: rep(rctrl.pins[1].node), rVal };
   };
@@ -146,7 +261,7 @@ export function netlistToSolverNetwork(netlist: CircuitNetlist): NetlistToSolver
     switch (c.type) {
       case "R": {
         if (pins.length < 2) { warnings.push(`${c.id}: R 핀 부족`); break; }
-        const R = numericOf(c);
+        const R = numericOf(c, subst);
         if (R === null || R <= 0) { warnings.push(`${c.id}: R 값 파싱 실패(${String(c.value)})`); break; }
         const a = rep(pins[0].node), b = rep(pins[1].node);
         if (a === b) { warnings.push(`${c.id}: R 양 끝 등전위 — 단락 처리(무시)`); break; }
@@ -155,14 +270,14 @@ export function netlistToSolverNetwork(netlist: CircuitNetlist): NetlistToSolver
       }
       case "V": {
         if (pins.length < 2) { warnings.push(`${c.id}: V 핀 부족`); break; }
-        const V = numericOf(c);
+        const V = numericOf(c, subst);
         if (V === null) { warnings.push(`${c.id}: V 값 파싱 실패(${String(c.value)})`); break; }
         net.vsources.push({ id: c.id, a: rep(pins[0].node), b: rep(pins[1].node), V });
         break;
       }
       case "I": {
         if (pins.length < 2) { warnings.push(`${c.id}: I 핀 부족`); break; }
-        const I = numericOf(c);
+        const I = numericOf(c, subst);
         if (I === null) { warnings.push(`${c.id}: I 값 파싱 실패(${String(c.value)})`); break; }
         net.isources!.push({ id: c.id, a: rep(pins[0].node), b: rep(pins[1].node), I });
         break;
