@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { generateInParallel } from "./_common";
-import { classifyElectromagnetics, detectDielectricArrangement, detectDielectricPotentialMode, detectCoaxTwoDielectric, detectDielectricBoundary, detectCurlLineIntegral, detectSheetRingEfield, detectFluxLoopInducedCurrent, detectSheetLineEfieldSuperposition, detectTwoPointCharges, detectCylinderConductorField, detectCoaxLineMagneticField } from "@/lib/analysis/classifyElectromagnetics";
+import { classifyElectromagnetics, detectDielectricArrangement, detectDielectricPotentialMode, detectCoaxTwoDielectric, detectDielectricBoundary, detectCurlLineIntegral, detectSheetRingEfield, detectFluxLoopInducedCurrent, detectSheetLineEfieldSuperposition, detectPointLineChargeForce, detectSheetCurrentsVectorPotential, detectTwoPointCharges, detectCylinderConductorField, detectCoaxLineMagneticField } from "@/lib/analysis/classifyElectromagnetics";
 import {
   generateElectromagnetics,
   emTopicOf,
@@ -63,6 +63,15 @@ export async function runElectromagneticsPipeline(args: {
             ? "curl_from_line_integral"
             : detectSheetRingEfield(analysis)
               ? "sheet_ring_efield_ratio"
+              //   (6.5) ★ 점전하 + 무한 선전하 → 크기 비로 k 역산 + 힘 (2023 전기 A-10).
+              //        실측 신고: 아래 (7) 면전하+선전하가 가로채 "비슷하지만 전혀 다른" 문제가 나왔다.
+              //        점전하와 선전하가 함께 나오는 조합은 이 유형 고유 → (7)보다 **앞**에 둔다.
+              //   (6.4) ★ 두 무한 면전류 + 벡터/스칼라 자위 + 사각형 통과 자속 (임용 10번).
+              //        면전류+선전류 합성 자계(sheet_line_superposition)와 낱말이 겹쳐 점수로 안 갈린다.
+              : detectSheetCurrentsVectorPotential(analysis)
+                ? "sheet_currents_vector_potential"
+              : detectPointLineChargeForce(analysis)
+                ? "point_line_charge_force"
               //   (7) ★ 면전하 + 직선 선전하 합성 전계 — strong 키워드가 "합성 전계" 하나뿐이라
               //       Vision이 "전위·전계"를 많이 쓰면 potential_to_charge_density에 점수로 밀린다
               //       (실측 dispatch 로그, 사용자 신고 "완전 다른 문제"). 구조 시그니처로 강제한다.

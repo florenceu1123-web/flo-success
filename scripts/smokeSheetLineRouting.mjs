@@ -8,7 +8,7 @@
 import {
   classifyElectromagnetics, detectDielectricBoundary, detectCoaxTwoDielectric,
   detectDielectricPotentialMode, detectFluxLoopInducedCurrent, detectCurlLineIntegral,
-  detectSheetRingEfield, detectSheetLineEfieldSuperposition,
+  detectSheetRingEfield, detectSheetLineEfieldSuperposition, detectPointLineChargeForce,
 } from "../lib/analysis/classifyElectromagnetics.ts";
 
 // runElectromagneticsPipeline과 동일한 강제 체인 순서
@@ -19,6 +19,7 @@ const dispatch = (a) =>
   : detectFluxLoopInducedCurrent(a) ? "flux_loop_induced_current"
   : detectCurlLineIntegral(a) ? "curl_from_line_integral"
   : detectSheetRingEfield(a) ? "sheet_ring_efield_ratio"
+  : detectPointLineChargeForce(a) ? "point_line_charge_force"
   : detectSheetLineEfieldSuperposition(a) ? "sheet_line_efield_superposition"
   : classifyElectromagnetics(a);
 

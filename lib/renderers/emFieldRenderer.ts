@@ -1240,7 +1240,107 @@ function renderCoaxCurrent(d: EmFieldDiagram): string {
   return svgWrap(s, d.title);
 }
 
+/**
+ * 점전하 + z축과 평행한 무한 선전하 (2023 전기 A-10) — 직각 좌표계 3D 도식.
+ *  ★ 캔버스 W=560·H=300 고정 — 좌표를 그 안에 맞춘다(밖으로 나가면 축·라벨이 잘린다, 실측).
+ *  ★ 고정 슬롯: 점전하 P는 좌상단, 선전하는 원점 오른쪽에 z축과 나란한 세로 직선.
+ *    (실제 좌표는 회차마다 달라지지만 그림은 결정론 — 라벨만 payload에서 받는다.)
+ */
+function renderPointLineChargeAxes(d: EmFieldDiagram): string {
+  const L = d.labels;
+  const O = { x: 250, y: 205 };
+  let s = "";
+
+  // 좌표축 — z 위 · y 오른쪽 · x 좌하 사선 (원본 그림과 같은 배치)
+  s += arrow(O.x, O.y, O.x, 48, MUTED, "emArrowD", 1.5);
+  s += arrow(O.x, O.y, 480, O.y, MUTED, "emArrowD", 1.5);
+  s += arrow(O.x, O.y, 150, 268, MUTED, "emArrowD", 1.5);
+  s += label(O.x + 8, 46, "z[m]", { anchor: "start", fill: MUTED, size: 11 });
+  s += label(484, O.y + 4, "y[m]", { anchor: "start", fill: MUTED, size: 11 });
+  s += label(146, 280, "x[m]", { anchor: "end", fill: MUTED, size: 11 });
+  s += label(O.x - 9, O.y + 16, "O", { anchor: "end", fill: STROKE, size: 12, weight: 700 });
+
+  // ── 무한 선전하: z축과 평행한 세로 직선 (원점 오른쪽) ──────────────
+  const lx = 352, lTop = 66, lBot = 250;
+  s += `<line x1="${lx}" y1="${lTop}" x2="${lx}" y2="${lBot}" stroke="${ACCENT}" stroke-width="2.2"/>`;
+  s += label(lx, lTop - 8, "∞", { anchor: "middle", fill: MUTED, size: 11 });
+  s += label(lx, lBot + 14, "−∞", { anchor: "middle", fill: MUTED, size: 11 });
+  // 선이 xy평면을 지나는 점
+  s += `<circle cx="${lx}" cy="${O.y - 14}" r="3.5" fill="${ACCENT}"/>`;
+  s += label(lx + 9, O.y - 18, L.linePoint ?? "(0, 0, 0)", { anchor: "start", fill: STROKE, size: 11 });
+  s += label(lx + 9, O.y + 34, L.lineDensity ?? "\\rho_l", { anchor: "start", fill: ACCENT, size: 11.5, weight: 600 });
+  // 원점 → 선까지의 수직 거리(점선) — ρ
+  s += `<line x1="${O.x}" y1="${O.y}" x2="${lx}" y2="${O.y - 14}" stroke="${MUTED}" stroke-width="1.2" stroke-dasharray="4 3"/>`;
+  s += label((O.x + lx) / 2, O.y + 6, "ρ", { anchor: "middle", fill: MUTED, size: 11 });
+
+  // ── 점전하 P (좌상단) ────────────────────────────────────────────
+  const P = { x: 150, y: 118 };
+  s += `<circle cx="${P.x}" cy="${P.y}" r="4.5" fill="${FIELD}"/>`;
+  s += label(P.x - 8, P.y - 8, L.pointP ?? "P", { anchor: "end", fill: STROKE, size: 12, weight: 700 });
+  s += label(P.x - 8, P.y + 10, L.charge ?? "Q", { anchor: "end", fill: FIELD, size: 11.5, weight: 600 });
+  // P → O 방향(전계 E₁의 작용선) 점선
+  s += `<line x1="${P.x}" y1="${P.y}" x2="${O.x}" y2="${O.y}" stroke="${MUTED}" stroke-width="1.2" stroke-dasharray="4 3"/>`;
+
+  // 원점에 놓인 전하
+  s += `<circle cx="${O.x}" cy="${O.y}" r="4" fill="${STROKE}"/>`;
+  s += label(O.x - 9, O.y + 34, L.target ?? "O", { anchor: "end", fill: STROKE, size: 11 });
+
+  s += label(W / 2, 292, "원점 O에서 E₁(점전하) + E₂(무한 선전하) — 힘 F = q(E₁+E₂)", { anchor: "middle", fill: MUTED, size: 10 });
+  return svgWrap(s, d.title);
+}
+
+/**
+ * 두 무한 면전류(y=±d 평면) + 원점 + x=0 면의 사각형 (임용 10번) — 직각 좌표계 3D 도식.
+ *  ★ 캔버스 W=560·H=300 고정. 좌: K₁(아래 방향 화살표) / 우: K₂(위 방향) / 가운데: 사각형.
+ */
+function renderSheetCurrentsPlanes(d: EmFieldDiagram): string {
+  const L = d.labels;
+  const O = { x: 280, y: 190 };
+  let s = "";
+
+  // 좌표축 — z 위 · y 오른쪽 · x 좌하 사선
+  s += arrow(O.x, O.y, O.x, 44, MUTED, "emArrowD", 1.5);
+  s += arrow(O.x, O.y, 500, O.y, MUTED, "emArrowD", 1.5);
+  s += arrow(O.x, O.y, 190, 258, MUTED, "emArrowD", 1.5);
+  s += label(O.x + 8, 42, "z", { anchor: "start", fill: MUTED, size: 11 });
+  s += label(504, O.y + 4, "y", { anchor: "start", fill: MUTED, size: 11 });
+  s += label(186, 270, "x", { anchor: "end", fill: MUTED, size: 11 });
+  s += label(O.x - 9, O.y + 15, "O", { anchor: "end", fill: STROKE, size: 11.5, weight: 700 });
+
+  // ── 두 면전류 평면 (평행사변형으로 원근 표현) ─────────────────────
+  const plane = (cx: number, col: string) =>
+    `<polygon points="${cx - 26},${O.y - 92} ${cx + 26},${O.y - 118} ${cx + 26},${O.y + 60} ${cx - 26},${O.y + 86}" ` +
+    `fill="${col}" fill-opacity="0.10" stroke="${col}" stroke-width="1.4"/>`;
+  const x1 = 130, x2 = 430;
+  s += plane(x1, ACCENT) + plane(x2, ACCENT);
+
+  // 면 위 전류 화살표 — K₁은 −a_z(아래), K₂는 +a_z(위)
+  for (const dx of [-13, 0, 13]) {
+    s += arrow(x1 + dx, O.y - 70, x1 + dx, O.y + 46, ACCENT, "emArrowD", 1.3);   // 아래 방향
+    s += arrow(x2 + dx, O.y + 46, x2 + dx, O.y - 70, ACCENT, "emArrowD", 1.3);   // 위 방향
+  }
+  // ★ 면 라벨은 **위쪽**(K 라벨 아래)에 둔다 — 아래에 두면 하단 캡션과 겹친다(실측).
+  s += label(x1, O.y - 118, L.k1 ?? "K_1", { anchor: "middle", fill: ACCENT, size: 10.5, weight: 600 });
+  s += label(x2, O.y - 118, L.k2 ?? "K_2", { anchor: "middle", fill: ACCENT, size: 10.5, weight: 600 });
+  s += label(x1, O.y - 99, L.plane1 ?? "y = -d", { anchor: "middle", fill: MUTED, size: 10 });
+  s += label(x2, O.y - 99, L.plane2 ?? "y = d", { anchor: "middle", fill: MUTED, size: 10 });
+
+  // ── x=0 면의 사각형 (원점 주위, 음영) ────────────────────────────
+  const rw = 44, rh = 40;
+  s += `<rect x="${O.x - rw / 2}" y="${O.y - rh / 2}" width="${rw}" height="${rh}" fill="${FIELD}" fill-opacity="0.16" stroke="${FIELD}" stroke-width="1.3"/>`;
+  s += label(O.x, O.y + rh / 2 + 32, L.rect ?? "x=0 면의 사각형", { anchor: "middle", fill: FIELD, size: 10 });
+
+  // 기준점 P
+  s += `<circle cx="${O.x + 52}" cy="${O.y - 26}" r="3.5" fill="${STROKE}"/>`;
+  s += label(O.x + 58, O.y - 30, L.refPoint ?? "P", { anchor: "start", fill: STROKE, size: 10.5, weight: 600 });
+
+  s += label(W / 2, 292, "두 면 사이에서 두 면전류의 자계가 더해진다 (바깥에서는 상쇄)", { anchor: "middle", fill: MUTED, size: 10 });
+  return svgWrap(s, d.title);
+}
+
 const RENDERERS: Record<EmGeometryKind, (d: EmFieldDiagram) => string> = {
+  sheet_currents_planes: renderSheetCurrentsPlanes,
+  point_line_charge_axes: renderPointLineChargeAxes,
   two_charges_axes: renderTwoChargesAxes,
   cylinder_conductor: renderCylinderConductor,
   coax_current: renderCoaxCurrent,

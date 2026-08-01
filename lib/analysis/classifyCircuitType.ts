@@ -9,6 +9,8 @@ import type {
 } from "@/types";
 import { createLogger } from "@/lib/logger";
 import { isDependentComponent, isDependentSourceValue } from "./dependentSource";
+import { evaluateTff3Signals } from "./detectTff3AutonomousCounter";
+import { evaluateOpampRcTSignals } from "./detectOpampRcTOscillator";
 
 const classifierLog = createLogger("lib/analysis/classifyCircuitType");
 
@@ -55,6 +57,82 @@ export function classifyCircuitType(
         params: {},
         confidence: "high",
         reasoning: "원리·법칙의 명칭을 쓰는 개념형(수치 계산 없음) → 회로 archetype 미사용, 텍스트 경로",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — AC 전원 + 직렬 리액턴스 + 병렬 저항 2개 평균전력 (임용 8번) ─────────
+  //   ★ 실측 신고(2026-08-01): generic `universal_ac`가 처리해 **v(t) 단서가 빠지고** 소자 내부 id
+  //     (`V_leg1_1`)가 본문에 노출되며 값도 지저분했다 → 전용 결정론 archetype.
+  //   시그니처: 교류 + 리액티브 소자 + **평균전력**. 테브난·최대전력·공진·역률·어드미턴스·과도는 양보.
+  {
+    const t12 = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    const yieldSib12 =
+      /테브난|thevenin|노턴|norton|최대\s*전력|최대전력|공진|resonance|역률|어드미턴스|대역폭|과도|시정수/.test(t12) ||
+      /연산\s*증폭기|연산증폭기|op-?amp|발진/.test(t12);
+    const ac12 = /교류|정현파|ac\b|페이저|phasor|∠/.test(t12);
+    const reactive12 = /인덕터|코일|커패시터|콘덴서|리액턴스/.test(t12);
+    const avgP12 = /평균\s*전력|평균전력|소비되는\s*전력|공급하는\s*전력|average\s*power/.test(t12);
+    if (!yieldSib12 && ac12 && reactive12 && avgP12) {
+      classifierLog.info("classify_result", { type: "ac_rl_average_power", route: "0pre_ac_rl_avg_power", subject });
+      return {
+        type: "ac_rl_average_power",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] 교류 + 리액티브 소자 + 평균전력 → ac_rl_average_power (임용 8번, universal_ac 오탈취 차단, subject 무관)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 반전 OPAMP + T형 RC망 → 전달특성 + 사인파 발진기 (임용 9번) ─────────
+  //   원본: (가) 전달특성 V_out(s)/V_in(s), (나) 출력단자를 입력단자에 연결한 사인파 발진기.
+  //   ★ 형제 셋이 모두 "발진 + 특성방정식"을 말해 점수로 안 갈린다 → 구조로 강제한다:
+  //     · WIEN_BRIDGE_OSCILLATOR    : β(s)·1−Kβ(s)=0 (Barkhausen) — 전달특성을 안 묻는다
+  //     · opamp_loop_gain_stability : 루프이득 L(s)=V_r/V_t (귀환 루프 절단)
+  //     · 이 유형                    : **전달특성 V_out/V_in** + **출력을 입력에 연결**
+  {
+    const sig = evaluateOpampRcTSignals(analysis);
+    if (sig.fired) {
+      classifierLog.info("classify_result", { type: "opamp_rc_t_oscillator", route: "0pre_opamp_rc_t_osc", subject });
+      return {
+        type: "opamp_rc_t_oscillator",
+        params: {},
+        confidence: "high",
+        reasoning:
+          "[0-PRE] 연산증폭기 + 발진 + (전달특성 | 출력↔입력 연결 | I₁·I₂ | 2C·½R) → opamp_rc_t_oscillator " +
+          "(임용 9번, Wien 브리지·루프이득 오탈취 차단, subject 무관)",
+      };
+    }
+    // ★ 진단 계기 — OPAMP+발진 문맥인데 발화하지 않았으면 어느 게이트에서 막혔는지 한 줄로 남긴다.
+    if (sig.gates.opamp && sig.gates.osc) classifierLog.info("opamp_rc_t_gate_miss", sig.gates);
+  }
+
+  // ── ★ 0-PRE (subject 무관) — JFET 전압(분압) 바이어스 (임용 2번) ─────────
+  //   원본: +V_DD, R₁/R₂ 분압 → V_G, V_GS given → V_S → I_D = V_S/R_S → R_D = (V_DD−V_D)/I_D.
+  //   ★ 실측 신고(2026-08-01): 이 원본이 `mosfet_bias`로 가서 **소스 접지 NMOS + 제곱법칙**
+  //     (I_D=K(V_GS−V_TH)²) 문제로 변질됐다 — 분압·소스저항이 통째로 사라졌다.
+  //     JFET는 코드 어디에도 없던 **미구현 유형**이라 값이 아니라 모델 자체가 달랐다.
+  //   ★ "JFET"는 매우 독특한 낱말이라 그것만으로 확정한다(MOSFET 계열과 낱말이 겹치지 않는다).
+  {
+    const jfetText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+      (analysis.componentInventory ?? []).map((c) => `${c?.type ?? ""} ${c?.value ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    if (/jfet|j-fet|제이펫|접합형?\s*전계\s*효과|접합\s*전계효과/.test(jfetText)) {
+      classifierLog.info("classify_result", { type: "jfet_voltage_bias", route: "0pre_jfet_bias", subject });
+      return {
+        type: "jfet_voltage_bias",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] JFET(접합형 전계효과 트랜지스터) → jfet_voltage_bias (mosfet_bias 제곱법칙 오탈취 차단, subject 무관)",
       };
     }
   }
@@ -275,6 +353,29 @@ export function classifyCircuitType(
         reasoning: "[0-PRE] 2진수 + 음수 표현/보수 + 회로 문맥 아님 → number_representation (임용 4번, universal_digital 오탈취 차단)",
       };
     }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — T-FF 3개 자율 카운터 + 상태도 + T_B 최소 SOP (임용 11번) ─────────
+  //   원본: (가) 상태도(CBA, 사이클 + 비순환) + (나) 상태표(㉠=B_{n+1}·㉡=T_B) + (다) 회로(㉢=T_B 블록).
+  //   ★ 실측 신고: `tff_state_table_blank`(임용 7번 정보과)로 갔다 — `totalIssues=0`인 **조용한 오매치**.
+  //     그쪽은 T-FF **2개 + 외부 입력 C + 상태도 없음**이라 구조가 다르다. 그 분기(digital 섹션
+  //     한참 아래)보다 **앞**에 두어야 가로채이지 않는다(1-5 규칙).
+  {
+    const sig = evaluateTff3Signals(analysis);
+    if (sig.fired) {
+      classifierLog.info("classify_result", { type: "tff3_autonomous_counter", route: "0pre_tff3_autonomous", subject });
+      return {
+        type: "tff3_autonomous_counter",
+        params: {},
+        confidence: "high",
+        reasoning:
+          "[0-PRE] T 플립플롭 + (3개 신호 또는 상태도) + T_B 도출 + 외부 입력 없음 → tff3_autonomous_counter " +
+          "(임용 11번, tff_state_table_blank·flipflop_mixed_app 오탈취 차단, subject 무관)",
+      };
+    }
+    // ★ 진단 계기 — T-FF 문맥인데 발화하지 않았으면 **어느 게이트에서 막혔는지** 한 줄로 남긴다.
+    //   (실측 재신고 때 로그 없이 원인을 좁히느라 왕복이 생겼다. 다음엔 이 한 줄이면 끝난다.)
+    if (sig.gates.tff) classifierLog.info("tff3_gate_miss", sig.gates);
   }
 
   // ── ★ 0-PRE (subject 무관) — T·D 혼합 동기식 mod-N 카운터 + 미사용 상태 + 리셋 (임용 9번) ─────────
@@ -736,13 +837,29 @@ export function classifyCircuitType(
     //     변질(실측, 소자 라벨까지 깨짐) → 전용 결정론 archetype. "어드미턴스/Y_eq" 키워드로 최우선 라우팅.
     {
       const isAdmittanceKw = matchesKeyword(text, ["어드미턴스", "admittance", "y_eq", "y_{eq}", "등가 어드미턴스", "등가어드미턴스"]);
-      if (isAdmittanceKw && counts.L > 0 && counts.C > 0 && counts.V >= 1 && counts.I === 0) {
+      // ★★ Vision이 "어드미턴스"를 흘리는 회차 대비 (2026-08-01 실측 재신고: 이 원본이
+      //   generic RLC 직렬 공진으로 가서 토폴로지·값·발문이 전부 바뀐 문제가 생성됐다).
+      //   역률(ac_power_factor)에서 확립한 방식과 동일 — **요구의 구조**를 대체 신호로 잡는다.
+      //   이 유형은 등가 어드미턴스를 `a + jb`로 **실수부·허수부로 분해**한 뒤 b=0으로 공진을 잡는다.
+      //   직렬 RLC 공진(rlc_resonance)은 X_L=X_C로 바로 가므로 이 분해 서술이 없다.
+      const hasReImDecomp =
+        matchesKeyword(text, ["실수부", "허수부", "real part", "imaginary part", "a+jb", "a + jb"]) &&
+        matchesKeyword(text, ["공진", "resonance", "공진 주파수", "공진주파수"]);
+      const admittanceSig = isAdmittanceKw || hasReImDecomp;
+      if (admittanceSig && counts.L > 0 && counts.C > 0 && counts.V >= 1 && counts.I === 0) {
         return {
           type: "ac_admittance_resonance",
           params: {},
           confidence: "high",
-          reasoning: `[0-PRE] 어드미턴스/Y_eq + AC RLC(L=${counts.L},C=${counts.C}) + 단일 전압원 → ac_admittance_resonance (임용 7번 회로이론)`,
+          reasoning: `[0-PRE] ${isAdmittanceKw ? "어드미턴스/Y_eq" : "실수부·허수부 분해 + 공진"} + AC RLC(L=${counts.L},C=${counts.C}) + 단일 전압원 → ac_admittance_resonance (임용 7번 회로이론)`,
         };
+      }
+      // ★ 진단 계기 — 시그니처는 있는데 인벤토리 게이트에서 막히면 한 줄로 남긴다.
+      //   (로그가 없어 원인을 좁히느라 왕복이 생겼다. 다음엔 이 한 줄이면 끝난다.)
+      if (admittanceSig) {
+        classifierLog.info("ac_admittance_gate_miss", {
+          isAdmittanceKw, hasReImDecomp, L: counts.L, C: counts.C, V: counts.V, I: counts.I,
+        });
       }
     }
 

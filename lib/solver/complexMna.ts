@@ -217,9 +217,18 @@ export function solveComplexMna(net: ComplexSolverNetwork): ComplexSolverResult 
   }
 
   // 5) 결과 추출
+  // ★★ 접지 기준으로 **평행이동**한다 (2026-08-01 버그 수정).
+  //   이 solver는 ground 행을 V(GND)=0으로 치환하지 않고 3.5)의 ε 정규화로만 특이성을 푼다.
+  //   그래서 해에는 임의의 **공통모드 오프셋**이 남는다(ε 네트워크가 전위를 대칭 분배한다).
+  //   예전에는 그 오프셋을 무시하고 `nodeVoltages[GND] = 0`으로 덮어써서 **모든 절대 노드 전압이
+  //   접지 전위만큼 어긋났다** — 실측: 10V 분압기(R1=R2)가 V_E=5, V_A=0을 돌려줬다(정답 10, 5).
+  //   노드 **차이**만 쓰는 소비자는 영향이 없었지만, 절대 전압(예: 테브난 V_th·Z_th)은 틀렸다.
+  //   → 원시 해에서 ground 전위를 빼서 모든 노드를 접지 기준으로 만든다(수학적으로 정확).
+  const giRaw = idx.get(groundId);
+  const vGround: Complex = giRaw !== undefined ? M[giRaw][size] : ZERO;
   const nodeVoltages: Record<string, Complex> = {};
   nodeIds.forEach((id, i) => {
-    nodeVoltages[id] = M[i][size];
+    nodeVoltages[id] = sub(M[i][size], vGround);
   });
   nodeVoltages[groundId] = ZERO;
 

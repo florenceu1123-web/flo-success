@@ -67,6 +67,10 @@ import { runLogicConditionSopPipeline, detectLogicConditionSop } from "@/lib/pip
 import { runFfWithWaveformPipeline } from "@/lib/pipeline/runFfWithWaveformPipeline";
 import { runFlipflopMixedPipeline, detectFfMixedApp } from "@/lib/pipeline/runFlipflopMixedPipeline";
 import { runTffStateTableBlankPipeline } from "@/lib/pipeline/runTffStateTableBlankPipeline";
+import { runTff3AutonomousCounterPipeline } from "@/lib/pipeline/runTff3AutonomousCounterPipeline";
+import { runJfetVoltageBiasPipeline } from "@/lib/pipeline/runJfetVoltageBiasPipeline";
+import { runOpampRcTOscillatorPipeline } from "@/lib/pipeline/runOpampRcTOscillatorPipeline";
+import { runAcRlAveragePowerPipeline } from "@/lib/pipeline/runAcRlAveragePowerPipeline";
 import { runCombinationalGatePipeline } from "@/lib/pipeline/runCombinationalGatePipeline";
 import { runFsmPipeline } from "@/lib/pipeline/runFsmPipeline";
 import { runDffMuxSequentialPipeline, detectDffMuxSequential } from "@/lib/pipeline/runDffMuxSequentialPipeline";
@@ -194,7 +198,7 @@ export async function POST(req: NextRequest) {
 
     const DIGITAL_ONLY_TYPES = new Set([
       "universal_digital", "sequential_dff_generic", "kmap_sop", "kmap_pos",
-      "flipflop_mixed_app", "tff_state_table_blank", "ff_with_waveform",
+      "flipflop_mixed_app", "tff_state_table_blank", "tff3_autonomous_counter", "ff_with_waveform",
       "flipflop_counter", "jk_sync_counter", "combinational_gate", "sequence_detector", "fsm",
       "dff_mux_sequential", "waveform_analysis", "mux_implementation", "counter_dac_comparator", "logic_condition_sop",
       "jk_excitation_sop_pos", "mod_n_counter_reset", "number_representation", "demux_waveform",
@@ -617,6 +621,19 @@ export async function POST(req: NextRequest) {
     // dff_mux_sequential: (가)상태도+(나)FF+MUX 구현회로+(다)MUX 진리표 3-figure. 자율 순환 —
     //  상태 천이는 있으나 스위치 상태쌍 아님·파형 없음(Q_A 주파수는 계산) → state·waveform off, multi 유지.
     const isDffMuxSequential = analysis?.circuitType?.type === "dff_mux_sequential";
+    // jfet_voltage_bias: 단일 회로 figure의 순수 DC 바이어스 — 파형·상태·등가·multi 모두 면제.
+    //   (안 해두면 Vision이 hasWaveformEvolution=true를 주는 회차에 waveform이 required로 붙어
+    //    missing_figure_variant가 뜬다 — 다른 전자 archetype과 동일 처리.)
+    const isJfetBias = analysis?.circuitType?.type === "jfet_voltage_bias";
+    // opamp_rc_t_oscillator: (가)+(나) 2-figure. 파형·상태·등가 없음 → 그 셋만 off, multi 유지.
+    const isOpampRcTOsc = analysis?.circuitType?.type === "opamp_rc_t_oscillator";
+    // ac_rl_average_power: 페이저 정상상태 단일 회로 figure — 파형·상태·등가·multi 모두 면제.
+    const isAcRlAvgPower = analysis?.circuitType?.type === "ac_rl_average_power";
+    // tff3_autonomous_counter: (가)상태도+(나)상태표+(다)T-FF 3개 회로 3-figure (임용 11번).
+    //  자율 카운터라 상태 천이는 있으나 스위치 t<0/t>0 상태쌍 figure가 아니고 파형도 없다
+    //  → state·waveform off, multi 유지. (안 해두면 Vision이 hasWaveformEvolution=true로 주는 회차에
+    //    roleTriggers가 waveform을 required로 붙여 missing_figure_variant가 뜬다.)
+    const isTff3AutonomousCounter = analysis?.circuitType?.type === "tff3_autonomous_counter";
     const isSwStatePair =
       rawSemantic.hasWaveformEvolution &&
       !hasCapOrIndInCircuit &&
@@ -654,7 +671,7 @@ export async function POST(req: NextRequest) {
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
       : isOpampLoopGain
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
-      : isOpampFiniteGainOffset || isOpampPositiveFb
+      : isOpampFiniteGainOffset || isOpampPositiveFb || isJfetBias
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
       : isAcBridge
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
@@ -670,7 +687,11 @@ export async function POST(req: NextRequest) {
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
       : isSwitchedRcDc
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
-      : isDffStateDesign || isDffMuxSequential
+      : isAcRlAvgPower
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isOpampRcTOsc
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isDffStateDesign || isDffMuxSequential || isTff3AutonomousCounter
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
       : isAcDcSuperposition
         ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false }
@@ -757,7 +778,8 @@ export async function POST(req: NextRequest) {
     //   counter_dac_comparator로 강제돼 엉뚱한 유형 생성).
     if (circuitType === "opamp_analog_summer" || circuitType === "opamp_series_regulator" ||
         circuitType === "active_lowpass_filter" || circuitType === "opamp_finite_gain_offset" ||
-        circuitType === "opamp_loop_gain_stability") {
+        circuitType === "opamp_loop_gain_stability" || circuitType === "jfet_voltage_bias" ||
+        circuitType === "opamp_rc_t_oscillator") {
       subjectKey = "electronics";
     }
 
@@ -769,7 +791,7 @@ export async function POST(req: NextRequest) {
     //   범용 디지털 파이프라인(universal_digital)으로 보정한다.
     const DIGITAL_CIRCUIT_TYPES = new Set([
       "universal_digital", "sequential_dff_generic", "kmap_sop", "kmap_pos",
-      "flipflop_mixed_app", "tff_state_table_blank", "ff_with_waveform",
+      "flipflop_mixed_app", "tff_state_table_blank", "tff3_autonomous_counter", "ff_with_waveform",
       "flipflop_counter", "jk_sync_counter", "combinational_gate", "sequence_detector", "fsm",
       "sr_ff_mux_sequential", "dff_mux_sequential", "waveform_analysis", "mux_implementation",
       "async_preset_ripple_counter", "dff_state_design", "logic_condition_sop", "jk_excitation_sop_pos", "mod_n_counter_reset", "number_representation", "demux_waveform",
@@ -786,6 +808,8 @@ export async function POST(req: NextRequest) {
     // ★ ac_power_factor(역률, 임용 9번)는 circuit_theory 전용 archetype — subject 오선택(mixed_signal 등)
     //   이어도 강한 "역률" 신호로 분류됐으면 subject를 circuit_theory로 보정 (mixed_signal coercion·dispatch 정상화).
     if (circuitType === "ac_power_factor") subjectKey = "circuit_theory";
+    // ac_rl_average_power(임용 8번)는 circuit_theory 전용 — 0-PRE(subject 무관) 분류 대비 보정.
+    if (circuitType === "ac_rl_average_power") subjectKey = "circuit_theory";
     if (circuitType === "ac_admittance_resonance") subjectKey = "circuit_theory";
     if (circuitType === "ac_vccs_phasor") subjectKey = "circuit_theory";
     if (circuitType === "inductor_vi_integral") subjectKey = "circuit_theory";
@@ -799,6 +823,10 @@ export async function POST(req: NextRequest) {
     if (circuitType === "opamp_finite_gain_offset") subjectKey = "electronics";
     // opamp_loop_gain_stability(임용 12번 전자회로)도 electronics 전용 — 0-PRE(subject 무관) 분류 대비 보정.
     if (circuitType === "opamp_loop_gain_stability") subjectKey = "electronics";
+    // jfet_voltage_bias(임용 2번)도 electronics 전용 — 0-PRE(subject 무관) 분류 대비 보정.
+    if (circuitType === "jfet_voltage_bias") subjectKey = "electronics";
+    // opamp_rc_t_oscillator(임용 9번 전자)도 electronics 전용 — 0-PRE(subject 무관) 분류 대비 보정.
+    if (circuitType === "opamp_rc_t_oscillator") subjectKey = "electronics";
     // ★ counter_dac_comparator(임용 8번)는 복합형 전용 — 과목을 다른 걸로 골라 분류돼도 여기서 보정.
     //   (분류는 PRE-SUBJECT라 과목 무관하게 잡히지만, ruleSet·dispatch는 subject를 보므로 맞춰준다.)
     if (circuitType === "counter_dac_comparator") subjectKey = "mixed_signal";
@@ -1206,6 +1234,45 @@ export async function POST(req: NextRequest) {
       // T·D 혼합 mod-N 카운터 + 미사용 상태 + 리셋 게이트 (임용 9번) — 전용 결정론 archetype.
       log.info("dispatch", { route: "mod_n_counter_reset_pipeline", count: n, mode });
       problems = await runModNCounterResetPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "ac_rl_average_power" && subjectKey === "circuit_theory") {
+      // AC 전원 + 직렬 리액턴스 + 병렬 저항 평균전력 (임용 8번) — 전용 결정론 archetype.
+      //   ★ generic universal_ac가 v(t) 단서를 빠뜨리고 내부 id를 노출하던 것 대체.
+      log.info("dispatch", { route: "ac_rl_average_power_pipeline", count: n, mode });
+      problems = await runAcRlAveragePowerPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "opamp_rc_t_oscillator" && subjectKey === "electronics") {
+      // 반전 OPAMP + T형 RC망 → 전달특성 + 사인파 발진기 (임용 9번) — 전용 결정론 archetype.
+      log.info("dispatch", { route: "opamp_rc_t_oscillator_pipeline", count: n, mode });
+      problems = await runOpampRcTOscillatorPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "jfet_voltage_bias" && subjectKey === "electronics") {
+      // JFET 전압(분압) 바이어스 (임용 2번) — 전용 결정론 archetype.
+      //   ★ mosfet_bias(소스 접지 NMOS + 제곱법칙)와 모델이 다르다 — 실측 오매치 이력.
+      log.info("dispatch", { route: "jfet_voltage_bias_pipeline", count: n, mode });
+      problems = await runJfetVoltageBiasPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "tff3_autonomous_counter" && subjectKey === "digital_logic") {
+      // T-FF 3개 자율 카운터 + 상태도 + T_B 최소 SOP → 2입력 게이트 2개 (임용 11번) — 전용 결정론 archetype.
+      //   ★ tff_state_table_blank(임용 7번: T-FF 2개 + 외부 입력 C)와 구조가 다르다 — 조용한 오매치 이력.
+      log.info("dispatch", { route: "tff3_autonomous_counter_pipeline", count: n, mode });
+      problems = await runTff3AutonomousCounterPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,

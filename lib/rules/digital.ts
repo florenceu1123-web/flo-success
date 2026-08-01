@@ -36,6 +36,10 @@ export function resolveDigitalRules(args: {
   } else if (args.circuitType === "tff_state_table_blank") {
     // 임용 7번 정보과 — (가) T-FF 2개 회로 + (나) 상태표(빈칸). K-map은 풀이 [단계 3] 산출물.
     required.push("implementation_circuit", "truth_table");
+  } else if (args.circuitType === "tff3_autonomous_counter") {
+    // 임용 11번 — (가) 상태도 + (나) 상태표(㉠·㉡) + (다) T-FF 3개 회로(㉢).
+    //   카르노도는 풀이 [단계 2] 산출물이므로 figure로 요구하지 않는다.
+    required.push("state_diagram", "truth_table", "implementation_circuit");
   } else if (args.circuitType === "demux_waveform") {
     // 임용 8번 — (가) 디먹스 회로 + (나) 파형. K-map은 요구하지 않는다.
     required.push("implementation_circuit", "waveform");

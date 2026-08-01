@@ -18,18 +18,30 @@ export type AcTheveninMaxPowerTextOutput = {
 export function writeAcTheveninMaxPowerText(args: {
   generation: AcTheveninMaxPowerGeneration;
 }): AcTheveninMaxPowerTextOutput {
-  const { values, solution } = args.generation;
+  const { values, solution, topology } = args.generation;
+  const isOriginal = topology === "original";
 
-  const content =
-    `다음 그림은 2개의 교류 전원(전압원 V = ${values.VsLabel}, 전류원 I = ${values.IsLabel})이 포함된 ` +
-    `RLC 회로이고, 부하 저항 R_L에 공급되는 전력을 구하려고 한다. 제시된 <해석 절차>에 따라 ` +
-    `각 단계별로 풀이 과정과 함께 결과를 서술하시오.`;
+  // ★ 유사유형(원본 토폴로지)은 원본 지문 문구를 그대로 따른다 — "순저항 부하 R_L에서 소비되는
+  //   최대 평균전력". 변형유형(두 전원망 병렬)은 기존 문구를 유지한다.
+  const content = isOriginal
+    ? `그림은 2개의 교류 전원이 포함된 RLC 회로이고 순저항 부하 R_L에서 소비되는 최대 평균전력을 구하려고 한다. ` +
+      `제시된 <해석 절차>에 따라 각 단계별로 풀이 과정과 함께 결과를 서술하시오. ` +
+      `(단, V와 I는 각각 v(t) = ${values.Vs}cos(ωt + 90°)와 i(t) = ${values.Is}cos(ωt + 90°)의 페이저 전압과 페이저 전류이다.)`
+    : `다음 그림은 2개의 교류 전원(전압원 V = ${values.VsLabel}, 전류원 I = ${values.IsLabel})이 포함된 ` +
+      `RLC 회로이고, 부하 저항 R_L에 공급되는 전력을 구하려고 한다. 제시된 <해석 절차>에 따라 ` +
+      `각 단계별로 풀이 과정과 함께 결과를 서술하시오.`;
 
-  const conditions = [
-    `전압원 V·전류원 I는 모두 페이저 표기(${values.VsLabel}, ${values.IsLabel})이며, ` +
-      `리액턴스는 임피던스로 표시한다(예: j${values.XL1}Ω, −j${values.XC1}Ω).`,
-    `부하 R_L은 순저항이며, 단자 a-b에 연결된다.`,
-  ];
+  const conditions = isOriginal
+    ? [
+        `전압원 V = ${values.VsLabel}는 직렬 저항 ${values.Rs}Ω와 함께 가지를 이루고, 전류원 I = ${values.IsLabel}는 그 가지와 병렬이다.`,
+        `상단 경로에 j${values.XL1}Ω(인덕터)와 ${values.R1}Ω(저항)이 직렬로 놓여 단자 a에 이른다. 단자 a-b 사이에는 −j${values.XC1}Ω(커패시터)가 있다.`,
+        `부하 R_L은 순저항이며, 단자 a-b에 연결된다.`,
+      ]
+    : [
+        `전압원 V·전류원 I는 모두 페이저 표기(${values.VsLabel}, ${values.IsLabel})이며, ` +
+          `리액턴스는 임피던스로 표시한다(예: j${values.XL1}Ω, −j${values.XC1}Ω).`,
+        `부하 R_L은 순저항이며, 단자 a-b에 연결된다.`,
+      ];
 
   const step1 = `[단계 1] 단자 a-b에서 회로를 바라본 테브난 등가 임피던스 Z_th [Ω]를 구한다. (전압원은 단락, 전류원은 개방)`;
   const step2 = `[단계 2] 단자 a-b에서의 테브난 등가 전압 V_th [V]를 중첩의 원리로 구한다.`;
@@ -42,10 +54,14 @@ export function writeAcTheveninMaxPowerText(args: {
     `[단계 3] R_L = ${formatRL(solution.ZthMag)} Ω (= |Z_th|), P_max = ${solution.PmaxLabel}`,
   ].join(" / ");
 
-  const sol1 =
-    `[단계 1] 전압원을 단락, 전류원을 개방한 뒤 단자 a-b에서 본 등가 임피던스를 구한다. ` +
-    `상단망(R_top ${values.R1}Ω, L j${values.XL1}Ω, C −j${values.XC1}Ω)과 하단망(R ${values.R2}Ω, C −j${values.XC2}Ω)의 ` +
-    `병렬 합성으로 Z_th = ${solution.ZthLabel}.`;
+  const sol1 = isOriginal
+    ? `[단계 1] 전압원을 단락, 전류원을 개방하면 단자 a에서 볼 때 ` +
+      `(${values.R1}Ω + j${values.XL1}Ω + ${values.Rs}Ω)의 직렬 경로와 −j${values.XC1}Ω이 병렬이 된다. ` +
+      `(전류원을 개방하면 그 가지는 끊기고, 전압원을 단락하면 직렬 저항 ${values.Rs}Ω만 남는다.) ` +
+      `Z_th = (${(values.R1 + (values.Rs ?? 0))} + j${values.XL1}) ∥ (−j${values.XC1}) = ${solution.ZthLabel}.`
+    : `[단계 1] 전압원을 단락, 전류원을 개방한 뒤 단자 a-b에서 본 등가 임피던스를 구한다. ` +
+      `상단망(R_top ${values.R1}Ω, L j${values.XL1}Ω, C −j${values.XC1}Ω)과 하단망(R ${values.R2}Ω, C −j${values.XC2}Ω)의 ` +
+      `병렬 합성으로 Z_th = ${solution.ZthLabel}.`;
 
   const sol2 =
     `[단계 2] 두 전원이 단자 a-b에 기여하는 전압을 중첩으로 합한다. ` +

@@ -27,20 +27,40 @@ export type RouteInput = {
 
 export type RouteResult = { circuitType: string | undefined; reason: string | null };
 
+/**
+ * OPAMP override가 **덮어써도 되는** circuitType — generic·미확정 경로만.
+ *   전용 archetype(opamp_rc_t_oscillator·function_generator·opamp_loop_gain_stability 등)은
+ *   분류기가 구조를 보고 고른 것이므로 절대 덮지 않는다.
+ */
+const OPAMP_OVERRIDABLE = new Set<string>([
+  "unsupported", "topology_driven",
+  "universal_ac", "universal_dc", "universal_digital",
+  "dc_mesh", "dc_nodal", "dc_resistive",
+  "rc_step", "rl_step", "rlc_step", "transient_rc", "transient_rl",
+  "rlc_resonance", "ac_superposition", "ac_parallel_branches",
+]);
+
 export function routePipeline(input: RouteInput): RouteResult {
   const { circuitType, tags, subjectKey, hasTopologySignature } = input;
   const obj = input.objective ?? {};
   const has = (t: string) => tags.includes(t);
 
-  // 1. OPAMP 발진기·전달함수 override (분류기 값 무관, 단 이미 opamp 계열이면 유지).
+  // 1. OPAMP 발진기·전달함수 override.
+  //
+  // ★★ 이 override는 **generic 경로로 떨어진 경우를 구제**하는 안전망이다
+  //    (주석 1번: "분류기가 Wien bridge를 universal_ac 등으로 오분류해도").
+  //    그런데 예전에는 `circuitType !== "opamp*"` 같은 **개별 예외 목록**으로만 막아서,
+  //    새로 만든 **전용 archetype을 조용히 generic opamp로 되돌렸다**.
+  //    실측 신고(2026-08-01): `opamp_rc_t_oscillator`(임용 9번, T형 RC망 발진기)가 분류기에서
+  //    정상 발화했는데 여기서 `opamp`로 덮여 **Wien Bridge 회로가 반복 생성**됐다.
+  //    (`function_generator`가 이미 같은 이유로 예외에 추가돼 있었다 — 두더지잡기였던 셈이다.)
+  //
+  // ⇒ 규칙: **분류기가 전용(비-generic) archetype을 골랐으면 그 판단을 존중한다.**
+  //    override는 미확정이거나 generic일 때만 개입한다(route.ts의 안전망 공통 가드와 같은 원칙).
   if (
     has("opamp") &&
     (has("oscillator") || has("transfer_function")) &&
-    circuitType !== "opamp" &&
-    circuitType !== "opamp_cascade_voltage_divider" &&
-    circuitType !== "opamp_generic" &&
-    // 비정현파 발진기(함수발생기)는 전용 결정론 archetype이 있으므로 generic opamp로 override하지 않는다.
-    circuitType !== "function_generator"
+    (!circuitType || OPAMP_OVERRIDABLE.has(circuitType))
   ) {
     return { circuitType: "opamp", reason: "tags.opamp + (oscillator|transfer_function) → OPAMP path" };
   }

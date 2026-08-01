@@ -27,6 +27,7 @@ import { detectZenerClipperCircuit, renderZenerClipperCircuit } from "./zenerCli
 import { detectAcDcSuperposition, renderAcDcSuperpositionCircuit } from "./acDcSuperpositionCircuitRenderer";
 import { detectAcDcSuperpositionDual, renderAcDcSuperpositionDualCircuit } from "./acDcSuperpositionDualCircuitRenderer";
 import { detectAcTheveninMaxPower, renderAcTheveninMaxPowerCircuit } from "./acTheveninMaxPowerCircuitRenderer";
+import { detectAcTheveninOriginal, renderAcTheveninOriginalCircuit } from "./acTheveninOriginalCircuitRenderer";
 import { detectSwitchedRlDependent, renderSwitchedRlDependentCircuit } from "./switchedRlDependentCircuitRenderer";
 import { detectSwitchedRlDepI, renderSwitchedRlDepICircuit } from "./switchedRlDepICircuitRenderer";
 import { detectSourceTransformCircuit, renderSourceTransformCircuit } from "./sourceTransformRatioCircuitRenderer";
@@ -256,6 +257,14 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   if (detectSwitchedRlDepI(netlist)) {
     if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=switchedRlDepI");
     const svg = renderSwitchedRlDepICircuit(netlist);
+    if (svg) return svg;
+  }
+
+  // 0.0784 2전원 테브난 최대전력 — **원본 토폴로지**(유사유형): I ∥ [V+R_s] → jX_L·R_top → a, −jX_C ∥ R_L.
+  //   ★ 아래 0.0785(두 전원망 병렬, 변형유형)와 소자 id가 달라 서로 가로채지 않는다.
+  if (detectAcTheveninOriginal(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=acTheveninOriginal");
+    const svg = renderAcTheveninOriginalCircuit(netlist);
     if (svg) return svg;
   }
 

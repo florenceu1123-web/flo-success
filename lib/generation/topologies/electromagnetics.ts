@@ -51,7 +51,9 @@ export type EmGeometryKind =
   | "square_loop_curl" // 자계 H(x) 속 정사각형 폐경로 (∮H·dl → 면적 극한 → ∇×H)
   | "two_charges_axes" // 직각 좌표계 위 두 점전하(y축·z축) + 점 P → 합성 전계 크기·전위
   | "cylinder_conductor" // 무한히 긴 직선 원통 도체(도전율 σ) — 단면 A·B 전위차 → E·J·I → 외부 자계 H
-  | "coax_current"; // 무한히 긴 동축선로 (내부 도체 +a_z, 외부 도체 −a_z) — 앙페르 법칙 3영역 자계
+  | "coax_current" // 무한히 긴 동축선로 (내부 도체 +a_z, 외부 도체 −a_z) — 앙페르 법칙 3영역 자계
+  | "point_line_charge_axes" // 직각 좌표계 + 점전하 P + z축과 나란한 무한 선전하 → 원점 O에서 합성 전계·힘
+  | "sheet_currents_planes"; // y=±d 두 무한 면전류(K₁·K₂) + 원점 + x=0 면의 사각형 → B·V_m·벡터자위·자속
 
 /** EM 전용 도식 payload — 렌더러가 geometry로 dispatch해 고정 슬롯에 라벨 배치. */
 export type EmFieldDiagram = {
@@ -3393,7 +3395,387 @@ const coaxLineMagneticField: EmEntry = {
   },
 };
 
+// =====================================================================
+// 점전하 + 무한 선전하의 원점 합성 전계 → 크기 비 조건으로 선전하 밀도 역산 + 전하에 작용하는 힘
+//   (2023 전기 A-10 형식)
+//   원본: 점 P(2,−1,2)에 −3[nC] 점전하, 점 (−1,1,0)을 지나 z축과 평행한 선전하 k[nC/m].
+//         원점 O에서 E₁(점전하)·E₂(선전하), |E₁|:|E₂| = 1:√2 → k, 그리고 O의 2[C] 전하에 작용하는 F.
+//
+// ★ 형제 항목과 다르다 — 실측 신고(2026-08-01)에서 이 원본이
+//   `sheet_line_efield_superposition`(무한 **면**전하 + 선전하, E=0 조건 → ρ_l)로 갔다.
+//   "비슷해 보이지만 전혀 다른 걸 묻는" 조용한 오매치다. 차이:
+//     · 이 유형은 **점전하** + 선전하 (면전하 없음)
+//     · 조건이 E=0이 아니라 **크기 비 |E₁|:|E₂|**
+//     · 마지막이 전계가 아니라 **전하에 작용하는 힘 F**
+//
+// ★ 물리(닫힌형, 손계산 검증):
+//     1/(4πε₀) = 9×10⁹,  1/(2πε₀) = 18×10⁹  (ε₀ = 10⁻⁹/36π)
+//     점전하: E₁ = 9×10⁹·Q/|R|³ · R,  R = O − P    → 계수 c₁ = 9Q_[nC]/d³ (d=|OP|)
+//     선전하: E₂ = 18×10⁹·k/ρ² · ρ⃗,  ρ⃗ = O − (선 위 최근접점) → 계수 c₂ = 18k/ρ²
+//     비 조건 |E₁|:|E₂| = 1:r  ⇒  18k/ρ = r·3|c₁|  ⇒  k = r|c₁|ρ/6
+//     힘: F = q(E₁+E₂)
+//   원본(P=(2,−1,2), Q=−3nC, 선=(−1,1,0), r=√2, q=2C) → E₁=(2,−1,2), E₂=(3,−3,0),
+//     k = 1/3 [nC/m], F = 10a_x − 8a_y + 4a_z [N].
+//
+// ★ 값 열거는 **깔끔한 정수만** 남기는 규칙으로 한다(계수 c₁·c₂가 정수, k의 분모 ≤ 3).
+//   d=3(=|(1,2,2)| 순열·부호)만 쓰면 c₁ = Q/3 가 정수가 되어 E₁ 성분이 전부 정수다.
+// =====================================================================
+type PtLineCombo = {
+  /** 선이 지나는 점 (lx, ly, 0) — 선은 z축과 평행 */
+  L: [number, number];
+  /** ρ = |(lx,ly)| 를 유리수로 다루기 위한 표기 */
+  rhoTex: string;
+  /** 비 |E₁|:|E₂| = 1 : r */
+  rTex: string;
+  /** ρ² (정수) — E₂ = (18k/ρ²)·ρ⃗ 의 계수 계산·표기용 */
+  rho2: number;
+  /** c₂ = 18k/ρ² 를 |c₁|의 배수로 (정수 계수) */
+  c2PerC1: number;
+  /** k = (kNum/kDen)·|c₁| [nC/m] */
+  kNum: number;
+  kDen: number;
+};
+
+/** ρ·r 조합은 k와 계수가 모두 깔끔한 것만 허용한다(위 주석의 A~E). */
+const PT_LINE_COMBOS: Array<Omit<PtLineCombo, "L">> = [
+  { rhoTex: "\\sqrt{2}",  rho2: 2,  rTex: "\\sqrt{2}", c2PerC1: 3, kNum: 1, kDen: 3 },  // ρ=√2,  r=√2
+  { rhoTex: "3\\sqrt{2}", rho2: 18, rTex: "\\sqrt{2}", c2PerC1: 1, kNum: 1, kDen: 1 },  // ρ=3√2, r=√2
+  { rhoTex: "3",          rho2: 9,  rTex: "1",         c2PerC1: 1, kNum: 1, kDen: 2 },  // ρ=3,   r=1
+  { rhoTex: "3",          rho2: 9,  rTex: "2",         c2PerC1: 2, kNum: 1, kDen: 1 },  // ρ=3,   r=2
+  { rhoTex: "1",          rho2: 1,  rTex: "3",         c2PerC1: 9, kNum: 1, kDen: 2 },  // ρ=1,   r=3
+];
+/** ρ 표기 → 가능한 (lx, ly) 목록 */
+const PT_LINE_POINTS: Record<string, Array<[number, number]>> = {
+  "\\sqrt{2}": [[1, 1], [1, -1], [-1, 1], [-1, -1]],
+  "3\\sqrt{2}": [[3, 3], [3, -3], [-3, 3], [-3, -3]],
+  "3": [[3, 0], [0, 3], [-3, 0], [0, -3]],
+  "1": [[1, 0], [0, 1], [-1, 0], [0, -1]],
+};
+
+type PtLineSet = {
+  P: [number, number, number];   // 점전하 위치 (|OP| = 3)
+  Qn: number;                    // 점전하 [nC] (부호 포함, |Qn| ∈ {3,6,9})
+  combo: PtLineCombo;
+  q: number;                     // 원점에 놓인 전하 [C]
+};
+
+function buildPtLineSpace(): PtLineSet[] {
+  // |OP| = 3 인 정수 좌표 = (±1,±2,±2) 의 순열 — E₁ 성분이 전부 정수가 된다.
+  const positions: Array<[number, number, number]> = [];
+  for (const onePos of [0, 1, 2]) {
+    for (const s0 of [1, -1]) for (const s1 of [1, -1]) for (const s2 of [1, -1]) {
+      const mags = [2, 2, 2];
+      mags[onePos] = 1;
+      positions.push([mags[0] * s0, mags[1] * s1, mags[2] * s2]);
+    }
+  }
+  const out: PtLineSet[] = [];
+  for (const P of positions) {
+    for (const Qn of [-3, -6, -9, 3, 6, 9]) {
+      for (const base of PT_LINE_COMBOS) {
+        for (const L of PT_LINE_POINTS[base.rhoTex]) {
+          for (const q of [1, 2, 3, 5]) {
+            const combo: PtLineCombo = { ...base, L };
+            // 원본 튜플 제외 — 원본과 똑같은 문제가 나오면 안 된다.
+            const isOriginal =
+              P[0] === 2 && P[1] === -1 && P[2] === 2 && Qn === -3 &&
+              L[0] === -1 && L[1] === 1 && base.rhoTex === "\\sqrt{2}" && q === 2;
+            if (isOriginal) continue;
+            out.push({ P, Qn, combo, q });
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+const PT_LINE_SPACE = buildPtLineSpace();
+
+/** 3차원 벡터를 \( x\mathbf{a}_x + ... \) 형태 LaTeX로. 0 성분은 생략. */
+function vecTex(v: [number, number, number]): string {
+  const axes = ["\\mathbf{a}_x", "\\mathbf{a}_y", "\\mathbf{a}_z"];
+  const parts: string[] = [];
+  v.forEach((c, i) => {
+    if (c === 0) return;
+    const mag = Math.abs(c) === 1 ? "" : String(Math.abs(c));
+    const sign = c < 0 ? "-" : parts.length === 0 ? "" : "+";
+    parts.push(`${sign}${sign && parts.length > 0 ? " " : ""}${mag}${axes[i]}`);
+  });
+  return parts.length === 0 ? "0" : parts.join(" ");
+}
+/** 분수 표기 (분모 1이면 정수). */
+function fracTex(num: number, den: number): string {
+  if (den === 1) return String(num);
+  const g = gcdInt(Math.abs(num), Math.abs(den));
+  const n = num / g, dd = den / g;
+  return dd === 1 ? String(n) : `\\dfrac{${n}}{${dd}}`;
+}
+function gcdInt(a: number, b: number): number {
+  return b === 0 ? (a || 1) : gcdInt(b, a % b);
+}
+
+const pointLineChargeForce: EmEntry = {
+  id: "point_line_charge_force",
+  topicKey: "electrostatics",
+  title: "점전하와 무한 선전하의 합성 전계 및 전하에 작용하는 힘",
+  // ★★ 키워드는 **이 유형에만 있는 표현 하나**로 최소화한다 — 라우팅은 구조 감지기
+  //   `detectPointLineChargeForce`(강제 체인)가 맡는다.
+  //   실측 회귀(2026-08-01): strong에 "선전하에 의한 전계"를 뒀더니 **단일 선전하(line_charge)**
+  //   원본("무한 선전하에 의한 전계")을 점수로 뺏었다(smokeSheetLineRouting이 즉시 잡음).
+  //   같은 이유로 "점전하에 의한 전계"(point_charge_field 고유)·"합성 전계"(sheet_line·sheet_ring 고유)·
+  //   bare "자유 공간"(너무 일반)도 전부 뺀다 ([[feedback_generic_code]] 잠식 금지).
+  keywords: ["전계의 크기 비", "전계의 크기비"],
+  strongKeywords: ["전계의 크기 비"],
+  geometry: "point_line_charge_axes",
+  build(mode, rand) {
+    const variant = mode === "exam_variant";
+    const set = pick(PT_LINE_SPACE, rand);
+    const { P, Qn, q } = set;
+    const { L, rhoTex, rho2, rTex, c2PerC1, kNum, kDen } = set.combo;
+    // E₂ = (18k/ρ²)·ρ⃗ — 18/ρ² 는 항상 정수(값 공간이 그렇게 열거돼 있다). "18k/18" 같은 표기 방지.
+    const e2CoefTex = 18 / rho2 === 1 ? "k" : `${18 / rho2}k`;
+
+    // ── 계수 (모두 정수) ────────────────────────────────────────────
+    const c1 = Qn / 3;                       // E₁ = c₁·(O − P)
+    const absC1 = Math.abs(c1);
+    const E1: [number, number, number] = [c1 * -P[0], c1 * -P[1], c1 * -P[2]];
+    const c2 = c2PerC1 * absC1;              // E₂ = c₂·(O − 선 위 최근접점)
+    const E2: [number, number, number] = [c2 * -L[0], c2 * -L[1], 0];
+    const Esum: [number, number, number] = [E1[0] + E2[0], E1[1] + E2[1], E1[2] + E2[2]];
+    const F: [number, number, number] = [q * Esum[0], q * Esum[1], q * Esum[2]];
+    const kTex = fracTex(kNum * absC1, kDen);          // k [nC/m]
+    const absE1 = 3 * absC1;
+
+    const posTex = `(${P[0]},\\, ${P[1]},\\, ${P[2]})`;
+    const linePtTex = `(${L[0]},\\, ${L[1]},\\, 0)`;
+    const E0 = "\\varepsilon_0 = \\dfrac{10^{-9}}{36\\pi}\\,[\\mathrm{F/m}]";
+    const signWord = Qn < 0 ? "음" : "양";
+
+    const diagram: EmFieldDiagram = {
+      geometry: "point_line_charge_axes",
+      title: "점전하와 무한 선전하에 의한 원점에서의 합성 전계",
+      labels: {
+        pointP: `P${posTex}`,
+        charge: variant ? `Q\\,[\\mathrm{nC}]` : `${Qn}\\,[\\mathrm{nC}]`,
+        linePoint: linePtTex,
+        lineDensity: variant ? `${kTex}\\,[\\mathrm{nC/m}]` : `k\\,[\\mathrm{nC/m}]`,
+        target: `O\\ (${q}\\,[\\mathrm{C}])`,
+      },
+    };
+
+    if (!variant) {
+      // 유사(원본 구조): k 미지 → 크기 비 조건으로 k → 힘 F.
+      return {
+        entryId: this.id, topicKey: this.topicKey, title: this.title,
+        content: `그림과 같이 자유 공간에서 \\( ${Qn}\\,[\\mathrm{nC}] \\)의 점전하가 점 \\( \\mathrm{P}${posTex} \\)에 있고, \\( k\\,[\\mathrm{nC/m}] \\)의 균일한 선전하가 점 \\( ${linePtTex} \\)를 지나고 \\(z\\)축과 평행하게 놓여 있다. 점 \\(\\mathrm{P}\\)의 점전하에 의한 원점 \\(\\mathrm{O}\\)에서의 전계는 \\( \\mathbf{E}_1 \\)이고, 무한 선전하에 의한 원점 \\(\\mathrm{O}\\)에서의 전계는 \\( \\mathbf{E}_2 \\)이다. 전계의 크기 비 \\( |\\mathbf{E}_1| : |\\mathbf{E}_2| = 1 : ${rTex} \\)가 되는 \\( k\\,[\\mathrm{nC/m}] \\) 값과, \\( ${q}\\,[\\mathrm{C}] \\)의 전하가 원점 \\(\\mathrm{O}\\)에 있을 때 합성 전계 \\( (\\mathbf{E}_1+\\mathbf{E}_2) \\)에 의해 전하에 작용하는 힘 \\( \\mathbf{F}\\,[\\mathrm{N}] \\)을 제시된 〈해석 절차〉에 따라 구하여 순서대로 서술하시오. (단, \\( k>0 \\)이고 자유 공간의 유전율 \\( ${E0} \\)이며, 직각 좌표계에서 \\(x, y, z\\)축의 단위 벡터는 \\( \\mathbf{a}_x, \\mathbf{a}_y, \\mathbf{a}_z \\)이다.)`,
+        givens: [
+          `점전하 \\( ${Qn}\\,[\\mathrm{nC}] \\) — 점 \\( \\mathrm{P}${posTex} \\)`,
+          `무한 선전하 \\( k\\,[\\mathrm{nC/m}] \\) — 점 \\( ${linePtTex} \\)를 지나고 \\(z\\)축과 평행`,
+          `전계의 크기 비 \\( |\\mathbf{E}_1| : |\\mathbf{E}_2| = 1 : ${rTex} \\), \\( k>0 \\)`,
+          `원점 \\(\\mathrm{O}\\)에 놓인 전하 \\( ${q}\\,[\\mathrm{C}] \\)`,
+        ],
+        question: [
+          `[단계 1] 점 \\(\\mathrm{P}\\)의 점전하에 의한 원점 \\(\\mathrm{O}\\)에서의 전계 \\( \\mathbf{E}_1\\,[\\mathrm{V/m}] \\)을 구한다.`,
+          `[단계 2] 무한 선전하에 의한 원점 \\(\\mathrm{O}\\)에서의 전계 \\( \\mathbf{E}_2\\,[\\mathrm{V/m}] \\)를 \\(k\\)가 포함된 식으로 구한다.`,
+          `[단계 3] [단계 1]과 [단계 2]의 결과를 이용하여, 전계의 크기 비 \\( |\\mathbf{E}_1| : |\\mathbf{E}_2| = 1 : ${rTex} \\)가 되는 \\( k\\,[\\mathrm{nC/m}] \\) 값을 구하고, \\( ${q}\\,[\\mathrm{C}] \\)의 전하가 원점 \\(\\mathrm{O}\\)에 있을 때 합성 전계 \\( (\\mathbf{E}_1+\\mathbf{E}_2) \\)에 의해 전하에 작용하는 힘 \\( \\mathbf{F}\\,[\\mathrm{N}] \\)을 구한다.`,
+        ].join("\n"),
+        answer: [
+          `[단계 1] \\( \\mathbf{E}_1 = ${vecTex(E1)}\\,[\\mathrm{V/m}] \\) (\\( |\\mathbf{E}_1| = ${absE1} \\))`,
+          `[단계 2] \\( \\mathbf{E}_2 = ${e2CoefTex}\\left(${vecTex([-L[0], -L[1], 0])}\\right)\\,[\\mathrm{V/m}] \\) (\\( |\\mathbf{E}_2| = \\dfrac{18k}{${rhoTex}} \\))`,
+          `[단계 3] \\( k = ${kTex}\\,[\\mathrm{nC/m}] \\), \\( \\mathbf{F} = ${vecTex(F)}\\,[\\mathrm{N}] \\)`,
+        ].join("\n"),
+        steps: [
+          `[단계 1] \\( \\dfrac{1}{4\\pi\\varepsilon_0} = 9\\times10^{9} \\). 점 \\(\\mathrm{P}\\)에서 원점으로 향하는 벡터는 \\( \\mathbf{R} = \\mathrm{O}-\\mathrm{P} = ${vecTex([-P[0], -P[1], -P[2]])} \\)이고 \\( |\\mathbf{R}| = 3 \\)이다. ` +
+            `\\( \\mathbf{E}_1 = \\dfrac{Q}{4\\pi\\varepsilon_0 |\\mathbf{R}|^{2}}\\hat{\\mathbf{R}} = 9\\times10^{9}\\cdot\\dfrac{${Qn}\\times10^{-9}}{3^{3}}\\mathbf{R} = ${vecTex(E1)}\\,[\\mathrm{V/m}] \\), \\( |\\mathbf{E}_1| = ${absE1} \\).`,
+          `[단계 2] \\( \\dfrac{1}{2\\pi\\varepsilon_0} = 18\\times10^{9} \\). 선은 \\(z\\)축과 평행하므로 원점에서 선까지의 수직 벡터는 \\( \\boldsymbol{\\rho} = ${vecTex([-L[0], -L[1], 0])} \\), \\( \\rho = ${rhoTex} \\)이다. ` +
+            `\\( \\mathbf{E}_2 = \\dfrac{\\rho_l}{2\\pi\\varepsilon_0\\rho}\\hat{\\boldsymbol{\\rho}} = 18\\times10^{9}\\cdot\\dfrac{k\\times10^{-9}}{\\rho^{2}}\\boldsymbol{\\rho} \\), 크기는 \\( |\\mathbf{E}_2| = \\dfrac{18k}{${rhoTex}} \\).`,
+          `[단계 3] 크기 비 조건 \\( |\\mathbf{E}_2| = ${rTex}\\,|\\mathbf{E}_1| \\)에서 \\( \\dfrac{18k}{${rhoTex}} = ${rTex}\\times${absE1} \\Rightarrow k = ${kTex}\\,[\\mathrm{nC/m}] \\) (\\(k>0\\) 만족). ` +
+            `이때 \\( \\mathbf{E}_2 = ${vecTex(E2)} \\)이므로 \\( \\mathbf{E}_1+\\mathbf{E}_2 = ${vecTex(Esum)}\\,[\\mathrm{V/m}] \\), ` +
+            `\\( \\mathbf{F} = q(\\mathbf{E}_1+\\mathbf{E}_2) = ${q}\\left(${vecTex(Esum)}\\right) = ${vecTex(F)}\\,[\\mathrm{N}] \\).`,
+        ],
+        diagram,
+      };
+    }
+
+    // 변형(구하는 양 교환): 선전하 밀도 k가 주어지고 **점전하 Q**를 역산 → 힘 F.
+    return {
+      entryId: this.id, topicKey: this.topicKey, title: this.title,
+      content: `그림과 같이 자유 공간에서 크기를 모르는 ${signWord}(${Qn < 0 ? "-" : "+"})의 점전하 \\( Q\\,[\\mathrm{nC}] \\)가 점 \\( \\mathrm{P}${posTex} \\)에 있고, \\( ${kTex}\\,[\\mathrm{nC/m}] \\)의 균일한 선전하가 점 \\( ${linePtTex} \\)를 지나고 \\(z\\)축과 평행하게 놓여 있다. 점전하에 의한 원점 \\(\\mathrm{O}\\)에서의 전계를 \\( \\mathbf{E}_1 \\), 무한 선전하에 의한 전계를 \\( \\mathbf{E}_2 \\)라 할 때, 전계의 크기 비가 \\( |\\mathbf{E}_1| : |\\mathbf{E}_2| = 1 : ${rTex} \\)가 되는 점전하 \\( Q\\,[\\mathrm{nC}] \\)와, \\( ${q}\\,[\\mathrm{C}] \\)의 전하가 원점 \\(\\mathrm{O}\\)에 있을 때 합성 전계에 의해 전하에 작용하는 힘 \\( \\mathbf{F}\\,[\\mathrm{N}] \\)을 제시된 〈해석 절차〉에 따라 구하여 순서대로 서술하시오. (단, 자유 공간의 유전율 \\( ${E0} \\)이며, 단위 벡터는 \\( \\mathbf{a}_x, \\mathbf{a}_y, \\mathbf{a}_z \\)이다.)`,
+      givens: [
+        `점전하 \\( Q\\,[\\mathrm{nC}] \\) (${signWord}전하) — 점 \\( \\mathrm{P}${posTex} \\)`,
+        `무한 선전하 \\( ${kTex}\\,[\\mathrm{nC/m}] \\) — 점 \\( ${linePtTex} \\)를 지나고 \\(z\\)축과 평행`,
+        `전계의 크기 비 \\( |\\mathbf{E}_1| : |\\mathbf{E}_2| = 1 : ${rTex} \\)`,
+        `원점 \\(\\mathrm{O}\\)에 놓인 전하 \\( ${q}\\,[\\mathrm{C}] \\)`,
+      ],
+      question: [
+        `[단계 1] 무한 선전하에 의한 원점 \\(\\mathrm{O}\\)에서의 전계 \\( \\mathbf{E}_2\\,[\\mathrm{V/m}] \\)를 구한다.`,
+        `[단계 2] 점전하에 의한 원점 \\(\\mathrm{O}\\)에서의 전계 \\( \\mathbf{E}_1 \\)을 \\(Q\\)가 포함된 식으로 구하고, 크기 비 조건을 이용하여 \\( Q\\,[\\mathrm{nC}] \\)를 구한다.`,
+        `[단계 3] [단계 1]과 [단계 2]의 결과를 이용하여, \\( ${q}\\,[\\mathrm{C}] \\)의 전하가 원점 \\(\\mathrm{O}\\)에 있을 때 합성 전계 \\( (\\mathbf{E}_1+\\mathbf{E}_2) \\)에 의해 전하에 작용하는 힘 \\( \\mathbf{F}\\,[\\mathrm{N}] \\)을 구한다.`,
+      ].join("\n"),
+      answer: [
+        `[단계 1] \\( \\mathbf{E}_2 = ${vecTex(E2)}\\,[\\mathrm{V/m}] \\) (\\( |\\mathbf{E}_2| = ${rTex}\\times${absE1} \\))`,
+        `[단계 2] \\( Q = ${Qn}\\,[\\mathrm{nC}] \\), \\( \\mathbf{E}_1 = ${vecTex(E1)}\\,[\\mathrm{V/m}] \\)`,
+        `[단계 3] \\( \\mathbf{F} = ${vecTex(F)}\\,[\\mathrm{N}] \\)`,
+      ].join("\n"),
+      steps: [
+        `[단계 1] \\( \\dfrac{1}{2\\pi\\varepsilon_0} = 18\\times10^{9} \\). 원점에서 선까지의 수직 벡터 \\( \\boldsymbol{\\rho} = ${vecTex([-L[0], -L[1], 0])} \\), \\( \\rho = ${rhoTex} \\)이므로 ` +
+          `\\( \\mathbf{E}_2 = 18\\times10^{9}\\cdot\\dfrac{${kTex}\\times10^{-9}}{\\rho^{2}}\\boldsymbol{\\rho} = ${vecTex(E2)}\\,[\\mathrm{V/m}] \\).`,
+        `[단계 2] \\( \\mathbf{R} = \\mathrm{O}-\\mathrm{P} = ${vecTex([-P[0], -P[1], -P[2]])} \\), \\( |\\mathbf{R}|=3 \\)이므로 ` +
+          `\\( |\\mathbf{E}_1| = \\dfrac{9\\times10^{9}\\cdot|Q|\\times10^{-9}}{3^{2}} = |Q| \\) (\\(Q\\)의 단위 \\([\\mathrm{nC}]\\)). ` +
+          `크기 비에서 \\( |\\mathbf{E}_1| = \\dfrac{|\\mathbf{E}_2|}{${rTex}} = ${absE1} \\)이므로 \\( |Q| = ${Math.abs(Qn)} \\)이고, ${signWord}전하이므로 \\( Q = ${Qn}\\,[\\mathrm{nC}] \\). 따라서 \\( \\mathbf{E}_1 = ${vecTex(E1)}\\,[\\mathrm{V/m}] \\).`,
+        `[단계 3] \\( \\mathbf{E}_1+\\mathbf{E}_2 = ${vecTex(Esum)}\\,[\\mathrm{V/m}] \\)이므로 \\( \\mathbf{F} = q(\\mathbf{E}_1+\\mathbf{E}_2) = ${q}\\left(${vecTex(Esum)}\\right) = ${vecTex(F)}\\,[\\mathrm{N}] \\).`,
+      ],
+      diagram,
+    };
+  },
+};
+
+// =====================================================================
+// 두 무한 면전류 사이의 자속밀도 · 스칼라 자위 · 벡터 자위 · 사각형 통과 자속 (임용 10번 형식)
+//   원본: K₁ = −20a_z (y=−3), K₂ = +20a_z (y=3), −3<y<3에서 A = mμ₀(y−1)a_z,
+//         점 P(2,1,0)에서 V_m=0. [1] B와 원점의 V_m [2] B를 만족하는 m과 x=0 면
+//         사각형(|y|≤1, |z|≤1)을 통과하는 자속 Φ.
+//
+// ★ 물리(닫힌형, 손계산):
+//     무한 면전류의 자계는 `H = ½ K × a_n` (a_n = 면 → 관측점 단위법선).
+//       y=−d 의 K₁=−K a_z, 관측점 y>−d → a_n=+a_y : ½(−K a_z × a_y) = +½K a_x
+//       y=+d 의 K₂=+K a_z, 관측점 y<+d → a_n=−a_y : ½(K a_z ×(−a_y)) = +½K a_x
+//     → 두 면 **사이**에서 H = K a_x, **B = μ₀K a_x**  (바깥에서는 서로 상쇄되어 0).
+//     H = −∇V_m → V_m = −Kx + C, 기준점 P에서 0 → **V_m = K(x_P − x)**, 원점에서 K·x_P.
+//     ∇×A = mμ₀ a_x (A = mμ₀(y−y₀)a_z) 를 B와 같게 두면 **m = K**.
+//     x=0 면의 사각형(|y|≤b, |z|≤c)은 법선이 a_x → **Φ = μ₀K·(2b)(2c) = 4bcμ₀K [Wb]**.
+//       (∮A·dl 로 구해도 같다 — z 방향 변 두 개만 기여한다.)
+//   원본(K=20, d=3, x_P=2, b=c=1) → B=20μ₀a_x, V_m(원점)=40[A], m=20, **Φ=80μ₀[Wb]**.
+//
+// ★ 형제와 다르다: `sheet_line_superposition`은 면전류+**선전류** 합성 자계(h·k 도출)이고,
+//   이쪽은 **면전류 2장 + 벡터자위/스칼라자위 + 자속**이다.
+// =====================================================================
+type SheetCurSet = { K: number; d: number; xP: number; yP: number; b: number; c: number; y0: number };
+
+function buildSheetCurSpace(): SheetCurSet[] {
+  const out: SheetCurSet[] = [];
+  for (const K of [10, 20, 30, 40, 50]) {
+    for (const d of [2, 3, 4, 5]) {
+      for (const xP of [1, 2, 3, 4]) {
+        for (const yP of [0, 1, 2]) {
+          if (Math.abs(yP) >= d) continue;                 // 기준점은 두 면 사이에 있어야 한다
+          for (const b of [1, 2]) {
+            if (b >= d) continue;                          // 사각형도 두 면 사이
+            for (const c of [1, 2]) {
+              const y0 = yP;                               // A의 기준(원본은 y₀ = y_P = 1)
+              // 원본 튜플 제외
+              if (K === 20 && d === 3 && xP === 2 && yP === 1 && b === 1 && c === 1) continue;
+              out.push({ K, d, xP, yP, b, c, y0 });
+            }
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+const SHEET_CUR_SPACE = buildSheetCurSpace();
+
+const sheetCurrentsVectorPotential: EmEntry = {
+  id: "sheet_currents_vector_potential",
+  topicKey: "magnetostatics",
+  // ★ 키워드는 이 유형 고유 표현만 — 형제(면전류+선전류 합성 자계·앙페르)를 점수로 잠식하지 않도록
+  //   bare "면전류"는 넣지 않는다 ([[feedback_generic_code]] 잠식 금지). 라우팅은 구조 감지기가 맡는다.
+  keywords: ["벡터 자위", "스칼라 자위", "vector magnetic potential", "scalar magnetic potential"],
+  strongKeywords: ["벡터 자위", "스칼라 자위"],
+  title: "두 무한 면전류 사이의 자속밀도·자위와 자속",
+  geometry: "sheet_currents_planes",
+  build(mode, rand) {
+    const variant = mode === "exam_variant";
+    const s = pick(SHEET_CUR_SPACE, rand);
+    const { K, d, xP, yP, b, c, y0 } = s;
+
+    const VmOrigin = K * xP;                 // [A]
+    const fluxCoef = 4 * b * c * K;          // Φ = fluxCoef·μ₀ [Wb]
+    const M0 = "\\mu_0";
+    const rectTex = `\\(y=\\pm${b}\\), \\(z=\\pm${c}\\)`;
+    const A_TEX = `\\mathbf{A} = m${M0}(y-${y0})\\mathbf{a}_z\\,[\\mathrm{Wb/m}]`;
+
+    const diagram: EmFieldDiagram = {
+      geometry: "sheet_currents_planes",
+      title: "두 무한 면전류 사이의 자속밀도와 자위",
+      labels: {
+        k1: `K_1 = -${K}\\mathbf{a}_z\\,[\\mathrm{A/m}]`,
+        k2: `K_2 = ${K}\\mathbf{a}_z\\,[\\mathrm{A/m}]`,
+        plane1: `y = -${d}`,
+        plane2: `y = ${d}`,
+        rect: `x=0 면의 사각형 (|y| ≤ ${b}, |z| ≤ ${c})`,
+        refPoint: `P(${xP}, ${yP}, 0)`,
+      },
+    };
+
+    if (!variant) {
+      // 유사(원본 구조): B·V_m(원점) → m → Φ
+      return {
+        entryId: this.id, topicKey: this.topicKey, title: this.title,
+        content: `그림과 같이 자유공간상에서 두 개의 무한 면전류는 각각 밀도가 \\( \\mathbf{K}_1 = -${K}\\mathbf{a}_z\\,[\\mathrm{A/m}] \\), \\( \\mathbf{K}_2 = ${K}\\mathbf{a}_z\\,[\\mathrm{A/m}] \\)이고, \\( y=-${d} \\)인 면과 \\( y=${d} \\)인 면에 있다. \\( -${d}<y<${d} \\)에서 벡터 자위(vector magnetic potential)가 \\( ${A_TEX} \\)일 때, 두 면전류 사이의 공간에서 스칼라 자위(scalar magnetic potential) \\( V_m \\)과 자속(magnetic flux)의 양 \\( \\Phi\\,[\\mathrm{Wb}] \\)을 구하고자 한다. 제시된 〈해석 절차〉에 따라 각 단계별로 풀이 과정과 함께 결과를 서술하시오. (단, \\(m\\)은 임의의 상수이고, 점 \\( \\mathrm{P}(${xP},\\,${yP},\\,0) \\)에서 \\( V_m \\)은 0이며, 자유공간에서의 투자율은 \\( ${M0} \\)로 한다. 또한 \\( \\mathbf{a}_x, \\mathbf{a}_y, \\mathbf{a}_z \\)는 각 축방향 단위벡터이며, 좌표계의 단위는 \\([\\mathrm{m}]\\)이다.)`,
+        givens: [
+          `\\( \\mathbf{K}_1 = -${K}\\mathbf{a}_z\\,[\\mathrm{A/m}] \\) (면 \\(y=-${d}\\)), \\( \\mathbf{K}_2 = ${K}\\mathbf{a}_z\\,[\\mathrm{A/m}] \\) (면 \\(y=${d}\\))`,
+          `\\( -${d}<y<${d} \\) 에서 \\( ${A_TEX} \\)`,
+          `점 \\( \\mathrm{P}(${xP},\\,${yP},\\,0) \\)에서 \\( V_m = 0 \\)`,
+        ],
+        question: [
+          `[단계 1] \\( -${d}<y<${d} \\) 구간에서 자속밀도 \\( \\mathbf{B}\\,[\\mathrm{Wb/m^2}] \\)와 원점 \\( (0,0,0) \\)에서 스칼라 자위 \\( V_m\\,[\\mathrm{A}] \\)를 구한다.`,
+          `[단계 2] [단계 1]의 자속밀도를 만족하는 \\(m\\)을 구하고, \\(x=0\\)인 면에 ${rectTex}로 이루어진 사각형을 통과하는 자속의 양 \\( \\Phi\\,[\\mathrm{Wb}] \\)을 구한다.`,
+        ].join("\n"),
+        answer: [
+          `[단계 1] \\( \\mathbf{B} = ${K}${M0}\\mathbf{a}_x\\,[\\mathrm{Wb/m^2}] \\), \\( V_m(0,0,0) = ${VmOrigin}\\,[\\mathrm{A}] \\)`,
+          `[단계 2] \\( m = ${K} \\), \\( \\Phi = ${fluxCoef}${M0}\\,[\\mathrm{Wb}] \\)`,
+        ].join("\n"),
+        steps: [
+          `[단계 1] 무한 면전류의 자계는 \\( \\mathbf{H} = \\tfrac{1}{2}\\mathbf{K}\\times\\mathbf{a}_n \\) (\\( \\mathbf{a}_n \\)은 면에서 관측점으로 향하는 단위법선). ` +
+            `\\( y=-${d} \\)면(\\( \\mathbf{a}_n=\\mathbf{a}_y \\)): \\( \\tfrac{1}{2}(-${K}\\mathbf{a}_z)\\times\\mathbf{a}_y = ${K / 2}\\mathbf{a}_x \\). ` +
+            `\\( y=${d} \\)면(\\( \\mathbf{a}_n=-\\mathbf{a}_y \\)): \\( \\tfrac{1}{2}(${K}\\mathbf{a}_z)\\times(-\\mathbf{a}_y) = ${K / 2}\\mathbf{a}_x \\). ` +
+            `두 기여가 **더해져** \\( \\mathbf{H} = ${K}\\mathbf{a}_x\\,[\\mathrm{A/m}] \\), \\( \\mathbf{B} = ${M0}\\mathbf{H} = ${K}${M0}\\mathbf{a}_x \\).`,
+          `  스칼라 자위는 \\( \\mathbf{H} = -\\nabla V_m \\)에서 \\( V_m = -${K}x + C \\). 점 \\( \\mathrm{P}(${xP},${yP},0) \\)에서 0이므로 \\( C = ${K}\\cdot${xP} = ${VmOrigin} \\), ` +
+            `즉 \\( V_m = ${K}(${xP}-x)\\,[\\mathrm{A}] \\)이고 원점에서 \\( V_m = ${VmOrigin}\\,[\\mathrm{A}] \\).`,
+          `[단계 2] \\( \\mathbf{A} = m${M0}(y-${y0})\\mathbf{a}_z \\)이므로 \\( \\nabla\\times\\mathbf{A} = \\dfrac{\\partial A_z}{\\partial y}\\mathbf{a}_x = m${M0}\\mathbf{a}_x \\). ` +
+            `[단계 1]의 \\( \\mathbf{B} = ${K}${M0}\\mathbf{a}_x \\)와 같아야 하므로 \\( m = ${K} \\).`,
+          `  사각형은 \\(x=0\\) 면에 있으므로 면벡터가 \\( \\mathbf{a}_x \\)이고 \\( \\mathbf{B} \\)와 나란하다. ` +
+            `\\( \\Phi = \\mathbf{B}\\cdot\\mathbf{S} = ${K}${M0}\\times(2\\cdot${b})(2\\cdot${c}) = ${fluxCoef}${M0}\\,[\\mathrm{Wb}] \\). ` +
+            `(\\( \\Phi=\\oint\\mathbf{A}\\cdot d\\mathbf{l} \\)로 구해도 \\(z\\)방향 두 변만 기여해 같은 값이 나온다.)`,
+        ],
+        diagram,
+      };
+    }
+
+    // 변형(구하는 양 교환): 자속 Φ가 주어지고 면전류 밀도 K와 원점 V_m을 역산한다.
+    return {
+      entryId: this.id, topicKey: this.topicKey, title: this.title,
+      content: `그림과 같이 자유공간상에서 두 개의 무한 면전류가 \\( y=-${d} \\)인 면과 \\( y=${d} \\)인 면에 있고, 각각의 밀도는 \\( \\mathbf{K}_1 = -K\\mathbf{a}_z \\), \\( \\mathbf{K}_2 = K\\mathbf{a}_z\\,[\\mathrm{A/m}] \\)이다(\\(K>0\\)). \\(x=0\\)인 면에 ${rectTex}로 이루어진 사각형을 통과하는 자속이 \\( \\Phi = ${fluxCoef}${M0}\\,[\\mathrm{Wb}] \\)일 때, 면전류 밀도 \\(K\\)와 스칼라 자위 \\( V_m \\)을 구하고자 한다. 제시된 〈해석 절차〉에 따라 각 단계별로 풀이 과정과 함께 결과를 서술하시오. (단, 점 \\( \\mathrm{P}(${xP},\\,${yP},\\,0) \\)에서 \\( V_m \\)은 0이며, 자유공간의 투자율은 \\( ${M0} \\)이고 좌표계의 단위는 \\([\\mathrm{m}]\\)이다.)`,
+      givens: [
+        `면 \\( y=-${d} \\)에 \\( \\mathbf{K}_1 = -K\\mathbf{a}_z \\), 면 \\( y=${d} \\)에 \\( \\mathbf{K}_2 = K\\mathbf{a}_z\\,[\\mathrm{A/m}] \\)`,
+        `\\(x=0\\) 면의 사각형 ${rectTex}을 통과하는 자속 \\( \\Phi = ${fluxCoef}${M0}\\,[\\mathrm{Wb}] \\)`,
+        `점 \\( \\mathrm{P}(${xP},\\,${yP},\\,0) \\)에서 \\( V_m = 0 \\)`,
+      ],
+      question: [
+        `[단계 1] 두 면전류 사이(\\( -${d}<y<${d} \\))의 자속밀도 \\( \\mathbf{B} \\)를 \\(K\\)가 포함된 식으로 구하고, 주어진 자속 \\( \\Phi \\)로부터 \\( K\\,[\\mathrm{A/m}] \\)를 구한다.`,
+        `[단계 2] [단계 1]의 결과를 이용하여 원점 \\( (0,0,0) \\)에서 스칼라 자위 \\( V_m\\,[\\mathrm{A}] \\)와, \\( \\mathbf{A} = m${M0}(y-${y0})\\mathbf{a}_z \\)로 표현할 때의 \\( m \\)을 구한다.`,
+      ].join("\n"),
+      answer: [
+        `[단계 1] \\( \\mathbf{B} = K${M0}\\mathbf{a}_x \\), \\( K = ${K}\\,[\\mathrm{A/m}] \\)`,
+        `[단계 2] \\( V_m(0,0,0) = ${VmOrigin}\\,[\\mathrm{A}] \\), \\( m = ${K} \\)`,
+      ].join("\n"),
+      steps: [
+        `[단계 1] 무한 면전류 각각이 \\( \\tfrac{1}{2}K\\mathbf{a}_x \\)를 만들고 두 면 사이에서 더해지므로 \\( \\mathbf{H} = K\\mathbf{a}_x \\), \\( \\mathbf{B} = K${M0}\\mathbf{a}_x \\). ` +
+          `사각형은 \\(x=0\\) 면이라 면벡터가 \\( \\mathbf{a}_x \\)이므로 \\( \\Phi = K${M0}(2\\cdot${b})(2\\cdot${c}) = ${4 * b * c}K${M0} \\). ` +
+          `이것이 \\( ${fluxCoef}${M0} \\)이므로 \\( K = ${K}\\,[\\mathrm{A/m}] \\).`,
+        `[단계 2] \\( \\mathbf{H} = -\\nabla V_m \\)에서 \\( V_m = -${K}x + C \\), 점 \\( \\mathrm{P} \\)에서 0이므로 \\( V_m = ${K}(${xP}-x) \\), 원점에서 \\( ${VmOrigin}\\,[\\mathrm{A}] \\). ` +
+          `또 \\( \\nabla\\times\\mathbf{A} = m${M0}\\mathbf{a}_x = \\mathbf{B} \\)에서 \\( m = ${K} \\).`,
+      ],
+      diagram,
+    };
+  },
+};
+
 export const EM_FORMULA_REGISTRY: EmEntry[] = [
+  sheetCurrentsVectorPotential,
+  pointLineChargeForce,
   coaxLineMagneticField,
   cylinderConductorField,
   twoPointChargesFieldPotential,

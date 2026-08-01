@@ -63,7 +63,8 @@ export async function runUniversalAcPipeline(args: {
   if (analysis.circuitType?.params?.theveninMaxPower) {
     log.info("thevenin_max_power_mode", { mode, count });
     return generateInParallel(count, async (i, seed) => {
-      const gen = generateAcTheveninMaxPower({ seed });
+      // ★ 유사 = 원본 토폴로지 / 변형 = 두 전원망 병렬 구조 (사용자 지정, 2026-08-01).
+      const gen = generateAcTheveninMaxPower({ seed, mode });
       log.info("thevenin_max_power_generated", {
         Vs: gen.values.VsLabel, Is: gen.values.IsLabel,
         Zth: gen.solution.ZthLabel, Vth: gen.solution.VthLabel,

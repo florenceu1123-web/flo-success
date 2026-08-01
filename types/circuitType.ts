@@ -25,6 +25,9 @@ export type CircuitType =
   | "ac_parallel_branches"  // AC + 다중 병렬 가지 (R∥L1∥I_S∥L2∥R∥C) — 임용 5번 형식. V_C → I_L2·I_S → I_R1 phasor 단계
   | "bjt_bias"              // DC 바이어스된 BJT 회로 (임용 7번) — V_BE=0.7V 가정, V_E·I_C·V_O 계산, 저항률 ρ
   | "mosfet_bias"           // NMOS DC bias 회로 (단순 단일단) — 포화 영역 I_D=K(V_GS-V_TH)², V_GS·I_D·V_D·V_DS 단계 도출
+  | "ac_rl_average_power"   // AC 전원 + 직렬 jX_L + 병렬 R₁∥R₂ 평균전력 3단계 (임용 8번). 유사=인덕터·평균전력 / 변형=커패시터로 교체 + v(t) 도출
+  | "opamp_rc_t_oscillator" // 반전 OPAMP + 전방/귀환 T형 RC망 → 전달특성 −1/(sRC)² + 출력↔입력 연결 사인파 발진기 f₀=1/(2πRC) (임용 9번 전자). I₁·I₂ → H(s) → 특성방정식 근
+  | "jfet_voltage_bias"     // JFET 전압(분압) 바이어스 (임용 2번) — R₁/R₂ 분압 V_G + R_S로 I_D → R_D. ★제곱법칙 안 씀(V_GS given) — mosfet_bias와 모델이 다르다
   | "mosfet_cascode_mirror" // NMOS cascode current mirror (임용 10번 정확 재현) — M1 reference + M2 mirror + M3 cascode + R(학생 도출) + R_G 분압. 단계 1:V_GS1·R, 단계 2:V_D2, 단계 3:V_GS3·V_S3
   | "counter_dac_comparator" // 복합형: 2-bit JK 카운터 + R-2R DAC + OPAMP 비교기 (임용 8번)
   | "flash_adc_2bit"         // 복합형: 2비트 플래시 ADC (저항사다리+3비교기+인코더→Q1Q0, 임용 6번). 온도계코드 빈칸·Q최소화·논리회로
@@ -62,6 +65,7 @@ export type CircuitType =
   | "jk_sync_counter"       // JK 플립플롭 3개 동기식 카운터 타이밍 분석 — (가)회로 given + (나)타이밍 도표 Q 도시 + 시점 상태값 (임용 6번류). up(유사)/down(변형)
   | "flipflop_mixed_app"    // T-FF + JK-FF 등 혼합 응용회로 — 상태표 + 파형도
   | "tff_state_table_blank" // T-FF 2개 (T_A·T_B) + 입력 C + 상태표 빈칸 ㉠~㉧ + K-map 도출 (임용 7번 정보과)
+  | "tff3_autonomous_counter" // T-FF 3개 자율 카운터(외부 입력 없음) — (가)상태도 + (나)상태표 ㉠·㉡ + (다)회로 ㉢. T_B 최소 SOP → 2입력 NAND(변형 NOR) 2개 (임용 11번)
   | "ff_with_waveform"      // 단일 FF (D/T/JK) + 비동기 RESET + 조합부 + 파형도 (임용 8번 형식)
   | "combinational_gate"    // 3-입력 2-출력 조합 회로 (F, G 동시 설계)
   | "mux_implementation"    // (가) 조합논리회로 + (나) 4×1 MUX 등가구현 — POS→SOP→MUX 입력 결정 (임용 5번 형식)

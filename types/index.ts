@@ -498,6 +498,10 @@ export type DiagramType =
   | "demux_circuit"              // 1→4 디멀티플렉서 조합논리회로 (임용 8번 (가))
   | "number_ring_diagram"        // n비트 수 표현 원형(고리) 다이어그램 — 임용 4번 (가)·(나)
   | "mod_n_counter_circuit"      // mod-N 동기식 카운터 (T·D FF + CLR + 검출 게이트 ⓒ) — 임용 9번 (나)
+  | "tff3_counter_circuit"       // T-FF 3개 자율 카운터 (T_C·T_B(㉢ 블록)·T_A + 공통 CLK) — 임용 11번 (다)
+  | "jfet_bias_circuit"          // JFET 전압(분압) 바이어스 — +V_DD·R₁/R₂ 분압·R_D·R_S (임용 2번)
+  | "opamp_rc_t_oscillator_circuit" // 반전 OPAMP + 전방/귀환 T형 RC망 (가), 출력↔입력 연결 발진기 (나) — 임용 9번
+  | "ac_rl_average_power_circuit" // AC 전원 + 직렬 jX_L(유사)/−jX_C(변형) + 병렬 R₁∥R₂ — 평균전력 (임용 8번)
   | "jk_excitation_circuit"      // JK-FF 2개 + 조합논리 ㉲ 블록 + HIGH + CLK (2025 전기 A-8 (나))
   | "ac_superposition_source_design_circuit" // 2전원 페이저 RLC (임용 5번) — R₁·R₂ 상단 + R₃/jX_L/−jX_C 가운데 leg + V_s∠0°/I_s∠−90°
   | "dc_wheatstone_balance_circuit" // DC 휘트스톤 브리지 평형 — V_s+R_s + 다이아몬드 4암(미지 R_x∥R_p) + 브리지 암 + 개방 V_o (임용 3번 회로이론)
@@ -1750,6 +1754,53 @@ export type ModNCounterCircuitDiagram = {
   gateKind?: "AND" | "NAND";
   detectState?: string;                 // 리셋을 유발하는 상태 (예 "111")
   modulus?: number;                     // 계수 N
+};
+
+/** tff3_counter_circuit payload — T-FF 3개 자율(외부 입력 없음) 동기식 카운터 (임용 11번 (다)).
+ *  구조가 고정(T-FF 3개 + 공통 CLK + 상태변수 되먹임 버스)이라 조합부 라벨만 받는다.
+ *  T_B 블록은 학생이 도시할 빈칸(blockLabel, 기본 "㉢")이고 T_C·T_A 블록은 식이 주어진다. */
+export type Tff3CounterCircuitDiagram = {
+  blockLabel?: string;   // "㉢" — T_B 조합 블록(점선, 학생 도출)
+  // ★ 원본 (다)는 T_C·T_A 조합 블록의 **내용을 주지 않는다**(상태도만으로 풀린다).
+  //   식을 그려 넣으면 원본에 없는 정보가 생기므로 payload에 두지 않는다.
+  // ★ ㉢의 입력 리터럴도 두지 않는다 — 그리면 [단계 3] 정답이 새어 나온다.
+  gateKind?: "NAND" | "NOR";  // ㉢을 구현할 2입력 게이트 종류 (안내 문구용)
+  clockLabel?: string;   // "CLK"
+};
+
+/** jfet_bias_circuit payload — JFET 전압(분압) 바이어스 회로 (임용 2번).
+ *  구조가 고정(+V_DD 레일 / 좌: R₁–G–R₂ 분압 / 우: R_D–D–JFET–S–R_S)이라 라벨만 받는다. */
+export type JfetBiasCircuitDiagram = {
+  vddLabel: string;    // "+15[V]"
+  r1Label: string;     // "180[kΩ]" (상단 분압)
+  r2Label: string;     // "120[kΩ]" (하단 분압)
+  rdLabel: string;     // "R_D" (미지) 또는 "200[Ω]"
+  rsLabel: string;     // "1[kΩ]"
+  vgsLabel?: string;   // "V_{GS}"
+  channel?: "n" | "p"; // n채널 JFET (기본 n)
+};
+
+/** opamp_rc_t_oscillator_circuit payload — 반전 OPAMP + 전방/귀환 T형 RC망 (임용 9번).
+ *  구조가 고정이라 라벨과 두 가지 스위치만 받는다.
+ *   swapped=false : 전방 R-R(2C 접지) / 귀환 C-C(½R 접지)  ← 원본
+ *   swapped=true  : 두 T를 교환한 쌍대 (변형유형)
+ *   feedbackToInput=true 이면 (나) — 출력단자를 입력단자에 연결한 발진기. */
+export type OpampRcTOscillatorDiagram = {
+  swapped: boolean;
+  feedbackToInput: boolean;
+  rLabel?: string;    // "10[kΩ]"
+  cLabel?: string;    // "10[nF]"
+  caption?: string;   // "(가)" | "(나)"
+};
+
+/** ac_rl_average_power_circuit payload — AC 전원 + 직렬 리액턴스 + 병렬 저항 2개 (임용 8번).
+ *  구조 고정(좌: 전원 / 상단: 직렬 L 또는 C / 우: R₁·R₂ 병렬)이라 라벨만 받는다. */
+export type AcRlAveragePowerDiagram = {
+  isCapacitor: boolean;   // true면 직렬 소자가 커패시터(변형유형)
+  sourceLabel: string;    // "8∠0°V"
+  seriesLabel: string;    // "j2/3Ω" | "−j2/3Ω"
+  r1Label: string;        // "1Ω"
+  r2Label: string;        // "2Ω"
 };
 
 /** jk_excitation_circuit payload — JK-FF 2개 + 조합논리 블록 ㉲ (2025 전기 A-8 (나)).

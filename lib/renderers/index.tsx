@@ -74,6 +74,10 @@ import { renderDcWheatstoneBalanceCircuit } from "./dcWheatstoneBalanceCircuitRe
 import { renderAcSuperpositionSourceDesignCircuit } from "./acSuperpositionSourceDesignCircuitRenderer";
 import { renderJkExcitationCircuit } from "./jkExcitationCircuitRenderer";
 import { renderModNCounterCircuit } from "./modNCounterCircuitRenderer";
+import { renderTff3CounterCircuit } from "./tff3CounterCircuitRenderer";
+import { renderJfetBiasCircuit } from "./jfetBiasCircuitRenderer";
+import { renderOpampRcTOscillator } from "./opampRcTOscillatorRenderer";
+import { renderAcRlAveragePowerCircuit } from "./acRlAveragePowerCircuitRenderer";
 import { renderNumberRing } from "./numberRingRenderer";
 import { renderDemuxCircuit } from "./demuxCircuitRenderer";
 import { renderAcPowerFactorCircuit } from "./acPowerFactorCircuitRenderer";
@@ -216,6 +220,14 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderNumberRing(figure.diagram as import("@/types").NumberRingDiagram));
     case "mod_n_counter_circuit":
       return wrapSvg(figure, renderModNCounterCircuit(figure.diagram as import("@/types").ModNCounterCircuitDiagram));
+    case "ac_rl_average_power_circuit":
+      return wrapSvg(figure, renderAcRlAveragePowerCircuit(figure.diagram as import("@/types").AcRlAveragePowerDiagram));
+    case "opamp_rc_t_oscillator_circuit":
+      return wrapSvg(figure, renderOpampRcTOscillator(figure.diagram as import("@/types").OpampRcTOscillatorDiagram));
+    case "jfet_bias_circuit":
+      return wrapSvg(figure, renderJfetBiasCircuit(figure.diagram as import("@/types").JfetBiasCircuitDiagram));
+    case "tff3_counter_circuit":
+      return wrapSvg(figure, renderTff3CounterCircuit(figure.diagram as import("@/types").Tff3CounterCircuitDiagram));
     case "jk_excitation_circuit":
       return wrapSvg(figure, renderJkExcitationCircuit(figure.diagram as import("@/types").JkExcitationCircuitDiagram));
     case "ac_superposition_source_design_circuit":

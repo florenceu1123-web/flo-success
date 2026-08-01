@@ -392,11 +392,82 @@ export function detectTwoPointCharges(
  *   · 단일 대전 평면 문제엔 선전하가 없고, 전위함수 문제엔 면전하·선전하가 없다 → 둘 동시는 이 유형 고유.
  *   ★ 양보: 원형/링이면 sheet_ring_efield_ratio, 자계·전류면 자기 유형, 유전체 경계면 유전체 유형.
  */
+/**
+ * **두 무한 면전류** 사이의 자속밀도·스칼라 자위·벡터 자위·사각형 통과 자속 (임용 10번) 감지 — 강제 라우팅용.
+ *
+ * 구조 시그니처: (벡터 자위 또는 스칼라 자위) + 면전류 — 이 조합은 이 유형 고유다.
+ *   · 형제 `sheet_line_superposition`(면전류 + **선전류** 합성 자계)에는 자위(potential) 개념이 없다.
+ *   · `curl_from_line_integral`(∮H·dl → ∇×H)에는 면전류·자위가 없다.
+ * ★ 자위 낱말이 흔들리는 회차 대비 — "면전류 2개 + 자속(flux)" 조합으로도 인정한다.
+ */
+export function detectSheetCurrentsVectorPotential(
+  analysis: AnalysisResult | null | undefined,
+): boolean {
+  const text = buildText(analysis).toLowerCase();
+  if (!text.trim()) return false;
+
+  // 전기(전하) 문맥이면 정전계 유형 소관.
+  if (/면전하|선전하|점전하|전위\s*함수|전계|전기장/.test(text) && !/면전류|자위|자속밀도/.test(text)) return false;
+  // 선전류가 함께 나오면 면전류+선전류 합성 자계(sheet_line_superposition) 소관.
+  if (/선전류/.test(text)) return false;
+
+  const sheetCurrent = /면전류|면\s*전류|surface\s*current|\bk_?1\b|\bk_?2\b/.test(text);
+  if (!sheetCurrent) return false;
+
+  const potential = /벡터\s*자위|스칼라\s*자위|자위|magnetic\s*potential|v_?m\b/.test(text);
+  const flux = /자속|magnetic\s*flux|\\phi|Φ/.test(text);
+  return potential || flux;
+}
+
+/**
+ * **점전하 + 무한 선전하** 합성 전계 → 크기 비로 선전하 밀도 역산 + 힘 (2023 전기 A-10) 감지 — 강제 라우팅용.
+ *
+ * ★ 실측 신고(2026-08-01): 이 원본이 `sheet_line_efield_superposition`(무한 **면**전하 + 선전하)로
+ *   dispatch돼 "비슷해 보이지만 전혀 다른 걸 묻는" 문제가 생성됐다.
+ *   두 유형의 차이:
+ *     · 이쪽은 **점전하** + 선전하 (면전하 없음) / 저쪽은 **면전하** + 선전하
+ *     · 조건이 E=0이 아니라 **전계의 크기 비**
+ *     · 마지막이 전계가 아니라 **전하에 작용하는 힘 F**
+ *
+ * 구조 시그니처(표현 무관): 점전하 + 선전하가 **함께** 등장 + 면전하 없음 + 전계 문맥.
+ *   · 단일 점전하(point_charge_field)엔 선전하가 없고, 두 점전하(two_point_charges)엔 선전하가 없다.
+ *   · 면전하+선전하(sheet_line_efield_superposition)엔 점전하가 없다.
+ *   → 이 조합은 이 유형 고유다.
+ */
+export function detectPointLineChargeForce(
+  analysis: AnalysisResult | null | undefined,
+): boolean {
+  const text = buildText(analysis).toLowerCase();
+  if (!text.trim()) return false;
+
+  // 자계·전류 문맥이면 자기 유형 소관.
+  if (/자계|자기장|자장|면전류|선전류|전류밀도/.test(text)) return false;
+  // 유전체 경계·적층 문맥이면 유전체 유형 소관.
+  if (/유전체|비유전율/.test(text)) return false;
+  // ★ 면전하가 있으면 면전하+선전하 유형(sheet_line_efield_superposition)에 양보한다.
+  if (/면전하|면 전하|대전\s*평면|대전평면|무한\s*평면/.test(text)) return false;
+  // 원형 링이면 sheet_ring_efield_ratio 소관.
+  if (/원형|링|고리/.test(text)) return false;
+
+  const electric = /전계|전기장|mathbf\{e\}/.test(text);
+  if (!electric) return false;
+
+  const pointCharge = /점전하|점 전하|점\s*전하/.test(text);
+  const lineCharge = /선전하|선 전하|\\rho_l|ρ_l|선전하\s*밀도/.test(text);
+  if (!pointCharge || !lineCharge) return false;
+
+  // 이 유형 고유의 요구 — 크기 비 또는 전하에 작용하는 힘.
+  //   ※ 둘 다 흘린 회차라도 "점전하 + 선전하 + 전계"는 이 유형뿐이므로 그대로 인정한다.
+  return true;
+}
+
 export function detectSheetLineEfieldSuperposition(
   analysis: AnalysisResult | null | undefined,
 ): boolean {
   const text = buildText(analysis).toLowerCase();
   if (!text.trim()) return false;
+  // ★ 점전하 + 선전하(면전하 없음)는 point_line_charge_force 소관 — 형제 양보 (2026-08-01 실측 신고).
+  if (detectPointLineChargeForce(analysis)) return false;
 
   // 자계·전류 문맥이면 자기 유형(sheet_line_superposition 등)에 양보.
   if (
