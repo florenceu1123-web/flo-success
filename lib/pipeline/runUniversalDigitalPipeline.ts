@@ -317,7 +317,8 @@ async function runSharedTermInputBlankMode(args: {
       varNames,
       funcNames,
       originalMinterms: originalMinterms.length >= 2 ? originalMinterms : undefined,
-      mode,
+      // gpt_generated는 이 파이프라인에 도달하지 않지만(route에서 우회), 타입상 좁혀서 전달.
+      mode: mode === "gpt_generated" ? undefined : mode,
     });
     if (!gen.uniqueAssignment) {
       log.warn("shared_term_non_unique_assignment", { minterms: gen.mintermExpressions });

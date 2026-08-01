@@ -103,9 +103,14 @@ export function generateMuxImplementation(args: {
   index?: number;
 }): MuxImplementationGeneration {
   const pool = VARIANT_POOL;
-  const idx = typeof args.index === "number"
+  const base = typeof args.index === "number"
     ? ((args.index % pool.length) + pool.length) % pool.length
     : Math.floor(((args.seed ?? 0) * 9301 + 49297) % pool.length);
+  // ★ 모드별로 서로 다른 식을 쓰도록 풀을 어긋나게 고른다 (2026-07-29) —
+  //   기존엔 mode를 무시해 **유사와 변형이 완전히 같은 문제**로 나왔다(실측 E2E).
+  //   구조·발문은 동일(원본 형식 보존), 불 함수만 달라진다.
+  const offset = args.mode === "exam_variant" ? Math.max(1, Math.floor(pool.length / 2)) : 0;
+  const idx = (base + offset) % pool.length;
   const variant = pool[idx];
 
   // ── (가) 회로 + truth table ─────────────────────

@@ -40,7 +40,7 @@ export async function runSequenceDetectorPipeline(args: {
   const contextHint = buildContextHint(analysis);
 
   return generateInParallel(count, async (i, seed) => {
-    const gen = generateSequenceDetector({ params: analysis?.circuitType?.params, seed });
+    const gen = generateSequenceDetector({ params: analysis?.circuitType?.params, seed, mode });
     log.info("seq_detector_generated", {
       pattern: gen.pattern,
       blanks: gen.blanks,

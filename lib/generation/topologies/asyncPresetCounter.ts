@@ -54,7 +54,7 @@ export type AsyncPresetCounterGeneration = {
 };
 
 /** mode별 I 패턴 풀 (Q₀=LSB, value≥4라 ㉡에 의미있는 카운트 단계가 생김). */
-const PATTERN_POOL: Record<GenerationMode, number[][]> = {
+const PATTERN_POOL: Record<"exam_similar" | "exam_variant", number[][]> = {
   // 기출유사: 원본(101)과 다른 패턴 — value 4·6·7
   exam_similar: [
     [0, 0, 1], // 001 = 4
@@ -201,7 +201,7 @@ export function generateAsyncPresetCounter(args: {
 }): AsyncPresetCounterGeneration {
   const rand = makeRand(args.seed);
   for (let i = 0; i < 4; i++) rand(); // warm-up
-  const pool = PATTERN_POOL[args.mode] ?? PATTERN_POOL.exam_similar;
+  const pool = PATTERN_POOL[args.mode as "exam_similar" | "exam_variant"] ?? PATTERN_POOL.exam_similar;
   const iBits = pick(pool, rand);
   return solve(iBits, args.mode);
 }

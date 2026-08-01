@@ -169,8 +169,9 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
     .map((input, i) => (input === "CLK" ? null : 90 + i * 90))
     .filter((y): y is number => y !== null);
   const fbConsumerYs = [...fbConsumers.values()].flatMap((pts) => pts.map((p) => p.y));
+  const outTerminalY = computeOutputTerminalYs(diagram.outputs, signalPos);
   const terminalRightX = (sig: string): number => (signalPos.get(sig)?.x ?? 0) + 80 + 60;
-  const terminalRightY = (sig: string): number => signalPos.get(sig)?.y ?? 0;
+  const terminalRightY = (sig: string): number => outTerminalY.get(sig) ?? signalPos.get(sig)?.y ?? 0;
   const allXs = [
     ...nodes.map((n) => n.x + n.width + PIN_STUB + 12),
     ...diagram.outputs.map(terminalRightX),
@@ -353,12 +354,14 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
     }
   }
 
-  // 외부 출력 라벨 — buildSignalRoutes의 outputEndX와 동일 위치 (라벨/wire 정확히 닿음).
+  // 외부 출력 라벨 — buildSignalRoutes의 outputEndX·종단 y와 동일 위치 (라벨/wire 정확히 닿음).
+  //   같은 행 다중 출력은 computeOutputTerminalYs로 세로 분리(라우팅과 동일 좌표).
   const labelEndX = Math.max(0, ...diagram.outputs.map((o) => signalPos.get(o)?.x ?? 0)) + 60;
+  const labelTermY = computeOutputTerminalYs(diagram.outputs, signalPos);
   for (const output of diagram.outputs) {
     const p = signalPos.get(output);
     if (!p) continue;
-    svg += `<text x="${labelEndX + 12}" y="${p.y + 5}" font-size="14">${escapeSvg(output)}</text>`;
+    svg += `<text x="${labelEndX + 12}" y="${(labelTermY.get(output) ?? p.y) + 5}" font-size="14">${escapeSvg(output)}</text>`;
   }
 
   // signalLabels — 중간 wire의 식별용 라벨 (외부 단자 X, 게이트 위쪽에 작은 텍스트).
@@ -687,6 +690,31 @@ function horizontalCrossesAny(y: number, x1: number, x2: number, obstacles: Gate
   );
 }
 
+/**
+ * 외부 output 단자의 y 좌표 — 여러 출력이 같은 행(source y 근접)에 놓이면 라벨·배선이 우측
+ * 한 점에 겹친다(예: JK 동기식 카운터의 Q2·Q1·Q0가 같은 행 FF들). source y 기준 정렬 후
+ * MIN_GAP 미만으로 붙은 출력만 아래로 밀어 분리한다. 충분히 떨어진 출력은 source y 그대로
+ * (단일/분리 출력 archetype 무영향). 라벨·배선·viewBox 세 곳이 이 함수를 공유해 일치시킨다.
+ */
+function computeOutputTerminalYs(
+  outputs: string[],
+  signalPos: Map<string, Point>,
+): Map<string, number> {
+  const MIN_GAP = 28;
+  const entries = outputs
+    .map((o) => ({ o, y: signalPos.get(o)?.y }))
+    .filter((e): e is { o: string; y: number } => typeof e.y === "number")
+    .sort((a, b) => a.y - b.y);
+  const result = new Map<string, number>();
+  let prevY = -Infinity;
+  for (const e of entries) {
+    const y = e.y - prevY < MIN_GAP ? prevY + MIN_GAP : e.y;
+    result.set(e.o, y);
+    prevY = y;
+  }
+  return result;
+}
+
 /** diagram + nodes + signalPos → SignalRoute[]. gate inputs와 외부 output 모두 destination에 포함. */
 function buildSignalRoutes(
   diagram: LogicNetworkDiagram,
@@ -711,11 +739,12 @@ function buildSignalRoutes(
   // 외부 output destination — 가장 우측 output source x + 60에 통일 (라벨끼리 align, 회로와 너무 멀지 않게).
   const maxOutputSrcX = Math.max(0, ...diagram.outputs.map((o) => signalPos.get(o)?.x ?? 0));
   const outputEndX = maxOutputSrcX + 60;
+  const outTermY = computeOutputTerminalYs(diagram.outputs, signalPos);
   for (const out of diagram.outputs) {
     const src = signalPos.get(out);
     if (!src) continue;
     const list = sigToDsts.get(out) ?? [];
-    list.push({ x: outputEndX, y: src.y });
+    list.push({ x: outputEndX, y: outTermY.get(out) ?? src.y });
     sigToDsts.set(out, list);
   }
   const routes: SignalRoute[] = [];

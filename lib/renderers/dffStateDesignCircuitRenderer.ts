@@ -27,10 +27,14 @@ export function renderDffStateDesignCircuit(d: D): string {
   const s: string[] = [];
   const t: string[] = [];
 
-  for (const [sym, gateCy, ffCy, ffId, qLabel, dLabel] of [
-    [d.gateASym ?? "㉮", FF_A_CY, FF_A_CY, "FF_A", "Q_A", "D_A"],
-    [d.gateBSym ?? "㉯", FF_B_CY, FF_B_CY, "FF_B", "Q_B", "D_B"],
-  ] as const) {
+  const rows = [
+    { sym: d.gateASym ?? "㉮", gateCy: FF_A_CY, ffCy: FF_A_CY, ffId: "FF_A", qLabel: "Q_A",
+      ffType: d.ffAType ?? "D", inputName: d.ffAInputName ?? "D_A" },
+    { sym: d.gateBSym ?? "㉯", gateCy: FF_B_CY, ffCy: FF_B_CY, ffId: "FF_B", qLabel: "Q_B",
+      ffType: d.ffBType ?? "D", inputName: d.ffBInputName ?? "D_B" },
+  ] as const;
+  for (const { sym, gateCy, ffCy, ffId, qLabel, ffType, inputName } of rows) {
+    const pin = ffType === "T" ? "T" : "D";   // 입력 핀 라벨
     // 게이트 박스 (빈칸 — 종류 미정)
     const gx = GATE_X, gy = gateCy - GATE_H / 2;
     s.push(`<rect x="${gx}" y="${gy}" width="${GATE_W}" height="${GATE_H}" rx="4" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}" stroke-dasharray="5 3"/>`);
@@ -40,15 +44,15 @@ export function renderDffStateDesignCircuit(d: D): string {
     w.push(line(IN_X + 24, gateCy + 10, gx, gateCy + 10));
     t.push(text(gx - 6, gateCy - 13, "Q_A", { size: 9, anchor: "end", fill: MUTED }));
     t.push(text(gx - 6, gateCy + 20, "Q_B", { size: 9, anchor: "end", fill: MUTED }));
-    // 게이트 출력 → D 핀
+    // 게이트 출력 → 입력 핀(D 또는 T)
     w.push(line(gx + GATE_W, gateCy, FF_L, ffCy));
-    t.push(text((gx + GATE_W + FF_L) / 2, ffCy - 6, dLabel, { size: 10, weight: 600, fill: "#dc2626" }));
+    t.push(text((gx + GATE_W + FF_L) / 2, ffCy - 6, inputName, { size: 10, weight: 600, fill: "#dc2626" }));
 
     // FF 박스
     s.push(`<rect x="${FF_L}" y="${ffCy - FF_HALF}" width="${FF_W}" height="${FF_HALF * 2}" rx="4" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`);
-    t.push(text(FF_L + FF_W / 2, ffCy - 22, "D-FF", { size: 11, weight: 700, fill: MUTED }));
+    t.push(text(FF_L + FF_W / 2, ffCy - 22, `${pin}-FF`, { size: 11, weight: 700, fill: MUTED }));
     t.push(text(FF_L + FF_W / 2, ffCy + 6, ffId.replace("FF_", "FF "), { size: 10, fill: MUTED }));
-    t.push(text(FF_L + 10, ffCy - 12 + 4, "D", { size: 11, weight: 600, anchor: "start" }));
+    t.push(text(FF_L + 10, ffCy - 12 + 4, pin, { size: 11, weight: 600, anchor: "start" }));
     t.push(text(FF_L + FF_W - 10, ffCy - 12 + 4, "Q", { size: 11, weight: 600, anchor: "end" }));
     s.push(clkTri(FF_L, ffCy + 16));
     // Q 출력
@@ -81,7 +85,9 @@ export function renderDffStateDesignCircuit(d: D): string {
   w.push(line(FF_L - 16, FF_B_CY + 16, FF_L, FF_B_CY + 16));
   s.push(dot(FF_L - 16, FF_B_CY + 16));
 
-  t.push(text(W / 2, H - 8, "D-FF 2개 + 게이트 ㉮·㉯ — D_A·D_B를 Q_A·Q_B 함수로 구현 (㉮·㉯ 학생 도출)", { size: 10, fill: MUTED }));
+  const ffSummary = `${d.ffAType ?? "D"}-FF + ${d.ffBType ?? "D"}-FF`;
+  const inSummary = `${d.ffAInputName ?? "D_A"}·${d.ffBInputName ?? "D_B"}`;
+  t.push(text(W / 2, H - 8, `${ffSummary} + 게이트 ㉮·㉯ — ${inSummary}를 Q_A·Q_B 함수로 구현 (㉮·㉯ 학생 도출)`, { size: 10, fill: MUTED }));
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${H}" viewBox="0 0 ${W} ${H}">\n${[...w, ...s, ...t].join("\n")}\n</svg>`;
 }

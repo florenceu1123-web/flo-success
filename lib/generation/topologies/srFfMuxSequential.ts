@@ -56,7 +56,7 @@ type SR = 0 | 1 | "x";
 const BLANK_SYMBOLS = ["㉠", "㉡", "㉢", "㉣"];
 
 /** mode별 유효 cycle 풀 (선택선·빈칸 FF flavor가 고정되도록 선별). */
-const CYCLE_POOL: Record<GenerationMode, number[][]> = {
+const CYCLE_POOL: Record<"exam_similar" | "exam_variant", number[][]> = {
   // C, C' — select=Q_A, 빈칸 FF B (원본과 동일 flavor)
   exam_similar: [
     [2, 3, 1, 0], // 11→00→10→01→11 (원본)
@@ -191,7 +191,7 @@ export function generateSrFfMuxSequential(args: {
   const rand = makeRand(args.seed);
   for (let i = 0; i < 6; i++) rand(); // warm-up
 
-  const pool = CYCLE_POOL[args.mode] ?? CYCLE_POOL.exam_similar;
+  const pool = CYCLE_POOL[args.mode as "exam_similar" | "exam_variant"] ?? CYCLE_POOL.exam_similar;
   const nextOf = pick(pool, rand);
 
   const config = solveConfig(nextOf);

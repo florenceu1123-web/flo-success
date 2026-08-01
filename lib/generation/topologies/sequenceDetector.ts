@@ -16,7 +16,7 @@
  *  Phase 1 MVP. 4-state 한정 (3-bit 패턴까지). 4-bit 패턴은 후속.
  */
 
-import type { CircuitTypeParams } from "@/types";
+import type { CircuitTypeParams, GenerationMode } from "@/types";
 import { makeRand, pick } from "./_helpers";
 
 export type Bit = 0 | 1;
@@ -205,10 +205,18 @@ function minimizeSop3Var(
 export function generateSequenceDetector(args: {
   params?: CircuitTypeParams;
   seed?: number;
+  mode?: GenerationMode;
 }): SequenceDetectorGeneration {
   const rand = makeRand(args.seed);
-  // 패턴 — params 우선, 없으면 seed로 변형
-  const pattern = args.params?.sequencePattern ?? pick(["110", "101", "011"], rand);
+  // ★ params.sequencePattern은 **원본**의 패턴이다 (2026-07-29 수정) — 그대로 쓰면 원본과 똑같은
+  //   문제가 나오고(원본 튜플 금지 원칙 위반) 유사·변형도 서로 같아진다(실측: 둘 다 '110').
+  //   → 원본 패턴은 풀에서 제외하고, 모드별로 서로 다른 패턴을 고른다(구조·발문은 동일).
+  const POOL = ["110", "101", "011", "010", "001", "100"];
+  const original = args.params?.sequencePattern;
+  const usable = POOL.filter((p) => p !== original);
+  const half = Math.max(1, Math.floor(usable.length / 2));
+  const slice = args.mode === "exam_variant" ? usable.slice(half) : usable.slice(0, half);
+  const pattern = pick(slice.length ? slice : usable, rand);
   if (pattern.length > 3) {
     throw new Error(`sequence_detector MVP는 3-bit 패턴까지만 (got: '${pattern}', length ${pattern.length})`);
   }

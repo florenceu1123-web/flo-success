@@ -85,12 +85,24 @@ export function renderWaveform(figure: FigureVariant) {
   const xUnit = d.xAxis?.unit ?? d.unit?.time ?? "";
   const tUnit = xUnit;
   const tRange = tMax - tMin;
-  const xOf = (t: number) => PAD_L + ((t - tMin) / tRange) * PLOT_W;
+  // ★ 연속 곡선 그래프(주파수응답 등)는 lane을 크게 (2026-07-27).
+  //   디지털 타이밍용 LANE_H=50은 곡선 한 개짜리 그래프엔 너무 납작해 수치·라벨이 겹쳐 안 보였다
+  //   (실측 신고: "그래프 수치가 잘 안보여"). 신호가 1개이고 디지털(step/square)·blank가 아니면
+  //   높이를 3배 이상으로 키우고 가로도 넓힌다.
+  const isCurveGraph =
+    signals.length === 1 &&
+    !signals[0]?.blank &&
+    signals[0]?.shape !== "step" &&
+    signals[0]?.shape !== "square";
+  const laneH = isCurveGraph ? 190 : LANE_H;
+  const plotW = isCurveGraph ? 760 : PLOT_W;
+
+  const xOf = (t: number) => PAD_L + ((t - tMin) / tRange) * plotW;
 
   // 각 신호의 lane 영역 (lane top/bottom y) 결정. lane은 위에서부터 stack.
   const lanes = signals.map((sig, i) => {
-    const top = PAD_T + i * (LANE_H + LANE_GAP);
-    const bottom = top + LANE_H;
+    const top = PAD_T + i * (laneH + LANE_GAP);
+    const bottom = top + laneH;
     // 신호의 v range — 디지털(0/1)이거나 정해진 범위. 자동 계산.
     let vMin = Number.POSITIVE_INFINITY, vMax = Number.NEGATIVE_INFINITY;
     if (sig.blank && sig.vRange) {
@@ -114,10 +126,10 @@ export function renderWaveform(figure: FigureVariant) {
     return { sig, top, bottom, innerTop, innerBottom, vMin, vMax, yOf };
   });
 
-  const totalLanesH = signals.length * LANE_H + (signals.length - 1) * LANE_GAP;
+  const totalLanesH = signals.length * laneH + (signals.length - 1) * LANE_GAP;
   const plotTop = PAD_T;
   const plotBottom = plotTop + totalLanesH;
-  const SVG_W = PLOT_W + PAD_L + PAD_R;
+  const SVG_W = plotW + PAD_L + PAD_R;
   const SVG_H = plotBottom + PAD_B;
 
   // 시간축 grid (전체 lane 영역을 가로지르는 vertical lines)
@@ -131,8 +143,8 @@ export function renderWaveform(figure: FigureVariant) {
     .map((L) => {
       const yZero = L.yOf(L.vMin); // lane 하단 (0)
       const yOne = L.yOf(L.vMax);  // lane 상단 (1 또는 max)
-      return `<line x1="${PAD_L}" y1="${yZero}" x2="${PAD_L + PLOT_W}" y2="${yZero}" stroke="#d1d5db" stroke-width="1"/>` +
-        `<line x1="${PAD_L}" y1="${yOne}" x2="${PAD_L + PLOT_W}" y2="${yOne}" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 3"/>`;
+      return `<line x1="${PAD_L}" y1="${yZero}" x2="${PAD_L + plotW}" y2="${yZero}" stroke="#d1d5db" stroke-width="1"/>` +
+        `<line x1="${PAD_L}" y1="${yOne}" x2="${PAD_L + plotW}" y2="${yOne}" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 3"/>`;
     })
     .join("");
 
@@ -148,7 +160,7 @@ export function renderWaveform(figure: FigureVariant) {
       // bipolar (vMin < 0 < vMax)면 v=0 라인 + "0" 라벨 추가
       if (L.vMin < 0 && L.vMax > 0) {
         const yZeroLevel = L.yOf(0);
-        labels += `<line x1="${PAD_L}" y1="${yZeroLevel}" x2="${PAD_L + PLOT_W}" y2="${yZeroLevel}" stroke="#9ca3af" stroke-width="0.8" stroke-dasharray="3 3"/>` +
+        labels += `<line x1="${PAD_L}" y1="${yZeroLevel}" x2="${PAD_L + plotW}" y2="${yZeroLevel}" stroke="#9ca3af" stroke-width="0.8" stroke-dasharray="3 3"/>` +
           `<text x="${PAD_L - 4}" y="${yZeroLevel + 4}" text-anchor="end" font-size="10" fill="#6b7280">0</text>`;
       }
       return labels;
@@ -156,7 +168,7 @@ export function renderWaveform(figure: FigureVariant) {
     .join("");
 
   // x축 (가장 아래 lane 아래)
-  const xAxis = `<line x1="${PAD_L}" y1="${plotBottom}" x2="${PAD_L + PLOT_W}" y2="${plotBottom}" stroke="#374151" stroke-width="1.5"/>`;
+  const xAxis = `<line x1="${PAD_L}" y1="${plotBottom}" x2="${PAD_L + plotW}" y2="${plotBottom}" stroke="#374151" stroke-width="1.5"/>`;
   // 시간 마커 x 위치 계산 — tick label 충돌 회피용
   const markers = Array.isArray(d.markers) ? d.markers : [];
   const markerXs = markers.map((m) => xOf(m.t));
@@ -169,7 +181,7 @@ export function renderWaveform(figure: FigureVariant) {
     })
     .map((t) => `<text x="${xOf(t)}" y="${plotBottom + 16}" text-anchor="middle" font-size="11" fill="#374151">${formatNumber(t)}</text>`)
     .join("");
-  const xUnitLabel = `<text x="${PAD_L + PLOT_W}" y="${plotBottom + 32}" text-anchor="end" font-size="12" fill="#1e3a8a">${escapeSvg(xSymbol)}${tUnit ? ` [${escapeSvg(tUnit)}]` : ""}</text>`;
+  const xUnitLabel = `<text x="${PAD_L + plotW}" y="${plotBottom + 32}" text-anchor="end" font-size="12" fill="#1e3a8a">${escapeSvg(xSymbol)}${tUnit ? ` [${escapeSvg(tUnit)}]` : ""}</text>`;
 
   // 신호별 polyline — 자기 lane의 yOf 사용. 모두 같은 색.
   // blank=true 신호는 polyline 생략 (학생이 직접 채울 빈칸 트랙)
@@ -182,11 +194,19 @@ export function renderWaveform(figure: FigureVariant) {
     .join("");
 
   // 시간 마커 (t₁, t₂, ...) — 전체 lane 영역 가로지르는 점선 + 축 아래 라벨
+  //   ★ 라벨이 가까우면 위·아래로 번갈아 배치해 겹침 방지 (실측: "f₀"와 "1000/(2π)"가 포개짐).
+  const MARKER_LABEL_MIN_GAP = 56;
+  let lastLabelX = Number.NEGATIVE_INFINITY;
+  let labelRow = 0;
   const markerLines = markers
     .map((m) => {
       const mx = xOf(m.t);
+      if (mx - lastLabelX < MARKER_LABEL_MIN_GAP) labelRow = (labelRow + 1) % 2;
+      else labelRow = 0;
+      lastLabelX = mx;
+      const labelY = plotBottom + 30 + labelRow * 15;
       return `<line x1="${mx}" y1="${plotTop}" x2="${mx}" y2="${plotBottom}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3"/>` +
-        `<text x="${mx}" y="${plotBottom + 30}" text-anchor="middle" font-size="11" fill="#1e3a8a" font-weight="600">${escapeSvg(m.label)}</text>`;
+        `<text x="${mx}" y="${labelY}" text-anchor="middle" font-size="12" fill="#1e3a8a" font-weight="600">${escapeSvg(m.label)}</text>`;
     })
     .join("");
 
@@ -197,8 +217,14 @@ export function renderWaveform(figure: FigureVariant) {
     ? yMarkers
         .map((ym) => {
           const my = lanes[0].yOf(ym.v);
-          return `<line x1="${PAD_L}" y1="${my}" x2="${PAD_L + PLOT_W}" y2="${my}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3"/>` +
-            `<text x="${PAD_L - 4}" y="${my + 4}" text-anchor="end" font-size="11" fill="#1e3a8a" font-weight="600">${escapeSvg(ym.label)}</text>`;
+          // ★ lane 축 눈금(vMin·vMax 숫자)과 겹치면 라벨을 위로 살짝 올린다
+          //   (실측: "I_max"와 "0.05"가 같은 높이에 포개져 둘 다 안 읽혔다).
+          const collides =
+            Math.abs(my - lanes[0].yOf(lanes[0].vMax)) < 12 ||
+            Math.abs(my - lanes[0].yOf(lanes[0].vMin)) < 12;
+          const labelY = collides ? my - 8 : my + 4;
+          return `<line x1="${PAD_L}" y1="${my}" x2="${PAD_L + plotW}" y2="${my}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3"/>` +
+            `<text x="${PAD_L - 4}" y="${labelY}" text-anchor="end" font-size="12" fill="#1e3a8a" font-weight="600">${escapeSvg(ym.label)}</text>`;
         })
         .join("")
     : "";

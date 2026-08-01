@@ -1,5 +1,7 @@
 import type {
   CircuitTypeParams,
+  FfMixedAppCircuitDiagram,
+  FfMixedAppGateSpec,
   LogicGate,
   LogicNetworkDiagram,
   TruthTableDiagram,
@@ -26,6 +28,8 @@ import { makeRand, pick } from "./_helpers";
 
 export type FfMixedGeneration = {
   logicNetworkDiagram: LogicNetworkDiagram;
+  /** (가) 전용 세로 스택 회로도 (T-FF 위 + JK-FF 아래 + 조합부). */
+  circuitDiagram: FfMixedAppCircuitDiagram;
   stateTable: TruthTableDiagram;
   /** (다) 문제 템플릿 — X·CLK는 채워지고, 학생 도출 대상(Q_A·Q_B)은 blank */
   waveformTemplate: WaveformDiagram;
@@ -158,8 +162,14 @@ export function generateFfMixedApplication(args: {
     }),
   };
 
-  // logicNetworkDiagram 생성
+  // logicNetworkDiagram 생성 (기존 generic 렌더러 호환용 — 폴백)
   const logicNetworkDiagram = buildLogicNetwork(TA.expr, JB.expr, KB.expr);
+  // circuitDiagram 생성 (전용 세로 스택 렌더러용)
+  const circuitDiagram: FfMixedAppCircuitDiagram = {
+    taGate: exprToGateSpec(TA.expr),
+    jbGate: exprToGateSpec(JB.expr),
+    kbGate: exprToGateSpec(KB.expr),
+  };
 
   // waveform: X 입력 패턴 + 시뮬레이션. template은 Q_A·Q_B blank, solution은 전체 채움.
   const { template: waveformTemplate, solution: waveformSolution } = buildWaveform(
@@ -171,12 +181,22 @@ export function generateFfMixedApplication(args: {
 
   return {
     logicNetworkDiagram,
+    circuitDiagram,
     stateTable,
     waveformTemplate,
     waveformSolution,
     blankAnswers,
     expressions: { TA: TA.expr, JB: JB.expr, KB: KB.expr },
   };
+}
+
+/** SIGNAL_FORMS 표현식 → 전용 렌더러용 게이트 스펙 (표시명 유지, 예: "Q_A'"). */
+function exprToGateSpec(expr: string): FfMixedAppGateSpec {
+  const norm = expr.replace(/\s+/g, "");
+  if (norm.includes("⊕")) return { op: "XOR", inputs: norm.split("⊕") };
+  if (norm.includes("·")) return { op: "AND", inputs: norm.split("·") };
+  if (norm.includes("+")) return { op: "OR", inputs: norm.split("+") };
+  return { op: "WIRE", inputs: [norm] }; // 단일 신호 직결
 }
 
 // =====================================================================
