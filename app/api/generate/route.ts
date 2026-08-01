@@ -26,6 +26,7 @@ import { runSwitchedRlc5legPipeline } from "@/lib/pipeline/runSwitchedRlc5legPip
 import { runDcSupermeshPipeline } from "@/lib/pipeline/runDcSupermeshPipeline";
 import { runDcSupernodePipeline } from "@/lib/pipeline/runDcSupernodePipeline";
 import { runParamMaxPowerPipeline, detectParamMaxPower, isParamMaxPowerForm, paramMaxPowerFailureReason } from "@/lib/pipeline/runParamMaxPowerPipeline";
+import { runSupernodeDepMaxPowerPipeline, detectSupernodeDepMaxPower } from "@/lib/pipeline/runSupernodeDepMaxPowerPipeline";
 import { runDcDependentSourcePipeline } from "@/lib/pipeline/runDcDependentSourcePipeline";
 import { runInductorRampSlopePipeline, detectInductorRampSlope } from "@/lib/pipeline/runInductorRampSlopePipeline";
 import { runAcSuperpositionPipeline, detectAcSuperposition } from "@/lib/pipeline/runAcSuperpositionPipeline";
@@ -817,12 +818,22 @@ export async function POST(req: NextRequest) {
     //   a"를 묻는 형식. 이 형식은 supernode·mesh·thevenin 어느 circuitType으로도 분류될 수 있어
     //   특정 분기 안에 두면 샌다(실측: 임용 6번이 dc_supernode로 가서 종속원·파라미터·최대화가
     //   전부 소실됨). 파라미터가 실제로 감지될 때만 발화하므로 일반 회로는 영향받지 않는다.
+    // ★ 0-PRE(circuitType 무관) — 슈퍼노드 + 종속 전원 + 파라미터 최대 전력(임용 6번) 전용.
+    //   토폴로지를 코드가 알고 있어 Vision의 연결 인식에 의존하지 않는다. 아래 universal
+    //   파라미터 경로보다 **먼저** 둔다(그쪽은 연결 추출이 정확해야만 성립).
+    const supernodeDepProblems =
+      mode !== "gpt_generated" && detectSupernodeDepMaxPower(analysis)
+        ? await runSupernodeDepMaxPowerPipeline({ mode: mode as GenerationMode, count: n })
+        : [];
     //   식 복원·극대 탐색이 실패하면 빈 배열 → 기존 체인으로 그대로 흘려보낸다(억지 생성 금지).
     const paramMaxProblems =
       mode !== "gpt_generated" && detectParamMaxPower(analysis)
         ? await runParamMaxPowerPipeline({ analysis: analysis ?? null, mode: mode as GenerationMode, count: n })
         : [];
-    if (paramMaxProblems.length > 0) {
+    if (supernodeDepProblems.length > 0) {
+      log.info("dispatch", { route: "supernode_dep_max_power_pipeline", count: n, mode });
+      problems = supernodeDepProblems;
+    } else     if (paramMaxProblems.length > 0) {
       log.info("dispatch", { route: "param_max_power_pipeline", count: n, mode });
       problems = paramMaxProblems;
     } else if (mode !== "gpt_generated" && isParamMaxPowerForm(analysis)) {

@@ -20,6 +20,7 @@ import { detectCrossPattern, renderCrossLayout } from "./crossLayoutCircuitRende
 import { detectFourNodeImyong, renderFourNodeImyong } from "./fourNodeImyongRenderer";
 import { detectTheveninDependent, renderTheveninDependentCircuit } from "./theveninDependentCircuitRenderer";
 import { detectTheveninDepVoltage, renderTheveninDepVoltageCircuit } from "./theveninDepVoltageCircuitRenderer";
+import { detectSupernodeDepMaxPower, renderSupernodeDepMaxPower } from "./supernodeDepMaxPowerRenderer";
 import { detectAcSuperpositionCircuit, renderAcSuperpositionCircuit } from "./acSuperpositionCircuitRenderer";
 import { detectAcDcSuperposition, renderAcDcSuperpositionCircuit } from "./acDcSuperpositionCircuitRenderer";
 import { detectAcDcSuperpositionDual, renderAcDcSuperpositionDualCircuit } from "./acDcSuperpositionDualCircuitRenderer";
@@ -181,6 +182,12 @@ export function renderAnalogMeshSVG(netlist: CircuitNetlist): string {
   }
   // 0.074 테브난+최대전력+종속전원 (임용 7·9번류) — 전용 fixed-slot.
   //   generic mesh는 이 회로를 세로 가지들로 펼쳐 원본 사다리 구조·단자 a·b를 잃는다(실측 신고).
+  // 0.072 슈퍼노드 + 종속 전압원 + 파라미터 최대전력 (임용 6번) — 전용 fixed-slot.
+  //   generic·theveninDepVoltage가 가져가면 슈퍼노드 배치와 I_x·V_B 표기를 잃는다.
+  if (detectSupernodeDepMaxPower(netlist)) {
+    if (typeof console !== "undefined") console.log("[analogMeshRenderer] dispatch=supernodeDepMaxPower");
+    return renderSupernodeDepMaxPower(netlist);
+  }
   // 0.073 종속 **전압원**(k·v_x) + 테브난 (임용 6번) — 전용 fixed-slot이 (가)·(나)를 모두 그린다.
   //   ★ 이 검사가 없으면 아래 theveninDependent(종속 전류원용)나 generic mesh가 가져가
   //     종속 전압원을 **저항 기호로** 그린다(2026-07-29 사용자 화면 실측).
