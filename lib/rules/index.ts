@@ -2,7 +2,12 @@ import type { CircuitType, CircuitTypeParams, FigureRole, SemanticStructure, Sub
 import { resolveDigitalRules } from "./digital";
 import { resolveElectronicsRules } from "./electronics";
 import { resolveCircuitTheoryRules } from "./circuitTheory";
+import { resolveElectromagneticsRules } from "./electromagnetics";
+import { resolveCLanguageRules } from "./cLanguage";
+import { resolveCommunicationsRules } from "./communications";
+import { resolvePedagogyRules } from "./pedagogy";
 import { resolveRequiredFigureRoles } from "./roleTriggers";
+import { isConceptNamingText } from "@/lib/analysis/deviceIdentity";
 import type { RuleSet } from "./types";
 
 export type { RuleSet } from "./types";
@@ -32,6 +37,22 @@ export function resolveRules(args: {
       //   counter_dac_comparator 등 고유 archetype은 후속 단계에서 별도 처리.
       base = resolveElectronicsRules(args);
       break;
+    case "electromagnetics":
+      // 전자기학: 회로 아님 — 도식은 보조 figure(필수 role 없음), semantic 전부 false.
+      base = resolveElectromagneticsRules(args);
+      break;
+    case "c_language":
+      // C언어: 회로 아님 — 코드 분석·출력 예측. 지문 코드는 보조 figure(필수 role 없음).
+      base = resolveCLanguageRules(args);
+      break;
+    case "communications":
+      // 통신: 회로 아님 — 신호·변조·정보이론. 파형·스펙트럼은 보조 figure(필수 role 없음).
+      base = resolveCommunicationsRules(args);
+      break;
+    case "pedagogy":
+      // 교육학(교직): 회로 아님 — 교육 이론·논술형. figure 없음(필수 role 없음).
+      base = resolvePedagogyRules(args);
+      break;
   }
 
   // trigger 기반으로 requiredFigureRoles 재평가 — semantic flag만으로 자동 추가 방지
@@ -41,6 +62,14 @@ export function resolveRules(args: {
     text: args.text ?? "",
     semantic: args.semantic,
   });
+
+  // ★ 소자 종류 식별 개념형(설명→명칭 쓰기)은 회로 문제가 아니다 — figure role 전부 면제.
+  //   roleTriggers도 []를 주지만, 여기서 base(전자회로 규칙)의 original_circuit/main_circuit을
+  //   지우지 않으면 "생성기는 figure를 안 만드는데 검증은 회로 figure를 요구"하는 어긋남이 남는다
+  //   (실측: figure 제거 후 missing_figure_variant가 대신 떴다).
+  if (isConceptNamingText(args.text)) {
+    return { ...base, subject: args.subject, requiredFigureRoles: [] };
+  }
 
   // 도메인별 base requiredFigureRoles 중 trigger 통과 못 한 항목 제거 + trigger 결과 합집합
   // 단, kmap/implementation_circuit 같은 디지털 전용 role은 base에서 그대로 유지

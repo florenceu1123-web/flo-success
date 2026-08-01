@@ -3,13 +3,17 @@
 // =====================================================================
 
 /** 과목 캐널 키 (API·DB·로그) */
-export type SubjectKey = "digital_logic" | "electronics" | "circuit_theory" | "mixed_signal";
+export type SubjectKey =
+  | "digital_logic" | "electronics" | "circuit_theory" | "mixed_signal" | "electromagnetics"
+  | "c_language"      // C언어 — 회로 아님. 코드 분석·출력 예측 (GPT 생성, 코드 블록 figure)
+  | "communications"  // 통신 — 회로 아님. 변조·표본화·정보이론 등 (GPT 생성, 파형·스펙트럼 figure)
+  | "pedagogy";       // 교육학(교직) — 회로 아님. 교육심리·교육과정·평가 등 (GPT 생성, figure 없음)
 
 /** 과목 한국어 표시 라벨 */
-export type SubjectLabel = "디지털논리회로" | "전자회로" | "회로이론" | "복합형";
+export type SubjectLabel = "디지털논리회로" | "전자회로" | "회로이론" | "복합형" | "전자기학" | "C언어" | "통신" | "교육학";
 
 /** UI 노출 순서로 정렬한 키 목록 */
-export const SUBJECT_KEYS: SubjectKey[] = ["electronics", "circuit_theory", "digital_logic", "mixed_signal"];
+export const SUBJECT_KEYS: SubjectKey[] = ["electronics", "circuit_theory", "digital_logic", "mixed_signal", "electromagnetics", "c_language", "communications", "pedagogy"];
 
 /** SubjectKey → 한국어 라벨 */
 export const SUBJECT_LABEL: Record<SubjectKey, SubjectLabel> = {
@@ -17,6 +21,10 @@ export const SUBJECT_LABEL: Record<SubjectKey, SubjectLabel> = {
   circuit_theory: "회로이론",
   digital_logic: "디지털논리회로",
   mixed_signal: "복합형",
+  electromagnetics: "전자기학",
+  c_language: "C언어",
+  communications: "통신",
+  pedagogy: "교육학",
 };
 
 /** 한국어 라벨 → SubjectKey (역매핑, 외부 입력 정규화용) */
@@ -25,6 +33,10 @@ export const SUBJECT_KEY_BY_LABEL: Record<SubjectLabel, SubjectKey> = {
   회로이론: "circuit_theory",
   디지털논리회로: "digital_logic",
   복합형: "mixed_signal",
+  전자기학: "electromagnetics",
+  C언어: "c_language",
+  통신: "communications",
+  교육학: "pedagogy",
 };
 
 // =====================================================================
@@ -70,8 +82,48 @@ export type MixedSignalTopic =
   | "adc_sample_hold"          // 샘플홀드 + ADC (잠재)
   | "logic_opamp_hybrid";      // 그 외 일반 디지털+아날로그 혼합
 
+/** 전자기학 세부 주제 (회로 아님 — 장·공식 기반) */
+export type ElectromagneticsTopic =
+  | "electrostatics"          // 점전하 전계·전위·쿨롱 힘
+  | "gauss_law"               // 가우스 법칙 (선전하·면전하·구대칭)
+  | "capacitance"             // 정전용량·정전 에너지
+  | "magnetostatics"          // 직선도선·솔레노이드·토로이드 자기장 (앙페르)
+  | "em_induction"            // 전자기 유도 (패러데이·운동 기전력)
+  | "magnetic_force"          // 로렌츠 힘·전류 도선의 힘
+  | "em_wave"                 // 전자기파 (맥스웰)
+  | "current_conduction";     // 정상 전류·도전율·저항 (동축 저항 등)
+
+/** C언어 세부 주제 (회로 아님 — 코드 분석·출력 예측) */
+export type CLanguageTopic =
+  | "c_output_prediction"     // 코드 실행 결과·출력 예측
+  | "c_pointer_array"         // 포인터·배열·주소
+  | "c_control_flow"          // 제어문·반복문·조건문 흐름
+  | "c_function_recursion"    // 함수·재귀 호출·스택
+  | "c_struct_bitwise"        // 구조체·공용체·비트 연산
+  | "c_string";               // 문자열·문자 배열 처리
+
+/** 통신 세부 주제 (회로 아님 — 신호·변조·정보이론) */
+export type CommunicationsTopic =
+  | "comm_analog_modulation"  // 아날로그 변조 (AM·FM·PM)
+  | "comm_digital_modulation" // 디지털 변조 (ASK·FSK·PSK·QAM)
+  | "comm_sampling_pcm"       // 표본화·양자화·PCM
+  | "comm_information_theory" // 정보이론 (엔트로피·채널용량·부호화)
+  | "comm_signal_spectrum"    // 신호·스펙트럼·푸리에·대역폭
+  | "comm_noise_snr";         // 잡음·SNR·오류확률
+
+/** 교육학(교직) 세부 주제 (회로 아님 — 교육 이론·논술형) */
+export type PedagogyTopic =
+  | "ped_psychology"          // 교육심리 (학습·발달·동기 이론)
+  | "ped_curriculum"          // 교육과정 (교육과정 이론·유형·설계)
+  | "ped_evaluation"          // 교육평가 (평가 유형·타당도·신뢰도·문항분석)
+  | "ped_method_tech"         // 교육방법·공학 (교수설계·수업모형·에듀테크)
+  | "ped_administration"      // 교육행정 (조직·지도성·정책·법규)
+  | "ped_sociology"           // 교육사회학 (기능·갈등·재생산 이론)
+  | "ped_philosophy_history"  // 교육철학·교육사 (사상·사조·역사)
+  | "ped_counseling";         // 생활지도·상담 (상담이론·생활지도)
+
 /** 모든 세부 주제 union */
-export type TopicKey = DigitalLogicTopic | ElectronicsTopic | CircuitTheoryTopic | MixedSignalTopic;
+export type TopicKey = DigitalLogicTopic | ElectronicsTopic | CircuitTheoryTopic | MixedSignalTopic | ElectromagneticsTopic | CLanguageTopic | CommunicationsTopic | PedagogyTopic;
 
 /** 과목별 토픽 묶음 */
 export const TOPICS_BY_SUBJECT: {
@@ -79,6 +131,10 @@ export const TOPICS_BY_SUBJECT: {
   electronics: ElectronicsTopic[];
   circuit_theory: CircuitTheoryTopic[];
   mixed_signal: MixedSignalTopic[];
+  electromagnetics: ElectromagneticsTopic[];
+  c_language: CLanguageTopic[];
+  communications: CommunicationsTopic[];
+  pedagogy: PedagogyTopic[];
 } = {
   digital_logic: ["kmap_sop", "kmap_pos", "combinational_gate", "flipflop_counter", "fsm", "sequence_detector", "waveform_analysis"],
   electronics: ["opamp", "bjt_bias", "bjt_amplifier", "mosfet_bias", "mosfet_amplifier", "diode", "mixed_signal"],
@@ -88,6 +144,10 @@ export const TOPICS_BY_SUBJECT: {
     "supermesh", "supernode", "dependent_source", "switching_circuit",
   ],
   mixed_signal: ["counter_dac_comparator", "adc_sample_hold", "logic_opamp_hybrid"],
+  electromagnetics: ["electrostatics", "gauss_law", "capacitance", "magnetostatics", "em_induction", "magnetic_force", "em_wave", "current_conduction"],
+  c_language: ["c_output_prediction", "c_pointer_array", "c_control_flow", "c_function_recursion", "c_struct_bitwise", "c_string"],
+  communications: ["comm_analog_modulation", "comm_digital_modulation", "comm_sampling_pcm", "comm_information_theory", "comm_signal_spectrum", "comm_noise_snr"],
+  pedagogy: ["ped_psychology", "ped_curriculum", "ped_evaluation", "ped_method_tech", "ped_administration", "ped_sociology", "ped_philosophy_history", "ped_counseling"],
 };
 
 /** TopicKey → SubjectKey 역매핑 (validation·라우팅용) */
@@ -132,6 +192,38 @@ export const TOPIC_LABEL: Record<TopicKey, string> = {
   counter_dac_comparator: "카운터 + DAC + 비교기 (임용 8번)",
   adc_sample_hold: "샘플홀드 + ADC",
   logic_opamp_hybrid: "디지털·아날로그 혼합",
+  // electromagnetics
+  electrostatics: "정전계 (전계·전위·쿨롱)",
+  gauss_law: "가우스 법칙",
+  capacitance: "정전용량·에너지",
+  magnetostatics: "정자계 (자기장·앙페르)",
+  em_induction: "전자기 유도",
+  magnetic_force: "자기력",
+  em_wave: "전자기파",
+  current_conduction: "정상 전류·저항 (도전율)",
+  // c_language
+  c_output_prediction: "코드 출력 예측",
+  c_pointer_array: "포인터·배열",
+  c_control_flow: "제어문·반복문",
+  c_function_recursion: "함수·재귀",
+  c_struct_bitwise: "구조체·비트연산",
+  c_string: "문자열 처리",
+  // communications
+  comm_analog_modulation: "아날로그 변조 (AM·FM·PM)",
+  comm_digital_modulation: "디지털 변조 (ASK·FSK·PSK·QAM)",
+  comm_sampling_pcm: "표본화·양자화·PCM",
+  comm_information_theory: "정보이론 (엔트로피·채널용량)",
+  comm_signal_spectrum: "신호·스펙트럼",
+  comm_noise_snr: "잡음·SNR",
+  // pedagogy (교육학·교직)
+  ped_psychology: "교육심리 (학습·발달·동기)",
+  ped_curriculum: "교육과정",
+  ped_evaluation: "교육평가",
+  ped_method_tech: "교육방법·공학",
+  ped_administration: "교육행정",
+  ped_sociology: "교육사회학",
+  ped_philosophy_history: "교육철학·교육사",
+  ped_counseling: "생활지도·상담",
 };
 
 // =====================================================================
@@ -158,12 +250,13 @@ export type SemanticStructure = {
 // =====================================================================
 
 /** 문제 생성 모드 */
-export type GenerationMode = "exam_similar" | "exam_variant";
+export type GenerationMode = "exam_similar" | "exam_variant" | "gpt_generated";
 
 /** 모드 한국어 라벨 */
 export const GENERATION_MODE_LABEL: Record<GenerationMode, string> = {
   exam_similar: "기출유사유형",
   exam_variant: "기출변형유형",
+  gpt_generated: "GPT생성유형",
 };
 
 /** 모드별 정책 객체 */
@@ -189,6 +282,13 @@ export const GENERATION_POLICIES: Record<GenerationMode, GenerationPolicy> = {
     allowComponentChange: true,
     allowValueChange: true,
     description: "구조·원리 동일, 수치 + 소자 종류 1~2개 변형 가능",
+  },
+  gpt_generated: {
+    mode: "gpt_generated",
+    preserveTopology: false,
+    allowComponentChange: true,
+    allowValueChange: true,
+    description: "같은 주제로 GPT가 자유롭게 새 문제 생성 (구조 달라도 됨)",
   },
 };
 
@@ -270,7 +370,14 @@ export type AnalysisResult = {
    * inventory가 잡은 개수만큼은 반드시 생성되도록.
    * pins: Connectivity Detection — 각 component 양 끝 노드 라벨 (검수·편집 게이트에서 편집 가능).
    */
-  componentInventory?: Array<{ id: string; type: string; value?: string; pins?: string[] }>;
+  componentInventory?: Array<{
+    id: string;
+    type: string;
+    value?: string;
+    pins?: string[];
+    /** 종속 전원의 제어 대상 소자 id (전류 제어면 제어 전류가 흐르는 저항 id). */
+    control?: string;
+  }>;
   /**
    * Canonical Graph 자체-일관성 검증 결과 — /api/analyze·/api/recover-topology가 첨부.
    * 검수·편집 게이트 UI가 confidence·경고 표시에 사용.
@@ -366,15 +473,135 @@ export type DiagramType =
   | "vi_thevenin_maxpower_circuit" // 임용 5번 — 2전압원+2전류원 테브난+최대전력 (고정 슬롯)
   | "flash_adc_2bit_circuit" // 임용 6번 — 2비트 플래시 ADC (저항사다리+비교기+인코더, 복합형)
   | "zener_bjt_regulator_circuit" // 임용 8번 — 제너+BJT 전압 레귤레이터 (고정 슬롯)
+  | "bjt_two_stage_switched_circuit" // 임용 10번 — SW + 상보형 2단 BJT (NPN Q1 + PNP Q2)
+  | "opamp_two_input_cascade" // 임용 5번 (가) — 2입력 2-OPAMP 캐스케이드
+  | "opamp_two_input_diff"    // 임용 5번 (나) — 차동증폭기 (R₁·R₂ 설계)
+  | "dff_mux_sequential_circuit" // 임용 8번 (나) — D-FF/T-FF 2개 + 2×1 MUX 2개 (세로 스택)
+  | "ff_mixed_app_circuit"    // 임용 9번 (가) — T-FF(위) + JK-FF(아래) 세로 스택 + 조합부 (고정 슬롯)
+  | "opamp_series_regulator_circuit" // 임용 30번 — OPAMP(오차증폭기) 직렬형 정전압 안정화 회로 (고정 슬롯)
+  | "active_lowpass_filter_circuit" // 임용 31번 — 1차 능동 저역통과 필터 (v_i·R·C·OPAMP 버퍼, 고정 슬롯)
+  | "opamp_summer_circuit" // 아날로그 시스템 설계 — 2-OPAMP 가산기(반전가산기→반전증폭, 모든 R 동일, 고정 슬롯)
   | "async_preset_counter_circuit" // 비동기 SET/RESET D-FF 응용회로 (가) — NOR(F) 적재 + 리플 T-FF (고정 슬롯)
   | "rlc_resonance_bandwidth_circuit" // 직렬 RLC 공진+대역폭 (임용 11번) — R–[C₁∥C₂]–L + 단자 a·b (고정 슬롯)
   | "rlc_resonance_bandwidth_dual_circuit" // 위의 쌍대(기출변형) — 병렬 RLC(전류원∥R_d∥[L₁+L₂]∥C_d), I_ab 측정
   | "opamp_two_stage_circuit" // 2단 OPAMP (1단 비반전 → 2단 반전), V_P·V_i·V_o (임용 2번)
+  | "opamp_three_stage_sum_circuit" // 3-OPAMP: 반전증폭(V_x)+버퍼+반전가산(R_f 도출) (임용 2번 전자)
+  | "opamp_finite_gain_circuit" // 연산증폭기 유한 개방루프 이득 (가) — V_in─R₁─V⁻─R₂─V_out, V⁺=GND (임용 11번)
+  | "opamp_finite_gain_offset_circuit" // 유한 이득 OPAMP + 출력단 직렬 오프셋 전압원 V_B (임용 9번 전자회로)
+  | "opamp_loop_gain_circuit" // OPAMP 루프이득 L(s)=V_r/V_t — (가) 원 회로 / (나) 루프 절단 회로 (임용 12번 전자회로)
+  | "function_generator_circuit" // 비정현파 발진기: 비교기(가)+적분기(나)+R₂·R₃ 피드백 루프 (임용 29번)
   | "ac_bridge_circuit"           // AC 휘트스톤 브리지 (가) — 4-arm + R_L 가교 (임용 7번)
   | "ac_bridge_thevenin_circuit"  // 위의 테브난 등가 (나) — V_TH·Z_TH·R_L
+  | "ac_thevenin_ladder_circuit"  // 단일 AC원 L-C-R 사다리 (가) — 직렬-션트-직렬 + 부하 Z_L (임용 7번 회로이론)
+  | "ac_thevenin_equiv_circuit"   // 위의 테브난 등가 (나) — V_TH 직렬 Z_TH → 단자 a·b → Z_L
+  | "dc_thevenin_2src_circuit"    // 2전압원 병렬가지 (가) — R1+V1 ∥ R2+V2, 단자 a·b (임용 3번 회로이론)
+  | "demux_circuit"              // 1→4 디멀티플렉서 조합논리회로 (임용 8번 (가))
+  | "number_ring_diagram"        // n비트 수 표현 원형(고리) 다이어그램 — 임용 4번 (가)·(나)
+  | "mod_n_counter_circuit"      // mod-N 동기식 카운터 (T·D FF + CLR + 검출 게이트 ⓒ) — 임용 9번 (나)
+  | "jk_excitation_circuit"      // JK-FF 2개 + 조합논리 ㉲ 블록 + HIGH + CLK (2025 전기 A-8 (나))
+  | "ac_superposition_source_design_circuit" // 2전원 페이저 RLC (임용 5번) — R₁·R₂ 상단 + R₃/jX_L/−jX_C 가운데 leg + V_s∠0°/I_s∠−90°
+  | "dc_wheatstone_balance_circuit" // DC 휘트스톤 브리지 평형 — V_s+R_s + 다이아몬드 4암(미지 R_x∥R_p) + 브리지 암 + 개방 V_o (임용 3번 회로이론)
+  | "inductor_ramp_circuit"      // i(t) 램프 RL 회로 (임용 2번) — V_s+SW+R+L 직렬
+  | "dc_thevenin_equiv_circuit"   // 위의 테브난 등가 (나) — V_T 직렬 R_T → 단자 a·b
+  | "ac_power_factor_circuit"     // AC 역률보정 — V_s 직렬 R+L + 부하 Z(R∥C) (임용 9번 회로이론)
+  | "ac_admittance_resonance_circuit"      // 어드미턴스 공진 (가) — 전압원→병렬[C∥(R+L)], Y_eq=a+jb (임용 7번 회로이론)
+  | "ac_admittance_resonance_dual_circuit" // 위의 쌍대(변형) — 전류원→직렬[L+(R∥C)], Z_eq=a+jb, V_M
+  | "ac_vccs_phasor_circuit"      // 종속전류원(g·V_c) 2단 구동 페이저 회로 (임용 3번 회로이론) — 좌측망 V_c → 우측망 I_R
   | "switched_rc_dc_circuit"      // t=0 스위치 개방 RC (임용 2번) — V_s+R_s∥I_s ─SW─ C∥R_load
+  | "switched_rl_dual_src_circuit" // 2전원 SPDT 스위치 RL 과도 (임용 3번 회로이론) — V_A leg ∥ V_B leg → SPDT(단자A↔B) → 직렬 R+L, i(t)
   | "dff_state_design_circuit"    // D-FF 2개 + 게이트 구현 회로 (임용 9번 정보과 (다))
-  | "vi_line_graph";              // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
+  | "jk_sync_counter_circuit"     // JK 플립플롭 3개 동기식 카운터 (가) — 전용 fixed-slot (교과서식 깔끔 배치)
+  | "jk_state_machine_circuit"    // JK 카운터 (비순환 상태형, 단일신호 J·K 직결) — 전용 fixed-slot
+  | "jk_state_machine_variant_circuit" // 위 + 게이트 1개 추가 (변형유형) — 전용 fixed-slot
+  | "clean_counter_circuit"       // 범용 카운터(N-FF + 게이트) 버스식 깔끔 렌더 (GPT mod-N 등). diagram=LogicNetworkDiagram
+  | "scr_turn_on_circuit"         // SCR 턴온 회로 (가) — +V·R_A·SCR(A/G/K)·게이트(V_G·R_G) 전용 fixed-slot
+  | "reactive_vi_integral_circuit" // 이상 인덕터/커패시터 v-i 적분 회로 (가) — 전원 + 단일 소자 루프
+  | "jk_state_diagram"            // JK 카운터 상태도 — 사이클 링 배치 + 비순환 상태 바깥 진입 (전용)
+  | "supermesh_switched_dependent_circuit" // 스위치 2-state + 종속전류원 + supermesh (임용 8번) — (가)SW개방 / (나)SW단락
+  | "vi_line_graph"               // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
+  | "em_field_diagram"            // 전자기학 전용 도식 (점전하·선전하·평행판·솔레노이드·운동봉·전자기파 등)
+  | "code_block"                  // C언어 전용 — 코드 스니펫 (monospace 블록, 코드 분석·출력 예측)
+  | "comm_diagram";               // 통신 전용 — 파형/스펙트럼/블록도 (변조·표본화·정보이론 등)
+
+/**
+ * C언어 전용 figure — 코드 스니펫 블록.
+ *   GPT가 정확한 C 코드 문자열을 emit, 렌더러가 monospace <pre>로 표시 (줄번호 포함).
+ *   회로 아님 — 코드 분석·출력 예측 문제의 지문 코드.
+ */
+export type CodeBlockDiagram = {
+  /** 코드 본문 (개행·들여쓰기 보존) */
+  code: string;
+  /** 언어 (기본 "c") — syntax hint용, 현재 표시만 */
+  language?: string;
+  /** 상단 캡션 (예: "다음 프로그램", "[코드]") */
+  caption?: string;
+};
+
+/**
+ * 통신 전용 figure — 파형(시간영역) / 스펙트럼(주파수영역) / 블록도(송수신 시스템).
+ *   kind로 dispatch. GPT가 안정적으로 emit하도록 파형은 해석적(analytic) 형태 우선.
+ */
+export type CommDiagram =
+  | {
+      kind: "waveform";
+      caption?: string;
+      xLabel?: string;   // 기본 "t"
+      yLabel?: string;   // 기본 진폭
+      /** 그릴 시간 범위 (기본 1) — analytic form의 t=0..timeSpan */
+      timeSpan?: number;
+      signals: Array<{
+        name: string;
+        /** 파형 형태 — analytic(sine 등)이면 amplitude·freq·phase로 합성, "samples"면 samples 사용 */
+        form: "sine" | "cosine" | "square" | "triangle" | "pulse" | "samples";
+        amplitude?: number;
+        freq?: number;     // 주기 수 (timeSpan 내 사이클 수로 해석)
+        phase?: number;    // 라디안
+        offset?: number;   // DC offset
+        samples?: Array<{ t: number; v: number }>;
+      }>;
+    }
+  | {
+      kind: "spectrum";
+      caption?: string;
+      xLabel?: string;   // 기본 "f [Hz]"
+      yLabel?: string;   // 기본 "amplitude"
+      /** 주파수 성분(임펄스/막대) — stem plot */
+      lines: Array<{ freq: number; amplitude: number; label?: string }>;
+    }
+  | {
+      kind: "block";
+      caption?: string;
+      /** 좌→우 신호 흐름 블록 (변조기·채널·복조기 등) */
+      blocks: Array<{ id: string; label: string }>;
+      edges: Array<{ from: string; to: string; label?: string }>;
+    };
+
+/**
+ * 임용 8번 회로이론 (스위치 2-state + 종속전류원 + supermesh) 전용 figure.
+ *   고정 토폴로지 (4 세로가지 + 3 상단 R, mesh 3개):
+ *     ①V_s ─R1─ ②[0.2·V₂ 종속전류원] ─R2─ ③[SW─R4─I_s 직렬] ─R3─ ④wire, 모두 GND 복귀.
+ *   swState로 (가)SW개방 / (나)SW단락 두 figure를 같은 슬롯에서 그린다.
+ */
+export type SupermeshSwitchedDependentCircuitDiagram = {
+  swState: "open" | "closed";
+  /** 좌측 독립 전압원 라벨 (e.g. "10V") */
+  vsLabel: string;
+  /** 상단 직렬 저항 3개 (R1: V_s↔V₁, R2: V₁↔V₂, R3: V₂↔우외곽) */
+  r1Label: string;
+  r2Label: string;
+  r3Label: string;
+  /** 스위치 가지 직렬 저항 (SW 아래) */
+  r4Label: string;
+  /** 종속전류원 라벨 (e.g. "0.2V₂") — V₁ 세로가지, 위 화살표(주입) */
+  depLabel: string;
+  /** 스위치 가지 전류원 라벨 (e.g. "1A") — SW·R4 아래, 위 화살표 */
+  isLabel: string;
+  /** 노드 전압 라벨 (상단) */
+  v1Label: string; // "V₁"
+  v2Label: string; // "V₂"
+  /** supermesh 점선 표시 여부 (나=closed일 때 true) */
+  showSupermesh?: boolean;
+};
 
 /**
  * 임용 7번 (RLC 공진 + 5R Wheatstone 등가 + R_L 최대전력) 전용 figure.
@@ -472,6 +699,19 @@ export type CharacteristicCurveDiagram = {
   xLabel?: string;
   /** y축 표기 customize — 미지정 시 device 기본값 (BJT: I_C, MOSFET: I_D) */
   yLabel?: string;
+  /**
+   * ★ 포화 시작점(핀치오프) 궤적 — 각 곡선의 knee 지점을 잇는 **점선**.
+   *   임용 6번(MOSFET 해석 절차형)의 정의적 요소: V_DS = V_GS − V_T 경계선.
+   *   region 음영과 무관하게 그려지며, marker는 이 궤적 위에 단독으로 찍힌다.
+   */
+  pinchOffLocus?: {
+    /** 궤적 위에 찍을 단일 marker ("㉠" 등). 없으면 궤적만 그린다. */
+    marker?: string;
+    /** marker를 찍을 위치 — 궤적을 아래에서 위로 0~1로 파라미터화 (기본 0.82 = 위쪽) */
+    markerAt?: number;
+    /** 궤적 옆 주석 (예: "V_DS = V_GS − V_T") */
+    note?: string;
+  };
 };
 
 /**
@@ -1196,6 +1436,44 @@ export type FlashAdc2bitCircuitDiagram = {
  * zener_bjt_regulator_circuit payload — 임용 8번 (가) 제너+BJT 전압 레귤레이터.
  *  20V─R1─V_o─(R3∥R4 부하)─GND, V_o 노드에 제너(V_z)+BJT 션트로 V_o=V_z+V_BE 안정화.
  */
+/**
+ * bjt_two_stage_switched_circuit payload — 임용 10번 SW + 상보형 2단 BJT.
+ *  값은 kΩ·V. R5(Q1 컬렉터)·R6(Q2 이미터)는 학생 도출 미지(렌더러가 점선 박스 + "(?)").
+ */
+export type BjtTwoStageSwitchedCircuitDiagram = {
+  Vcc: number;
+  R1: number; R2: number; R3: number; R4: number; R5: number; R6: number; R7: number;
+};
+
+/** 임용 5번 (가) 2입력 2-OPAMP 캐스케이드 payload. 값 kΩ. */
+export type OpampTwoInputCascadeDiagram = { Ri1: number; R0: number; Rf2: number };
+/** 임용 5번 (나) 차동증폭기 payload. R₁·R₂는 설계 대상(점선). Rv1 kΩ. */
+export type OpampTwoInputDiffDiagram = { Rv1: number };
+
+/** 임용 8번 (나) D-FF/T-FF + 2×1 MUX 자율 순차회로 payload. */
+export type DffMuxSequentialCircuitDiagram = {
+  ffType: "D" | "T";
+  selectVar: "Q_A" | "Q_B";
+  muxes: Array<{ id: string; target: string; i0: string; i1: string }>;
+  blankSymbols: string[];
+};
+
+/** 임용 9번 (가) — T-FF(위) + JK-FF(아래) 세로 스택 + 조합부 구현회로 (전용 고정 슬롯 렌더러). */
+export type FfMixedAppGateSpec = {
+  /** 조합 게이트 종류. "WIRE"면 단일 신호를 FF 입력으로 직결(게이트 없음). */
+  op: "XOR" | "AND" | "OR" | "WIRE";
+  /** 입력 신호 표시명 (예: "X", "Q_A", "Q_B'"). */
+  inputs: string[];
+};
+export type FfMixedAppCircuitDiagram = {
+  /** 상단 T 플립플롭 입력 T_A 조합식. */
+  taGate: FfMixedAppGateSpec;
+  /** 하단 JK 플립플롭 입력 J_B 조합식. */
+  jbGate: FfMixedAppGateSpec;
+  /** 하단 JK 플립플롭 입력 K_B 조합식. */
+  kbGate: FfMixedAppGateSpec;
+};
+
 export type ZenerBjtRegulatorCircuitDiagram = {
   vinLabel: string; // "20V"
   vzLabel: string;  // "7.3V"
@@ -1205,6 +1483,49 @@ export type ZenerBjtRegulatorCircuitDiagram = {
   voLabel: string;  // "V_o"
   ilLabel: string;  // "I_L"
   i1Label: string;  // "I_1"
+};
+
+/**
+ * opamp_series_regulator_circuit payload — 임용 30번 (가) OPAMP 직렬형 정전압 안정화 회로.
+ *  V_DD ── NPN(직렬 패스, C=V_DD·E=V_o) ── V_o.
+ *  OPAMP: (+)=제너 기준 V_z, (−)=피드백 분압 탭 M. 출력→베이스(R_s bias).
+ *  피드백: V_o─R_a─M─R_b─GND, 부하 R_L: V_o─R_L─GND. V_o=V_z(1+R_a/R_b).
+ */
+export type OpampSeriesRegulatorCircuitDiagram = {
+  vddLabel: string; // "30V"
+  vzLabel: string;  // "10V"
+  rsLabel: string;  // 베이스 bias 저항 "1kΩ"
+  raLabel: string;  // 피드백 상단 (V_o→M) "20kΩ" 또는 "R_a=?" (변형)
+  rbLabel: string;  // 피드백 하단 (M→GND) "20kΩ"
+  voLabel: string;  // "V_o"
+  rlLabel: string;  // 부하 "5kΩ"
+  /** 변형(역문제): R_a가 미지(도출 대상) → 점선 강조. */
+  raUnknown?: boolean;
+};
+
+/**
+ * active_lowpass_filter_circuit payload — 임용 31번 (가) 1차 능동 저역통과 필터.
+ *  v_i ─ R ─ 마디 P ─ OPAMP(+),  P ─ C ─ GND. OPAMP 비반전 버퍼(R_f 피드백). 출력 v_o.
+ *  대역폭 f_c = 1/(2πRC).
+ */
+export type ActiveLowpassFilterCircuitDiagram = {
+  viLabel: string; // "v_i"
+  rLabel: string;  // 입력 저항 "50kΩ" (변형에선 "R")
+  cLabel: string;  // "C" (또는 "8nF")
+  rfLabel: string; // 피드백 "5kΩ"
+  voLabel: string; // "v_o"
+};
+
+/**
+ * opamp_summer_circuit payload — 2-OPAMP 아날로그 가산기 (반전 가산기 → 반전 증폭).
+ *  U₁: v₁·v₂ ─R─ (−) ─Rf─ out(v_m=−(v₁+v₂)). U₂: v_m ─R─ (−) ─Rf─ v₀=v₁+v₂. 모든 R 동일.
+ */
+export type OpampSummerCircuitDiagram = {
+  rLabel: string;  // "R" (모든 저항 동일)
+  v1Label: string; // "v₁"
+  v2Label: string; // "v₂"
+  voLabel: string; // "v₀"
+  vmLabel: string; // "v_m"
 };
 
 /**
@@ -1265,6 +1586,84 @@ export type OpampTwoStageCircuitDiagram = {
 };
 
 /**
+ * opamp_finite_gain_circuit payload — 연산증폭기 유한 개방루프 이득 (임용 11번 (가)).
+ *   V_in ─ R₁ ─ V⁻(반전입력) ─ R₂ ─ V_out (피드백), V⁺=GND, OPAMP A(s).
+ */
+export type OpampFiniteGainCircuitDiagram = {
+  vinLabel: string;  // "V_in"
+  r1Label: string;   // "R₁"
+  r2Label: string;   // "R₂"
+  voutLabel: string; // "V_out"
+  asLabel: string;   // OPAMP 내부 라벨 "A(s)"
+};
+
+/**
+ * opamp_finite_gain_offset_circuit payload — 유한 이득 OPAMP + 출력단 오프셋 전압원 (임용 9번 전자회로).
+ *   접지 ─ R₁ ─ V⁻ ─ OPAMP(−), R₂: V⁻ ↔ 출력 노드(되먹임), v_in → V⁺,
+ *   OPAMP 출력 V_D ─ 직렬 전압원 V_B ─ V_out  ⇒  V_out = V_D − V_B.
+ */
+export type OpampFiniteGainOffsetCircuitDiagram = {
+  r1Label: string;   // 반전 단자–접지 R
+  r2Label: string;   // 출력–반전 단자 되먹임 R
+  vbLabel: string;   // 출력단 직렬 전압원
+  vinLabel: string;  // 입력 교류원
+  a0Label: string;   // 개루프 이득 A₀
+};
+
+/**
+ * opamp_loop_gain_circuit payload — OPAMP 루프이득 + 안정도 (임용 12번 전자회로).
+ *   (가) variant="original": 분압망(R_a·R_f) + 전원 가지(R_S·V_s) + 귀환 저항 R_p → V_out.
+ *   (나) variant="loop_broken": V_s 제거(R_S 접지) + 출력에서 루프 절단 → 연산증폭기 출력 V_r, 귀환망 구동 V_t.
+ *   invertingSource=true(기출변형)면 전원+R_S 가지가 반전 단자 쪽으로 교환된다.
+ */
+export type OpampLoopGainCircuitDiagram = {
+  variant: "original" | "loop_broken";
+  invertingSource: boolean;
+  raLabel: string;    // 분압 단자 ↔ 접지
+  rfLabel: string;    // 분압 단자 ↔ 출력
+  rpLabel: string;    // 전원 단자 ↔ 출력 (귀환 경로)
+  rsLabel: string;    // "R_S"
+  asLabel: string;    // "A(s)"
+  outLabel: string;   // "V_out" (가) / "V_r" (나)
+  sourceLabel?: string; // "V_s" (가)
+  driveLabel?: string;  // "V_t" (나)
+};
+
+/**
+ * function_generator_circuit payload — 비정현파 발진기(함수발생기, 임용 29번).
+ *   (가) 비교기(슈미트 트리거): (−)→GND, (+)=R₂(↔(가))·R₃(↔(나)) 분압 → 구형파 출력.
+ *   R₁: (가) → (나) 적분기 (−)입력. (나) 적분기: C 피드백, (+)→GND → 삼각파 출력.
+ */
+export type FunctionGeneratorCircuitDiagram = {
+  r1Label: string;   // (가)→(나) 직렬 R (적분기 입력)
+  r2Label: string;   // (가)↔(+)분압 R
+  r3Label: string;   // (나)↔(+)분압 R (피드백)
+  cLabel: string;    // 적분기 피드백 커패시터
+  gaLabel: string;   // (가) 출력 라벨 "(가)"
+  naLabel: string;   // (나) 출력 라벨 "(나)"
+};
+
+/**
+ * opamp_three_stage_sum_circuit payload — 3-OPAMP (임용 2번 전자).
+ *   1단 반전: V1 ─Rin1─ (−)U1, Rf1 피드백, (+)=GND → V_x.
+ *   2단 버퍼: V2 → (+)U2 → V_buf.
+ *   3단 반전가산: V_x ─Ra─ (−)U3, V_buf ─Rb─ (−)U3, R_f 피드백, (+)=GND → V_o.
+ */
+export type OpampThreeStageSumCircuitDiagram = {
+  v1Label: string;   // "2[V]"
+  rin1Label: string; // "4[kΩ]"
+  rf1Label: string;  // "8[kΩ]"
+  v2Label: string;   // "1[V]"
+  raLabel: string;   // 3단 V_x 입력 R "2[kΩ]"
+  rbLabel: string;   // 3단 V_buf 입력 R "1[kΩ]"
+  rfLabel: string;   // "R_f[kΩ]"
+  vxLabel: string;   // "V_x[V]"
+  voLabel: string;   // "V_o[V]"
+  u3NonInverting?: boolean;  // true면 U3 = 비반전 가산기(입력→+단자, R_f·R_g→−단자) (변형유형). V_o 공식 달라짐.
+  rgLabel?: string;  // 비반전일 때 −단자 접지저항 R_g (예 "2[kΩ]")
+};
+
+/**
  * ac_bridge_circuit payload — AC 휘트스톤 브리지 (가, 임용 7번).
  *   다이아몬드: 상단노드 T, 하단노드 G(=GND), 좌마디 A, 우마디 B.
  *   Z1=T→A(좌상), Z2=T→B(우상), Z3=A→G(좌하, V_A), Z4=B→G(우하, V_B), R_L: A↔B.
@@ -1284,6 +1683,175 @@ export type AcBridgeTheveninCircuitDiagram = {
   vthLabel: string;  // "V_TH"
   zthLabel: string;  // "Z_TH"
   rlLabel: string;   // "R_L"
+};
+
+/**
+ * ac_thevenin_ladder_circuit payload — 단일 AC원 사다리 (가, 임용 7번 회로이론).
+ *   좌: AC원(세로) — 상단: 직렬 ser1 — 마디 M — [션트 sh ↓ 하단 rail] — 직렬 ser2 — 단자 a.
+ *   단자 b = 하단 rail. 부하 Z_L(점선)이 a–b 가교.  (원본: ser1=L(j2), sh=C(−j1), ser2=R(2))
+ */
+export type AcTheveninLadderCircuitDiagram = {
+  vLabel: string;       // "V_RMS=4∠0°V"
+  ser1Type: "R" | "L" | "C";
+  ser1Label: string;    // 직렬 1 (예: "j2Ω")
+  shType: "R" | "L" | "C";
+  shLabel: string;      // 션트 (예: "−j1Ω")
+  ser2Type: "R" | "L" | "C";
+  ser2Label: string;    // 직렬 2 (예: "2Ω")
+  loadLabel: string;    // "Z_L"
+};
+
+/** ac_thevenin_equiv_circuit payload — 테브난 등가 (나). V_TH 직렬 Z_TH → 단자 a·b → Z_L. */
+export type AcTheveninEquivCircuitDiagram = {
+  vthLabel: string;  // "V_TH"
+  zthLabel: string;  // "Z_TH"
+  loadLabel: string; // "Z_L"
+};
+
+/** switched_rl_dual_src_circuit payload — 2전원 SPDT RL 과도 (임용 3번 회로이론).
+ *  좌측 V_A leg ∥ 가운데 V_B leg → SPDT(단자 A=V_A 쪽, 단자 B=V_B 쪽, t=0에 A→B) → 우측 직렬 R+L, i(t) 측정.
+ *  t<0 정상상태 i(0⁻)=V_A/R, t≥0 i(∞)=V_B/R, τ=L/R. */
+export type SwitchedRlDualSrcCircuitDiagram = {
+  vaLabel: string;        // "4[V]" — 단자 A 쪽(t<0) 전원
+  vbLabel: string;        // "2[V]" — 단자 B 쪽(t≥0) 전원
+  rLabel: string;         // "2[Ω]"
+  lLabel: string;         // "1[H]"
+  currentLabel?: string;  // "i(t)" (기본)
+};
+
+/** dc_thevenin_2src_circuit payload — 2전압원 병렬가지 (가, 임용 3번). leg1: R1+V1, leg2: R2+V2, 단자 a·b.
+ *  loadLabel 있으면 단자 a–b에 부하(R_L) 연결된 완성 회로(변형: 전력 문제). */
+export type DcThevenin2srcCircuitDiagram = {
+  r1Label: string; v1Label: string; v1PlusTop: boolean;  // leg1 (R 상단, V 하단, + 단자 방향)
+  r2Label: string; v2Label: string; v2PlusTop: boolean;  // leg2
+  loadLabel?: string;  // 있으면 a–b에 부하 R_L 연결 (변형 전력 문제)
+};
+
+/** demux_circuit payload — 1→4 디멀티플렉서 (임용 8번). 구조 고정, 게이트 종류·라벨만. */
+export type DemuxCircuitDiagram = {
+  gateKind?: "NAND" | "AND";
+  outputs?: number;
+  selectLabels?: [string, string];
+  inputLabel?: string;
+};
+
+/** number_ring_diagram payload — n비트 수 표현 고리 (코드↔10진수 대응). */
+export type NumberRingDiagram = {
+  bits: number;
+  entries: Array<{ code: string; value: number }>;
+};
+
+/** mod_n_counter_circuit payload — mod-N 동기식 카운터 회로 (임용 9번 (나)).
+ *  구조가 고정(FF 3개 + 공통 CLK + CLR + 검출 게이트 ⓒ)이라 종류·라벨만 받는다. */
+export type ModNCounterCircuitDiagram = {
+  ffTypes?: Array<"T" | "D" | "JK">;    // 기본 [T, D, T]
+  clearActiveLow?: boolean;             // CLR 극성 (true면 NAND 검출)
+  gateLabel?: string;                   // "ⓒ"
+  gateKind?: "AND" | "NAND";
+  detectState?: string;                 // 리셋을 유발하는 상태 (예 "111")
+  modulus?: number;                     // 계수 N
+};
+
+/** jk_excitation_circuit payload — JK-FF 2개 + 조합논리 블록 ㉲ (2025 전기 A-8 (나)).
+ *  구조가 고정이라 라벨만 받는다(좌표 정보 금지). */
+export type JkExcitationCircuitDiagram = {
+  blockLabel?: string;   // "㉲" — 조합 논리 블록(점선)
+  inputLabel?: string;   // "x"
+  ffALabel?: string;     // "FF_A"
+  ffBLabel?: string;     // "FF_B"
+  highLabel?: string;    // "HIGH"
+  clockLabel?: string;   // "CLK"
+};
+
+/** ac_superposition_source_design_circuit payload — 2전원 페이저 RLC (임용 5번 회로이론).
+ *  상단 rail: [V_s] ─ R₁ ─ 마디 A ─ R₂ ─ [I_s] / 가운데 leg: A ─ R₃ ─ jX_L ─ (−jX_C) ─ GND.
+ *  targetOn이 가리키는 소자 양단에 목표 페이저 전압(targetLabel) 극성이 표기된다. */
+export type AcSuperpositionSourceDesignCircuitDiagram = {
+  r1Label: string;      // "1[Ω]" — 전압원 쪽 상단
+  r2Label: string;      // "2[Ω]" — 전류원 쪽 상단
+  r3Label: string;      // "2[Ω]" — 가운데 leg 저항
+  lLabel: string;       // "j11[Ω]"
+  cLabel: string;       // "−j10[Ω]"
+  vsLabel: string;      // "V_s∠0°[V]"
+  isLabel: string;      // "I_s∠−90°[A]"
+  targetLabel: string;  // "V_c" | "V_L"
+  targetOn: "capacitor" | "inductor";
+};
+
+/** dc_wheatstone_balance_circuit payload — DC 휘트스톤 브리지 평형 (임용 3번 회로이론).
+ *  V_s ─ R_s ─ T(상단 레일) / 다이아몬드 T·L·R·B: 상단좌 R1 · 상단우 R_tr · 하단좌 R3a(+R3b는 L→GND 병렬) ·
+ *  하단우 R_rb, 브리지 암 R_g(L–R). 미지 암(unknownArm)에는 보조 저항 R_p가 병렬로 붙는다.
+ *  출력 V_o는 상단 레일(+)과 우측 마디 R(−) 사이 **개방** 단자. */
+export type DcWheatstoneBalanceCircuitDiagram = {
+  vsLabel: string;    // "22[V]"
+  rsLabel: string;    // "4[Ω]" — 전원 직렬 저항 (상단 레일)
+  r1Label: string;    // 상단 좌측 암 (T→L)
+  r3aLabel: string;   // 하단 좌측 암 (L→B)
+  r3bLabel: string;   // 하단 좌측 병렬 (L→GND)
+  rtrLabel: string;   // 상단 우측 암 (T→R) — 미지면 "R_x"
+  rrbLabel: string;   // 하단 우측 암 (R→B) — 미지면 "R_x"
+  rpLabel: string;    // 미지 암과 병렬인 보조 저항
+  rgLabel: string;    // 브리지 암 (L→R)
+  unknownArm: "upper_right" | "lower_right";
+  voLabel?: string;   // "V_o" (기본)
+};
+
+/** dc_thevenin_equiv_circuit payload — 테브난 등가 (나). V_T 직렬 R_T → 단자 a·b. loadLabel 있으면 a–b에 부하. */
+export type DcTheveninEquivCircuitDiagram = {
+  rtLabel: string;   // "R_T[Ω]"
+  vtLabel: string;   // "V_T[V]"
+  vtPlusTop: boolean;
+  loadLabel?: string;  // 있으면 a–b에 부하 R_L 연결 (변형 전력 문제)
+};
+
+/**
+ * ac_power_factor_circuit payload — AC 역률보정 (임용 9번 회로이론).
+ *   V_s(좌, 세로 AC) ─ 직렬 R₁ ─ 직렬 L(jX_L) ─ 마디 ─ 부하 Z[ R₂ ∥ C(−jX_C) ] ─ 하단 rail.
+ */
+export type AcPowerFactorCircuitDiagram = {
+  vsLabel: string;   // "100∠0°"
+  r1Label: string;   // "1[Ω]"
+  xlLabel: string;   // "j1[Ω]"
+  r2Label: string;   // "2[Ω]" (부하 R)
+  xcLabel: string;   // "−jX_C[Ω]" (부하 C, 미지)
+};
+
+/** ac_admittance_resonance_circuit payload — 어드미턴스 공진 (가, 임용 7번 회로이론).
+ *  전압원 → 병렬 블록[ C ∥ (R+L 직렬) ], 점선 블록의 Y_eq=a+jb. */
+export type AcAdmittanceResonanceCircuitDiagram = {
+  srcLabel: string;  // "10cos(ωt)" — AC 전압원
+  cLabel: string;    // "0.05[F]" — 병렬 가지
+  rLabel: string;    // "1[Ω]" — 직렬 R+L 가지의 R
+  lLabel: string;    // "0.1[H]"
+  yeqLabel?: string; // "Y_eq=a+jb[Ʊ]"
+};
+
+/** ac_admittance_resonance_dual_circuit payload — 위의 쌍대(변형).
+ *  전류원 → 직렬 블록[ L + (R∥C) ], 점선 블록의 Z_eq=a+jb. */
+export type AcAdmittanceResonanceDualCircuitDiagram = {
+  srcLabel: string;  // "10cos(ωt)" — AC 전류원
+  lLabel: string;    // "0.05[H]" — 직렬 L
+  rLabel: string;    // "1[Ω]" — 병렬 R
+  cLabel: string;    // "0.1[F]" — 병렬 C
+  zeqLabel?: string; // "Z_eq=a+jb[Ω]"
+};
+
+/** ac_vccs_phasor_circuit payload — 종속전류원(g·V_c) 2단 구동 페이저 회로 (임용 3번 회로이론).
+ *  좌측망: V_s ─ R₁ ─ 마디 A ─ [shunt ∥ shunt] ─ GND (마디 A 전압 = V_c)
+ *  우측망: 종속전류원 g·V_c ─ 마디 B ─ [R₂ ∥ 부하 리액턴스] ─ GND (R₂ 전류 = I_R)
+ *  두 망은 접지만 공유 — 상단은 이어지지 않는다. */
+export type AcVccsPhasorCircuitDiagram = {
+  srcLabel: string;          // "10∠45° V"
+  r1Label: string;           // "1 Ω" — 상단 직렬 저항
+  shuntKind: "C" | "L";      // shunt 소자 종류 (유사=C, 변형=L)
+  shunt1Label: string;       // "−j2 Ω"
+  shunt2Label: string;       // "−j2 Ω"
+  vcLabel: string;           // "V_c" — 마디 A 전압(제어전압)
+  depLabel: string;          // "2V_c" — 종속전류원 값
+  loadRLabel: string;        // "2 Ω" — I_R가 흐르는 저항
+  loadKind: "L" | "C";       // 부하 리액턴스 종류 (유사=L, 변형=C)
+  loadXLabel: string;        // "j2 Ω"
+  irLabel: string;           // "I_R"
 };
 
 /**
@@ -1311,6 +1879,73 @@ export type DffStateDesignCircuitDiagram = {
   gateBSym: string;   // "㉯"
   gateAInputs: string[]; // ㉮ 입력 라벨 (예: ["Q_A","Q_B"])
   gateBInputs: string[];
+  ffAType?: "D" | "T";      // FF_A 종류 (기본 D)
+  ffBType?: "D" | "T";      // FF_B 종류 (기본 D). exam_variant은 T (D-FF + T-FF)
+  ffAInputName?: string;    // FF_A 입력 라벨 (예: "D_A")
+  ffBInputName?: string;    // FF_B 입력 라벨 ("D_B" 또는 "T_B")
+};
+
+/**
+ * jk_sync_counter_circuit payload — JK 플립플롭 3개 동기식 카운터 (가) 전용 fixed-slot.
+ *  구조 고정(3비트): FF0(Q₀)·FF1(Q₁)·FF2(Q₂) 공통 CP. J₀=K₀=1(High).
+ *  상향(up): J₁=K₁=Q₀, J₂=K₂=Q₀·Q₁ (Q 출력 피드백).
+ *  하향(down): J₁=K₁=Q̄₀, J₂=K₂=Q̄₀·Q̄₁ (Q̄ 출력 피드백 — NOT 게이트 불필요).
+ */
+export type JkSyncCounterCircuitDiagram = {
+  direction: "up" | "down";
+};
+
+/**
+ * jk_state_machine_circuit payload — 비순환 상태형 JK 카운터 (가) 전용 fixed-slot.
+ *  J·K가 단일 신호(High/Qᵢ/Q̄ᵢ)에 직결(게이트 없음). 각 핀의 소스 신호 라벨만 받는다.
+ */
+export type JkStateMachineCircuitDiagram = {
+  /** 각 J·K 입력의 소스 신호 표시 라벨 (예: "1", "Q₁", "Q̄₀"). */
+  j0: string; k0: string; j1: string; k1: string; j2: string; k2: string;
+  /** 변형유형: 있으면 J2=K2를 2입력 게이트(a,b)로 구동(게이트 1개 추가). a·b는 "Q0"/"Q1" 등. */
+  gate?: { op: "AND" | "OR" | "XOR" | "NAND" | "NOR" | "XNOR"; a: string; b: string };
+};
+
+/**
+ * jk_state_machine_variant_circuit payload — 변형유형 (게이트 1개 추가).
+ *  고정 구조: J0=K0=1, J1=K1=j1k1(FF2에서 Q2/Q̄2), J2=K2=gate(Q1,Q2). 게이트 op만 가변.
+ */
+export type JkStateMachineVariantCircuitDiagram = {
+  j1k1: string;   // "Q2" | "nQ2" 등 (FF1의 J·K 소스)
+  gateOp: "AND" | "OR" | "XOR" | "NAND" | "NOR" | "XNOR";
+};
+
+/**
+ * jk_state_diagram payload — JK 카운터 상태도 (사이클 링 배치).
+ *  cycle: 000에서 시작하는 사이클 상태 라벨 순서(예: ["000","010",...]) — 링 위에 순서대로 배치.
+ *  nonCyclic: 비순환 상태 → 진입 대상(사이클 상태). 링 바깥에 놓고 대상으로 화살표.
+ */
+export type JkStateDiagram = {
+  cycle: string[];
+  nonCyclic: Array<{ state: string; next: string }>;
+};
+
+/**
+ * scr_turn_on_circuit payload — SCR 턴온 회로 (가) 전용 fixed-slot.
+ *  +V ─ R_A(I_A) ─ A ─[SCR]─ K(접지), 게이트: V_G ─ R_G ─ G. 라벨만 받음.
+ */
+export type ScrTurnOnCircuitDiagram = {
+  supplyLabel: string;  // "+15 V"
+  rLabel: string;       // "20Ω"
+  rGateLabel: string;   // "1kΩ"
+  vGateLabel: string;   // "V_G"
+  iaLabel: string;      // "I_A"
+};
+
+/**
+ * reactive_vi_integral_circuit payload — 이상 인덕터/커패시터 v-i 적분 회로 (가).
+ *  element="L": 전압원 v(t) + 인덕터 L, i(t) 측정 / element="C": 전류원 i(t) + 커패시터 C, v(t) 측정.
+ */
+export type ReactiveViIntegralCircuitDiagram = {
+  element: "L" | "C";
+  sourceLabel: string;  // "v(t)" 또는 "i(t)"
+  elemLabel: string;    // "5H" 또는 "2F"
+  measureLabel: string; // "i(t)" 또는 "v(t)"
 };
 
 /** concept_diagram diagram 권장 shape — 일반 그래프 */

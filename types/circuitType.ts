@@ -29,6 +29,10 @@ export type CircuitType =
   | "counter_dac_comparator" // 복합형: 2-bit JK 카운터 + R-2R DAC + OPAMP 비교기 (임용 8번)
   | "flash_adc_2bit"         // 복합형: 2비트 플래시 ADC (저항사다리+3비교기+인코더→Q1Q0, 임용 6번). 온도계코드 빈칸·Q최소화·논리회로
   | "zener_bjt_regulator"    // 제너+BJT 전압 레귤레이터 (임용 8번) — V_o=V_z+V_BE, I_1·I_z·R_4 도출. "포화영역" 키워드로 특성곡선 오분류 방지
+  | "opamp_series_regulator" // OPAMP 직렬형 정전압 안정화 회로 (임용 30번) — 오차증폭기+제너 기준+피드백 분압. V_o=V_z(1+R_a/R_b). zener_bjt_regulator(션트·OPAMP없음)와 구분
+  | "active_lowpass_filter"  // 1차 능동 저역통과 필터 대역폭 분석 (임용 31번) — v_i·R·C·OPAMP 버퍼. 대역폭 f_c=1/(2πRC). generic opamp(반전증폭기)와 구분
+  | "logic_condition_sop"    // 동작 조건(말)→최소 SOP 간소화 (임용 25번) — 그림 없음·단일 출력 F·3변수. combinational_gate(K-map 주어짐+2출력+회로)와 구분
+  | "opamp_analog_summer"    // 아날로그 시스템 설계 — 2-OPAMP 가산기 (v₀=v₁+v₂). 입력 파형(삼각·구형)+op-amp 2개·R 동일로 회로 설계. generic opamp와 구분
   // ── 과도응답 ─────────────────────────────────
   | "rc_step"               // RC step input 응답
   | "rl_step"               // RL step input 응답
@@ -46,10 +50,16 @@ export type CircuitType =
   | "opamp_time_domain"     // 시간영역 OPAMP (integrator / differentiator)
   | "bjt_small_signal"      // BJT CE 소신호 등가 (hybrid-π: r_π + VCCS)
   | "bjt_characteristic_curve" // BJT 출력특성곡선(I_C-V_CE) 영역(포화/활성/차단) 식별 + 스위칭 동작 ON/OFF (개념·도식 해석형)
+  | "bjt_two_stage_switched"  // SW + 상보형 2단 BJT(NPN Q1→PNP Q2, Q2 base=Q1 이미터 노드) 바이어스 (임용 10번). V_BE=0.7·I_C=I_E·β로 V_E1·R5·R6·V_EC2 단계 도출
+  | "opamp_two_input_diff_design"  // 2입력 2-OPAMP 캐스케이드(가, V_o=k(V₂−V₁)) + 차동증폭기(나) R 설계 (임용 5번). opamp_cascade(전달함수)와 구분
+  | "dff_mux_sequential"       // D-FF(유사)/T-FF(변형) 2개 + 2×1 MUX 2개 자율 순환 순차회로 (임용 8번 정보과). ㉠~㉣ MUX 입력·D_A SOP·Q_A 주파수
+  | "scr_turn_on"           // SCR(사이리스터) 턴온 회로 — 게이트 펄스로 턴온 후 래칭. 구간 ㉠·㉡ I_A 도출 (래칭이라 두 구간 동일)
+  | "inductor_vi_integral"  // 이상 인덕터에 전압 파형 v(t) → i(t)=(1/L)∫v dt 적분. 구간별 전류 식 도출 (저항 없음)
   // ── 디지털논리 ───────────────────────────────
   | "kmap_sop"              // K-map → 최소 SOP → 구현 회로 (AND-OR)
   | "kmap_pos"              // K-map → 최소 POS → 구현 회로 (OR-AND, SOP dual)
   | "flipflop_counter"      // 2비트 D-FF 카운터 (상태 순서 → D 입력 K-map)
+  | "jk_sync_counter"       // JK 플립플롭 3개 동기식 카운터 타이밍 분석 — (가)회로 given + (나)타이밍 도표 Q 도시 + 시점 상태값 (임용 6번류). up(유사)/down(변형)
   | "flipflop_mixed_app"    // T-FF + JK-FF 등 혼합 응용회로 — 상태표 + 파형도
   | "tff_state_table_blank" // T-FF 2개 (T_A·T_B) + 입력 C + 상태표 빈칸 ㉠~㉧ + K-map 도출 (임용 7번 정보과)
   | "ff_with_waveform"      // 단일 FF (D/T/JK) + 비동기 RESET + 조합부 + 파형도 (임용 8번 형식)
@@ -62,14 +72,33 @@ export type CircuitType =
   | "thevenin_switched_rc"  // SW + RC + 점선박스(Thevenin 대상) 다단계 (임용 9번 정보과)
   | "opamp_cascade_voltage_divider"  // 2-OPAMP cascade + 5R + V_o/V_i 전달함수 (임용 10번)
   | "opamp_generic"          // 범용 OPAMP — GPT 구조추출 netlist + MNA (가산기+차동 R역산 등, 임용 8번)
+  | "inductor_ramp_slope"       // i(t) 램프 파형 → 기울기로 L 도출 (임용 2번 회로이론)
   | "thevenin_dependent_generic"  // 회로이론 테브난+최대전력+종속전원 — GPT 구조추출 + V_oc/I_sc (임용 9번)
   | "sequential_dff_generic" // 디지털 순서논리 D-FF+클록+파형 상태분석 — GPT 구조추출 + 상태 시뮬 (임용 12번)
   | "async_preset_ripple_counter" // 비동기 SET/RESET D-FF 응용회로 — NOR(F) all-zero 검출로 I 패턴 비동기 적재 + 리플 T-FF 다운카운트 (출력 모두 0이면 재적재). ㉠ 적재값·㉡ 카운트 파형 도출
   | "rlc_resonance_bandwidth" // 직렬 RLC 공진 + 대역폭 (임용 11번) — ω₀·C 주어지고 L 도출·V_ab 페이저·대역폭 β=R/L·R변경 β₁/β₂
   | "opamp_two_stage" // 2단 OPAMP(1단 비반전 ×A1 → 2단 반전 ×−A2) — V_P 주어지고 V_i·V_o 도출 (임용 2번 형식)
+  | "opamp_three_stage_sum" // 3-OPAMP: 반전증폭(V_x)+버퍼+반전가산 — V_x·R_f 도출 (임용 2번 전자)
+  | "opamp_finite_gain_block" // 연산증폭기 유한 개방루프 이득 A(s)=A₀ω₀/(s+ω₀) + 블록도 (임용 11번) — 중첩 α·β·A_s·V⁻[mV] 도출
+  | "opamp_finite_gain_offset" // 유한 개방루프 이득 OPAMP + 출력단 직렬 오프셋 전압원 V_B (임용 9번 전자회로) — β·V_D·V_out=(A₀V_in−V_B)/(1+A₀β)
+  | "opamp_loop_gain_stability" // OPAMP 루프이득 L(s)=V_r/V_t + 특성방정식 0=1−L(s) 근의 좌반평면 조건 (임용 12번 전자회로) — R_S·R 부등식
+  | "opamp_positive_feedback" // 정귀환(positive feedback) OPAMP + 유한 개방루프 이득 + SW step (임용 6번) — β·B·D·K(=B/D) 도출
+  | "function_generator" // 비정현파 발진기(함수발생기): 슈미트 비교기(구형파) + 적분기(삼각파) 피드백 루프 (임용 29번) — 진폭·주파수 도출
   | "ac_bridge_max_power" // AC 휘트스톤 브리지 + 테브난 등가 + 최대평균전력 (임용 7번) — V_A·V_B·Z_TH·R_L 도출
+  | "ac_thevenin_ladder" // 단일 AC원 L-C-R 사다리 + 테브난 등가 + 복소 켤레 최대전력 (임용 7번 회로이론) — Z_TH·V_TH·Z_L=R+jX·P_max
+  | "dc_thevenin_2src" // 2전압원 병렬가지 → 테브난 등가 (임용 3번 회로이론) — R_T=R1∥R2·V_T=Millman
+  | "demux_waveform" // 1→4 디멀티플렉서 + F₀~F₃ 출력 파형 도시 (임용 8번)
+  | "number_representation" // n비트 2진수 음수 표현 방식 판별 + (변형) 보수 뺄셈 (임용 4번)
+  | "mod_n_counter_reset" // T·D 혼합 동기식 mod-N 카운터 + 미사용 상태 + 리셋 게이트 (임용 9번)
+  | "jk_excitation_sop_pos" // JK-FF 2개 상태 여기표 + 조합논리 J_A (최소 SOP → 분배법칙 → POS) (2025 전기 A-8)
+  | "ac_superposition_source_design" // 2전원 페이저 RLC + 중첩 → 목표 V_c 되도록 전원 크기 V_s·I_s 역산 (임용 5번 회로이론)
+  | "dc_wheatstone_balance" // DC 휘트스톤 브리지 평형 (임용 3번 회로이론) — 평형 조건 미지 저항 R_x + 개방 출력 전압 V_o. 변형=미지 암 위치 교환
+  | "ac_power_factor" // AC 역률보정 + 전력 (임용 9번 회로이론) — 직렬 R+L + 부하 R∥C, 역률1 X_C·P_avg·Q·P_s
+  | "ac_admittance_resonance" // 어드미턴스 공진 (임용 7번 회로이론) — 전압원→병렬[C∥(R+L)], Y_eq=a+jb·ω₀(b=0)·I_M. 변형=쌍대(전류원→직렬[L+(R∥C)], Z_eq·V_M)
+  | "ac_vccs_phasor"          // 종속전류원(g·V_c) 2단 구동 페이저 회로 (임용 3번 회로이론) — 좌측망 V_c(분압) → 종속전류원 → 우측망 I_R(전류분배) → i_R(t). 변형=소자 종류 교환(C↔L)
   | "switched_rc_dc_transient" // t=0 스위치 개방 RC (임용 2번) — t<0 DC정상상태 v_c(0⁻) + t≥0 방전 v_o(t)
   | "dff_state_design" // D-FF 2개 상태도 순차회로 설계 (임용 9번 정보과) — 상태도→상태표 D입력→게이트 구현
+  | "supermesh_switched_dependent" // 스위치 2-state + 종속전류원(0.2V) + supermesh DC (임용 8번 회로이론) — (가)SW개방 V₁·I₁ / (나)SW단락 supermesh V₂·I₂
   // ── Universal (rule-based) ───────────────────
   | "universal_dc"          // 임의 DC 회로(V/I/R) + 다단계 query 패턴 — archetype-free path
   | "universal_ac"          // 임의 AC 회로(R/L/C/V/I) + phasor/공진/최대전력 query — archetype-free

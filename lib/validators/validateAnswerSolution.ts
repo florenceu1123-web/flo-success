@@ -18,7 +18,7 @@ export function validateAnswerSolution(args: {
   const tag = args.problemIndex !== undefined ? `problem${args.problemIndex}: ` : "";
 
   // answer 검사
-  const ans = (args.answer ?? "").trim();
+  const ans = String(args.answer ?? "").trim();
   if (ans.length < 3) {
     issues.push({ rule: "answer_empty", message: `${tag}answer가 비어있거나 너무 짧음` });
   } else {
@@ -36,7 +36,8 @@ export function validateAnswerSolution(args: {
   }
 
   // solution 검사
-  const sol = (args.solution ?? "").trim();
+  // ★ 방어적 문자열화 — 어떤 경로가 배열/객체를 넘겨도 검증기가 죽지 않게 (실측 500 크래시).
+  const sol = String(args.solution ?? "").trim();
   if (sol.length < 20) {
     issues.push({ rule: "solution_too_short", message: `${tag}solution이 너무 짧음 (${sol.length}자) — 실제 풀이 단계 필요` });
   } else {

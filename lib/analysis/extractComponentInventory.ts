@@ -20,6 +20,11 @@ export type ComponentInventoryItem = {
    * 3+ pin component (OPAMP·BJT·MOSFET): pin role별 매핑은 future. v1은 2-pin만.
    */
   pins?: string[];
+  /**
+   * 종속 전원의 제어 대상 — 제어 전류가 흐르는 저항 id, 또는 제어 전압이 걸리는 소자·노드 id.
+   * ★ 이게 없으면 종속원이 솔버에서 통째로 누락돼 다른 회로가 된다(실측).
+   */
+  control?: string;
 };
 
 function buildPrompt(): string {
@@ -46,6 +51,24 @@ R_L, V_ab 같은 annotation(부하·측정 표시)도 절대 포함하지 마라
     → "sourceExpressions": ["v(t)=9cos(ωt+90°)", "i(t)=18cos(ωt+90°)"]
 본문에 식이 없으면 빈 배열 [].
 ※ 인쇄된 본문 식은 그림 라벨보다 정확하다 — 이 식이 전원 값의 ★ 최종 기준 ★ 으로 사용된다.
+
+【★ 종속 전원(◇ 다이아몬드) — 절대 규칙, 모든 회로 공통】
+★ 다이아몬드(◇) 기호는 ★종속 전원★이다. 절대로 독립 전원(type "V"·"I")으로 추출하지 마라.
+  · 원(○) = 독립 전원, ◇ = 종속 전원. 먼저 ★모양★으로 가른다.
+  · 종류는 값 표기로 정한다:
+      값이 ★전류★에 비례(i_x·2i_x·10i_n) → 전압원 모양 "CCVS" / 전류원 모양 "CCCS"
+      값이 ★전압★에 비례(v_x·2V_c)       → 전압원 모양 "VCVS" / 전류원 모양 "VCCS"
+  · ★ "control" 필드 필수 ★ — 제어량이 흐르거나 걸리는 ★소자의 id★를 넣어라.
+      전류 제어(i_x): 그 전류가 흐르는 ★저항의 id★ (예 "R1"). 전류 이름("i_x")이 아니다.
+      전압 제어(v_x): 그 전압이 걸리는 소자 id 또는 노드 이름.
+  · value에는 계수와 제어량을 원문 그대로 (예 "2i_x").
+  예: { "id": "E1", "type": "CCVS", "value": "2i_x", "control": "R1", "pins": ["n_b", "n_a"] }
+
+【★ 기호 소자값 — 절대 규칙, 모든 회로 공통】
+소자값이 숫자가 아니라 ★문자★(a·2a·ka 등)로 인쇄돼 있으면 ★그대로★ value에 적어라.
+  · 예: "a[Ω]" → "a[Ω]",  "2a[Ω]" → "2a[Ω]",  "a[V]" → "a[V]"
+  · ★ 임의의 수치로 바꾸지 마라 ★ — 그 기호에 대해 최댓값·조건을 구하는 문제라 수치로 바꾸면
+    문제 자체가 사라진다. 계수도 반드시 유지한다(2a를 a로 쓰지 마라).
 
 【허용 type enum】 R, V, I, C, L, SW, VCVS, VCCS, CCVS, CCCS, D, OPAMP, BJT, MOSFET
 
@@ -248,6 +271,8 @@ function normalize(raw: unknown): ComponentInventoryItem[] | null {
       const pinStrs = o.pins.filter((p): p is string => typeof p === "string" && p.length > 0);
       if (pinStrs.length >= 2) item.pins = pinStrs;
     }
+    // 종속원 제어 대상 — 없으면 솔버에서 종속원이 통째로 사라진다.
+    if (typeof o.control === "string" && o.control.length > 0) item.control = o.control;
     out.push(item);
   }
   // 한 항목도 없으면 schema 진짜 실패
@@ -299,7 +324,7 @@ export async function extractComponentInventory(args: {
               items: {
                 type: "object",
                 additionalProperties: false,
-                required: ["id", "type", "value", "pins"],
+                required: ["id", "type", "value", "pins", "control"],
                 properties: {
                   id: {
                     type: "string",
@@ -315,7 +340,16 @@ export async function extractComponentInventory(args: {
                   },
                   value: {
                     type: ["string", "null"],
-                    description: "단위 포함된 값 (예: 3kΩ·5V·2mA·22μF). 그림에 명시되지 않으면 null.",
+                    description:
+                      "단위 포함된 값 (예: 3kΩ·5V·2mA·22μF). ★ 값이 문자 기호면 그대로 (예: a[Ω]·2a[Ω]·a[V]) — " +
+                      "수치로 바꾸지 말 것. 종속원이면 제어식 그대로 (예: 2i_x·3v_c). 그림에 명시되지 않으면 null.",
+                  },
+                  control: {
+                    type: ["string", "null"],
+                    description:
+                      "종속 전원(VCVS·VCCS·CCVS·CCCS)의 제어 대상 소자 id. " +
+                      "전류 제어(i_x)면 그 전류가 흐르는 ★저항의 id★(예 R1) — 전류 이름이 아니다. " +
+                      "전압 제어(v_x)면 그 전압이 걸리는 소자 id 또는 노드 이름. 종속원이 아니면 null.",
                   },
                   pins: {
                     anyOf: [

@@ -16,10 +16,27 @@ export function validateAnalogClosure(netlist: CircuitNetlist): string[] {
   const components = netlist.components ?? [];
   const hasOpamp = components.some((c) => c.type === "OPAMP");
 
-  // 1. 전원 존재 검사 — OPAMP가 있으면 active component로 인정 (V/I source 면제).
-  //    OPAMP의 V_in은 외부 단자 핀(label_only annotation)으로 표기되는 경우가 정상.
+  // 1. 전원 존재 검사 — 단, "전원이 없는 게 정상"인 회로가 임용 문제엔 여럿 있다.
+  //    아래 셋 중 하나면 면제한다(면제 없이 막으면 정상 문제가 검증 실패로 뜬다 — 실측 신고).
+  //    (a) OPAMP·종속전원 등 능동소자 — 입력은 외부 단자(label_only)로 표기되는 게 정상.
+  //    (b) C·L 보유 — 스위치 개방 후 **자연응답**(초기조건 v_C(0)·i_L(0)이 구동)은 전원이 없는 게
+  //        오히려 맞다. "정상상태에서 0이라 무의미"라는 전제가 이 경우엔 성립하지 않는다.
+  //    (c) 외부 단자 2개 이상 — "단자 a-b에서 본 **등가저항/등가 임피던스**" 회로는
+  //        전원을 제거(전압원 단락·전류원 개방)한 상태가 정의 그 자체다.
+  const DEPENDENT_SOURCE_TYPES = new Set(["VCVS", "VCCS", "CCVS", "CCCS"]);
+  const hasDependentSource = components.some((c) =>
+    DEPENDENT_SOURCE_TYPES.has((c.type ?? "").toUpperCase()),
+  );
+  const hasStorage = components.some((c) => c.type === "C" || c.type === "L");
+  const externalTerminalCount = (netlist.nodeAnnotations ?? []).filter(
+    (a) => a.style === "label_only",
+  ).length;
+
   const sources = components.filter((c) => c.type === "V" || c.type === "I");
-  if (sources.length === 0 && !hasOpamp) {
+  if (
+    sources.length === 0 &&
+    !hasOpamp && !hasDependentSource && !hasStorage && externalTerminalCount < 2
+  ) {
     errors.push("회로에 전원(V/I source)이 없음 — 정상상태에서 전류·전압 0이라 문제 무의미");
     return errors; // 전원 없으면 나머지 검사 의미 없음
   }

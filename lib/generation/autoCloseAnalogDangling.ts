@@ -33,6 +33,14 @@ function closeDangling(netlist: CircuitNetlist): void {
     }
   }
 
+  // ★ 외부 단자(label_only annotation)는 degree 1이 정상 — 면제한다 (Layout 규칙 #5).
+  //   validator(validateFigures)도 같은 노드를 면제하므로 기준을 일치시켜야 한다.
+  //   면제하지 않으면 단자 a·b·v_o가 GND로 **단락**돼 회로 의미가 바뀐다.
+  const exemptTerminals = new Set<string>();
+  for (const ann of netlist.nodeAnnotations ?? []) {
+    if (ann?.style === "label_only" && ann.node) exemptTerminals.add(ann.node);
+  }
+
   // node별 degree (2-단자 이상 component만 카운트)
   const degree = new Map<string, number>();
   for (const c of netlist.components) {
@@ -59,6 +67,7 @@ function closeDangling(netlist: CircuitNetlist): void {
     // CONNECTION_LAYOUT_RULES.minNodeDegree (=2) — degree 미만이면 자동 닫음 트리거
     if (d >= CONNECTION_LAYOUT_RULES.minNodeDegree) continue;
     if (groundIds.has(node)) continue;
+    if (exemptTerminals.has(node)) continue; // 외부 단자는 뜬 노드가 아니다
 
     const wire: CircuitComponent = {
       id: `W${wireIdx++}`,

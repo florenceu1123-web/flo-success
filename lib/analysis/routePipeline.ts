@@ -38,7 +38,9 @@ export function routePipeline(input: RouteInput): RouteResult {
     (has("oscillator") || has("transfer_function")) &&
     circuitType !== "opamp" &&
     circuitType !== "opamp_cascade_voltage_divider" &&
-    circuitType !== "opamp_generic"
+    circuitType !== "opamp_generic" &&
+    // 비정현파 발진기(함수발생기)는 전용 결정론 archetype이 있으므로 generic opamp로 override하지 않는다.
+    circuitType !== "function_generator"
   ) {
     return { circuitType: "opamp", reason: "tags.opamp + (oscillator|transfer_function) → OPAMP path" };
   }

@@ -55,7 +55,11 @@ export function recoverTopologyV2(
   //     (본문 식 교차 검증·correctTypeByValue로 확정된 전류원을 L로 바꾸면 회로가 깨짐)
   const correctedInventory = (() => {
     const text = (textHint ?? "").toLowerCase();
-    const hasInductorHint = /인덕터|inductor|impedance|임피던스|j\(|j\d|jω|H\b|코일|coil/i.test(text);
+    // ★ 헨리(H) 단위는 반드시 숫자 동반("2H"·"100mH")으로 매칭. 단순 /H\b/i는 text가 lowercase라
+    //   "supermes**h**"·"mes**h**"의 끝 h에 오매칭 → supermesh 문제의 전류원을 인덕터로 잘못 교체(2026-06-20).
+    const hasInductorHint =
+      /인덕터|inductor|impedance|임피던스|j\(|j\d|jω|코일|coil/i.test(text) ||
+      /\d\s*m?h\b/.test(text);
     const hasL = inventory.some((c) => c.type.toUpperCase() === "L");
     const isConfirmedCurrentSource = (c: ComponentInventoryItem): boolean =>
       typeof c.value === "string" && /∠|A$/i.test(c.value.trim());

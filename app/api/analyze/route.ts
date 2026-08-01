@@ -5,6 +5,7 @@ import { compactAnalysis } from "@/lib/analysis/compactAnalysis";
 import { recoverTopologyV2 } from "@/lib/analysis/topologyRecovery";
 import { deriveCircuitMeta } from "@/lib/analysis/deriveCircuitMeta";
 import { createLogger } from "@/lib/logger";
+import { inferInventoryFromText } from "@/lib/analysis/inventoryFromText";
 import { SUBJECT_KEYS, type AnalysisResult, type SubjectKey, type TopologySignature } from "@/types";
 
 const log = createLogger("api/analyze");
@@ -32,16 +33,38 @@ export async function POST(req: NextRequest) {
         log.warn("inventory_extraction_failed", { message: (e as Error).message });
         return [] as Awaited<ReturnType<typeof extractComponentInventory>>;
       });
+    // ★ 비회로 과목(전자기학·C언어·통신·교육학)은 회로 소자가 없어 inventory 추출이 무의미하고
+    //   schema_fail만 낸다 → 건너뛴다. Vision 호출 3회→1회로 줄여 OpenAI TPM(분당 토큰) 429 회피.
+    const CIRCUIT_SUBJECTS = new Set(["electronics", "circuit_theory", "digital_logic", "mixed_signal"]);
+    const needInventory = CIRCUIT_SUBJECTS.has(subject as string);
     const [analysis, inventoryA, inventoryB] = await Promise.all([
       analyzeImage({ image, subject: subject as SubjectKey }),
-      safeExtract(),
-      safeExtract(),
+      needInventory ? safeExtract() : Promise.resolve([] as Awaited<ReturnType<typeof extractComponentInventory>>),
+      needInventory ? safeExtract() : Promise.resolve([] as Awaited<ReturnType<typeof extractComponentInventory>>),
     ]);
     const inventory = pickBetterInventory(inventoryA, inventoryB);
 
     const compact = compactAnalysis(analysis);
-    const withInventory = inventory.length > 0
-      ? { ...compact, componentInventory: inventory }
+    // ★ inventory가 비면(추출 schema_fail 등) 분류기의 **인벤토리 게이트 분기가 전부 미발화**해
+    //   전혀 다른 유형으로 새거나 unsupported가 된다(실측 2건: 임용 9번 RLC·임용 10번 NMOS).
+    //   → 분석 텍스트에서 최소 inventory를 합성해 게이트가 그대로 동작하게 한다.
+    const fallbackInventory = inventory.length === 0
+      ? inferInventoryFromText([
+          compact.topic ?? "",
+          compact.interpretation ?? "",
+          (compact.relatedConcepts ?? []).join(" "),
+          (compact.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+        ].join(" "))
+      : [];
+    if (fallbackInventory.length > 0) {
+      log.warn("inventory_inferred_from_text", {
+        count: fallbackInventory.length,
+        types: fallbackInventory.map((c: { type: string }) => c.type).join(","),
+      });
+    }
+    const effectiveInventory = inventory.length > 0 ? inventory : fallbackInventory;
+    const withInventory = effectiveInventory.length > 0
+      ? { ...compact, componentInventory: effectiveInventory }
       : compact;
 
     // ★ Reconciliation — inventory와 topologySignature.branches가 불일치하면 branches 보강.

@@ -4,6 +4,7 @@ import { createLogger } from "@/lib/logger";
 import { SUBJECT_HINT, SUBJECT_GUIDE, SYSTEM_PROMPT } from "@/lib/prompts";
 import { resolveRules } from "@/lib/rules";
 import { expandFigureRequirements } from "@/lib/analysis/figureRequirements";
+import { isDeviceIdentityText, isConceptNamingAnalysis, deviceIdentityTextOf } from "@/lib/analysis/deviceIdentity";
 import {
   GENERATION_MODE_LABEL,
   SUBJECT_LABEL,
@@ -42,6 +43,16 @@ const CRITICAL_RULES = new Set<string>([
   "missing_figure_variant",
   "missing_topology",
   "figure_reference_without_renderable",
+  // ★ 발문이 참조하는 빈칸 마커가 본문·그림에 없음 — 학생이 답할 대상이 없는 문항이라
+  //   경고로 두면 그대로 화면까지 나간다(실측 신고: "ㅁ이 없어" → 이후 "②가 없다").
+  //   critical로 올려 재생성 트리거로 만든다.
+  "blank_marker_missing",
+  // ★ OPAMP 결선 결함(출력→입력 피드백 없음) — 렌더링도 불가능한 회로라 재생성 대상.
+  "opamp_wiring_invalid",
+  // ★ 빈 concept_diagram — 화면에 raw 에러 텍스트가 그려지므로 재생성 대상.
+  "concept_diagram_empty",
+  // ★ 접지로만 이어진 독립 회로 N개 — 한 문제의 회로가 아니므로 재생성 대상.
+  "circuit_disconnected_subcircuits",
   // analog_netlist
   "netlist_renderable",
   "netlist_dangling_node",
@@ -101,6 +112,88 @@ function buildPolicyDirective(policy: GenerationPolicy): string {
     "- 회로 골격이 유지되도록 변경 범위는 최소한으로.",
     "- 입력·출력 변수명은 원본 그대로 유지. 변수 개수도 원본과 동일 (multi-output이면 그대로 multi-output).",
   ].join("\n");
+}
+
+/**
+ * "소자 종류 식별(개념형)" 문제인지 판정 — 설명을 읽고 소자의 명칭·종류를 쓰는 유형.
+ *   회로 해석(수치 도출)이 아니라 용어를 답으로 하는 문항이라 변형 전략이 다르다.
+ */
+function isDeviceIdentityProblem(analysis?: AnalysisResult | null): boolean {
+  return isDeviceIdentityText(deviceIdentityTextOf(analysis));
+}
+
+/**
+ * 소자 종류 식별 개념형은 **회로 figure를 만들지 않는다**.
+ *   회로가 아닌 유형에 analog_netlist를 만들게 하면 "다이오드+인덕터 폐루프" 같은
+ *   무의미한 그림과 analog_circuit_open("전원 없음") 검증 실패가 함께 발생한다(실측 신고).
+ *   requiredFigureRoles도 roleTriggers에서 []로 면제되므로 검증과 어긋나지 않는다.
+ */
+function buildDeviceIdentityFigureDirective(analysis: AnalysisResult | null | undefined): string {
+  // 원리·법칙 명칭형도 회로가 아니다 — 소자 식별형과 동일하게 figure를 만들지 않는다.
+  if (!isConceptNamingAnalysis(analysis)) return "";
+  return `[DEVICE_IDENTITY_FIGURE_CONTRACT — 소자 종류 식별 개념형]
+- 이 유형은 회로 해석 문제가 아니다. ★figureVariants는 빈 배열([])로 두라★ — 회로도(analog_netlist)를
+  만들지 마라. 소자 하나를 억지로 회로에 넣어 폐루프를 만드는 것은 금지(무의미한 회로가 된다).
+- 따라서 본문·조건·질문에서 "그림", "그림 (가)", "다음 회로" 같은 **그림 참조 표현을 쓰지 마라**.
+  설명문만으로 답을 특정할 수 있게 서술하라(구조·접합 방식·동작 원리·용도).`;
+}
+
+/**
+ * 소자 종류 식별 개념형의 **변형유형** 지시문.
+ *   exam_variant는 "같은 소자를 다시 묻기"가 아니라 **같은 소자군의 다른 종류**를 답으로 삼는다.
+ *   (사용자 요청: "변형유형에는 다른 다이오드의 종류를 답으로 하는 문제도 만들어줘")
+ */
+function buildDeviceIdentityDirective(
+  policy: GenerationPolicy,
+  analysis: AnalysisResult | null | undefined,
+  count: number,
+): string {
+  if (policy.mode !== "exam_variant" || !isDeviceIdentityProblem(analysis)) return "";
+
+  // ★ 종류를 GPT 자율에 맡기면 원본과 같은 종류를 다시 답으로 쓰거나 문항끼리 겹친다(실측).
+  //   다이오드군은 어휘가 확정적이므로 **문항별 정답 종류를 코드가 배정**한다.
+  //   (원본에서 감지된 종류는 제외 — 변형은 "다른 종류"가 목적.)
+  const analysisText = [
+    analysis?.topic ?? "",
+    analysis?.interpretation ?? "",
+    (analysis?.relatedConcepts ?? []).join(" "),
+    (analysis?.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+  ].join(" ");
+  const assignment = (() => {
+    if (!/다이오드/.test(analysisText)) return "";
+    const DIODE_TYPES = [
+      "제너 다이오드", "터널(에사키) 다이오드", "바랙터(버랙터) 다이오드", "PIN 다이오드",
+      "발광 다이오드(LED)", "포토 다이오드", "쇼트키 다이오드", "정류 다이오드",
+      "스텝 리커버리 다이오드", "건(Gunn) 다이오드",
+    ];
+    const originalIdx = DIODE_TYPES.findIndex((t) => {
+      const head = t.replace(/\(.*?\)/g, "").replace(/\s*다이오드$/, "").trim();
+      return analysisText.includes(head);
+    });
+    const pool = DIODE_TYPES.filter((_, i) => i !== originalIdx);
+    // ★ 항상 풀 앞에서 N개를 뽑으면 **다시 생성해도 매번 같은 종류**가 나온다(실측 신고:
+    //   "생성했던 문제인데 다시 생성하는거야?"). 호출마다 시작 위치를 돌려서 새 조합이 나오게 한다.
+    //   (한 배치 안에서는 연속 슬라이스라 서로 겹치지 않는다.)
+    const offset = Math.floor(Date.now() / 1000) % pool.length;
+    const picked = Array.from(
+      { length: Math.min(count, pool.length) },
+      (_, i) => pool[(offset + i) % pool.length],
+    );
+    if (picked.length === 0) return "";
+    return `\n- ★ 문항별 정답 종류를 다음과 같이 **배정한다. 그대로 따르라**:\n${
+      picked.map((t, i) => `    · ${i + 1}번째 문항의 정답 = ${t}`).join("\n")
+    }${originalIdx >= 0 ? `\n  (원본 정답은 ${DIODE_TYPES[originalIdx]} — 변형에서 재사용 금지.)` : ""}`;
+  })();
+
+  return `[DEVICE_IDENTITY_VARIANT_CONTRACT — 소자 종류 식별 개념형의 변형유형]${assignment}
+- 원본이 "설명을 읽고 소자의 명칭·종류를 쓰는" 개념형이면, 변형은 ★원본과 다른 종류의 소자★를 답으로 삼는다.
+- 반드시 **같은 소자군 안**에서 고른다 (다이오드 → 다른 다이오드, BJT → 다른 트랜지스터 유형).
+  · 다이오드군 예: 쇼트키 · 제너 · 터널(에사키) · 바랙터(버랙터) · PIN · 발광(LED) · 포토 · 정류 · 스텝 리커버리 · 건.
+- 설명문은 그 소자의 **고유한 동작 원리·구조·용도**로 새로 쓴다. 원본 설명을 그대로 옮겨 답만 바꾸지 마라.
+  · 각 종류를 구분 짓는 핵심을 반드시 포함: 예) 제너=항복영역 정전압 유지, 터널=음성저항 특성,
+    바랙터=역바이어스 접합용량 가변, PIN=진성(i)층 삽입 고주파 스위칭, 쇼트키=금속-반도체 접합 낮은 순방향 전압·고속.
+- 서술과 답이 서로 맞아야 한다. 설명에 없는 특성을 답의 근거로 삼지 마라.
+${count > 1 ? `- ${count}개를 만들 때는 ★서로 다른 종류★를 답으로 하여 중복 금지.\n` : ""}- 마커 개수·answer 항목 수는 BLANK_MARKER_CONTRACT를 따른다(발문이 2개를 물으면 본문에도 마커 2개).`;
 }
 
 /** 사용자 prompt(텍스트 부분) 빌드. system은 별도. */
@@ -247,6 +340,8 @@ ${env.forbiddenSimplifications.map((s) => `    - ${s}`).join("\n")}
 ${SUBJECT_GUIDE[subject]}
 ${analysisCtx}
 ${buildPolicyDirective(policy)}
+${buildDeviceIdentityDirective(policy, analysis, count)}
+${buildDeviceIdentityFigureDirective(analysis)}
 
 ${topicDirective}
 
@@ -464,7 +559,28 @@ async function gptCallOnce(args: {
     throw new GenerateError("스키마 불일치");
   }
 
-  return problems.slice(0, count).map((p) => ({ id: randomUUID(), ...p }));
+  // ★ GPT 출력 형식 정규화 (2026-07-27) — content/question/answer/solution을 **문자열로 강제**.
+  //   실측 크래시: GPT가 solution을 배열(["[단계1]…","[단계2]…"])로 반환해
+  //   `(args.solution ?? "").trim is not a function`으로 생성 전체가 500으로 죽었다.
+  //   ([[feedback_gpt_format_normalization]] — 형식 흔들림은 파서에서 흡수한다.)
+  const toText = (v: unknown): string => {
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) return v.map(toText).filter(Boolean).join("\n");
+    if (v && typeof v === "object") return Object.values(v as Record<string, unknown>).map(toText).join("\n");
+    return v == null ? "" : String(v);
+  };
+  return problems.slice(0, count).map((p) => {
+    const rec = p as unknown as Record<string, unknown>;
+    return {
+      id: randomUUID(),
+      ...p,
+      content: toText(rec.content),
+      question: toText(rec.question),
+      answer: toText(rec.answer),
+      solution: toText(rec.solution),
+      conditions: Array.isArray(rec.conditions) ? rec.conditions.map(toText) : [],
+    };
+  });
 }
 
 /**
@@ -582,9 +698,25 @@ export async function generateProblems(args: {
     }
 
     log.warn("retry", { mode, nextAttempt: attempt + 1, criticalCount: allCritical.length });
+    // 규칙별 맞춤 지시 — generic 힌트("회로 완결성")만 주면 텍스트형 결함은 계속 반복된다.
+    const targetedHints: string[] = [];
+    if (allCritical.some((i) => i.rule === "blank_marker_missing")) {
+      targetedHints.push(
+        "★ 빈칸 마커: 발문이 참조하는 마커는 **본문·조건에 그 마커로 시작하는 설명 항목**이 반드시 있어야 한다.",
+        "  둘 중 하나를 반드시 하라 — (a) 없는 마커를 발문에서 빼고 answer 항목도 그 수에 맞추거나,",
+        "  (b) 그 마커에 해당하는 설명 항목을 본문에 추가하라. 원본 이미지가 마커 2개를 쓰더라도,",
+        "  설명을 1개만 쓸 거면 발문도 1개만 물어야 한다(이미지 문구를 그대로 베끼지 마라).",
+      );
+    }
+    if (allCritical.some((i) => i.rule === "opamp_wiring_invalid")) {
+      targetedHints.push(
+        "★ OPAMP: 출력 노드에서 (−) 또는 (+) 입력으로 되돌아오는 피드백 소자를 반드시 넣어라(비교기면 출력을 외부 단자로만 두라).",
+      );
+    }
     retryHint = [
       "【이전 시도에서 발생한 critical 오류 — 반드시 수정하여 재생성】",
       ...allCritical.slice(0, 10).map((i) => `- [${i.rule}] ${i.message}`),
+      ...targetedHints,
       "특히 회로 완결성: 모든 node id가 ≥2개의 pin과 연결되도록 검산할 것.",
     ].join("\n");
   }
