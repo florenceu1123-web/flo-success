@@ -47,8 +47,18 @@ export function detectOpampArchetype(
   const nR = countType("R");
   const nC = countType("C");
   const nOpamp = countType("OPAMP");
-  // 정확한 Wien Bridge 형식만 매치 허용. R=4(or ≥4)·C=2·OPAMP=1 시그니처가 아니면 wien score 무효화.
-  const isWienBridgeInventorySig = nR >= 4 && nC === 2 && nOpamp === 1;
+  // ★ 텍스트 시그니처가 명확한 Wien(발진기 + RC 회로망 + β(s)/1−Kβ/특성방정식/Barkhausen)이면
+  //   인벤토리 요구를 완화한다 (2026-07-29 실측 신고). 원본이 **Z₁·Z₂ 임피던스 블록**으로 그려지면
+  //   Vision이 커패시터를 하나도 못 뽑고 "R 5개 + OPAMP"만 준다 → C=2 요구에 막혀
+  //   `opamp_generic (archetype 불확실 fallback)`으로 추락했다(로그 실측).
+  const strongWienText =
+    (text.includes("발진") || text.includes("oscillat")) &&
+    (text.includes("rc") || text.includes("회로망")) &&
+    (text.includes("β") || text.includes("beta") || text.includes("barkhausen") ||
+     text.includes("1-kβ") || text.includes("1−kβ") || text.includes("특성방정식") || text.includes("특성 방정식"));
+  // 정확한 Wien Bridge 형식(R≥4·C=2·OPAMP=1) 또는 위 강한 텍스트 시그니처 + OPAMP 존재.
+  const isWienBridgeInventorySig =
+    (nR >= 4 && nC === 2 && nOpamp === 1) || (strongWienText && nOpamp >= 1 && nR >= 2);
 
   const score = {
     wien: 0,
@@ -90,6 +100,14 @@ export function detectOpampArchetype(
     // 새 archetype 빌더 미구현 — 잘못된 Wien Bridge layout 만드는 대신 null 반환.
     //   호출자는 ARCHETYPE_DETECTION_FAILED throw → 사용자에게 명확한 메시지.
     return null;
+  }
+  // ★ 텍스트 시그니처가 결정적이면 v3 점수 문턱을 우회한다 (2026-07-29) — Z 블록으로 그려진 원본은
+  //   인벤토리에 C가 없어 candidateGraphs 점수가 2점(문턱 6)에 그친다. "발진 + RC 회로망 + β(s)/
+  //   1−Kβ/특성방정식"은 다른 OPAMP archetype(반전·비반전·차동·적분기)에는 없는 조합이다.
+  //   ※ 차동증폭기 오매치(과거 사고)는 위의 차동 가드에서 이미 걸러진다.
+  //   (IMYONG9 후보는 위에서 이미 return null 처리됨 — 여기 도달하지 않는다.)
+  if (strongWienText && nOpamp >= 1) {
+    return "WIEN_BRIDGE_OSCILLATOR";
   }
   if (v3.archetype === "WIEN_BRIDGE_OSCILLATOR" && v3.score >= 6 && isWienBridgeInventorySig) {
     return "WIEN_BRIDGE_OSCILLATOR";

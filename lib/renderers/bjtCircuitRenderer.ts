@@ -29,7 +29,8 @@ import type { CircuitNetlist } from "@/types";
 const V_CC_X = 80;
 const BASE_COL_X = 220;   // R_A, R_B column
 const BJT_X = 420;        // BJT body x
-const COLL_COL_X = 540;   // R_C column
+// R_C column = R_E column = BJT collector/emitter slant-tip 축 (BJT_X+22) → R_C·R_E 같은 X lane.
+const COLL_COL_X = BJT_X + 22;   // = 442 (R_E reX와 동일 lane)
 const VO_X = 700;         // V_O output terminal
 const TOP_Y = 80;
 const VB_Y = 240;          // base node (R_A/R_B 사이)
@@ -68,34 +69,21 @@ export function renderBjtCircuit(netlist: CircuitNetlist): string | null {
   // arrow marker (I_C, I_E current 화살표용)
   svg += `<defs><marker id="bjt_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 Z" fill="black"/></marker></defs>`;
 
-  // ── Wires (top rail, ground rail, vertical legs) ───────────────
-  // Top rail: V_CC top → ... → V_O output
-  svg += `<path d="M ${V_CC_X} ${TOP_Y} L ${BASE_COL_X} ${TOP_Y} L ${COLL_COL_X} ${TOP_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  // V_CC 배터리 심볼 — vertical leg 중간. wire를 심볼 위·아래로 분할해서 겹침 방지.
-  const vccCy = (TOP_Y + BOT_Y) / 2 - 20;
-  const battTopY = vccCy - 8;   // 배터리 심볼 상단 (가장 위쪽 horizontal 선)
-  const battBotY = vccCy + 10;  // 배터리 심볼 하단 (가장 아래쪽 horizontal 선)
-  // V_CC vertical wire — 배터리 위쪽
-  svg += `<path d="M ${V_CC_X} ${TOP_Y} L ${V_CC_X} ${battTopY}" stroke="black" fill="none" stroke-width="2"/>`;
-  // V_CC vertical wire — 배터리 아래쪽
-  svg += `<path d="M ${V_CC_X} ${battBotY} L ${V_CC_X} ${BOT_Y - 40}" stroke="black" fill="none" stroke-width="2"/>`;
-  // V_CC label (배터리 좌측)
-  svg += `<text x="${V_CC_X - 30}" y="${(TOP_Y + BOT_Y) / 2}" text-anchor="middle" font-size="13" font-weight="600">${escapeSvg(vcc?.value ?? "V_CC")}</text>`;
-  svg += `<text x="${V_CC_X - 30}" y="${(TOP_Y + BOT_Y) / 2 + 16}" text-anchor="middle" font-size="11" fill="#666">(V_CC)</text>`;
-  // V_CC battery 심볼 (긴 선·짧은 선 4개, 표준 직류 배터리 표기)
-  svg += `<path d="M ${V_CC_X - 10} ${vccCy - 8} L ${V_CC_X + 10} ${vccCy - 8}" stroke="black" stroke-width="2"/>`;
-  svg += `<path d="M ${V_CC_X - 6} ${vccCy - 2} L ${V_CC_X + 6} ${vccCy - 2}" stroke="black" stroke-width="2"/>`;
-  svg += `<path d="M ${V_CC_X - 10} ${vccCy + 4} L ${V_CC_X + 10} ${vccCy + 4}" stroke="black" stroke-width="2"/>`;
-  svg += `<path d="M ${V_CC_X - 6} ${vccCy + 10} L ${V_CC_X + 6} ${vccCy + 10}" stroke="black" stroke-width="2"/>`;
+  // ── Wires (top rail, ground rail) ───────────────
+  // Top rail: R_A column → R_C column (좌측 V_CC leg 없음 — 원본처럼)
+  svg += `<path d="M ${BASE_COL_X} ${TOP_Y} L ${COLL_COL_X} ${TOP_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  // ── V_CC 공급 단자 (★상단 중앙에 점+라벨, 배터리 아님★) — 원본 "+20[V]" 스타일 ──
+  const supplyX = Math.round((BASE_COL_X + COLL_COL_X) / 2);
+  svg += `<path d="M ${supplyX} ${TOP_Y} L ${supplyX} ${TOP_Y - 36}" stroke="black" fill="none" stroke-width="2"/>`;
+  svg += `<circle cx="${supplyX}" cy="${TOP_Y - 36}" r="3.5" fill="black"/>`;
+  svg += `<text x="${supplyX}" y="${TOP_Y - 44}" text-anchor="middle" font-size="15" font-weight="700" fill="#1e3a8a">${escapeSvg(formatSupply(vcc?.value))}</text>`;
+  svg += `<circle cx="${supplyX}" cy="${TOP_Y}" r="3" fill="black"/>`;  // rail junction dot
 
-  // Bottom: V_CC leg → ground
-  svg += `<path d="M ${V_CC_X} ${BOT_Y - 40} L ${V_CC_X} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  // Ground rail (V_CC bottom → R_B bottom → R_E bottom 연속)
-  const groundRightX = BJT_X + 22; // R_E reX와 정렬
-  svg += `<path d="M ${V_CC_X} ${BOT_Y} L ${groundRightX} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
-  // Ground symbol — V_CC bottom + R_E bottom 두 곳 (R_B는 같은 rail에 연결)
-  svg += renderGroundSymbol(V_CC_X, BOT_Y);
-  svg += renderGroundSymbol(groundRightX, BOT_Y);
+  // Bottom ground rail: R_B bottom (BASE_COL_X) ↔ R_E bottom (reX). 양 끝 접지 심볼.
+  const reX = BJT_X + 22; // R_E column
+  svg += `<path d="M ${BASE_COL_X} ${BOT_Y} L ${reX} ${BOT_Y}" stroke="black" fill="none" stroke-width="2"/>`;
+  svg += renderGroundSymbol(BASE_COL_X, BOT_Y);
+  svg += renderGroundSymbol(reX, BOT_Y);
 
   // ── R_A: V_CC top → V_B (BASE_COL_X column, TOP_Y → VB_Y) ──────
   if (R_A) {
@@ -223,6 +211,13 @@ function escapeSvg(v: unknown): string {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+/** V_CC 공급 라벨 — 값에서 숫자 추출해 "+15[V]" 형식 (원본 "+20[V]" 스타일). */
+function formatSupply(value: unknown): string {
+  const s = String(value ?? "V_CC");
+  const m = s.match(/-?\d+(?:\.\d+)?/);
+  return m ? `+${m[0]}[V]` : s;
 }
 
 // =====================================================================

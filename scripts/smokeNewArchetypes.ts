@@ -39,6 +39,14 @@ import { generateOpampTwoStage as generateOpampTwoStage2, __originalForVerify as
 import { renderOpampTwoStage as renderOpampTwoStage2 } from "../lib/renderers/opampTwoStageCircuitRenderer";
 import { generateAcBridgeMaxPower as generateAcBridgeMaxPower2, __originalBridgeForVerify as __originalBridgeForVerify2 } from "../lib/generation/topologies/acBridgeMaxPower";
 import { renderAcBridgeCircuit as renderAcBridgeCircuit2, renderAcBridgeThevenin as renderAcBridgeThevenin2 } from "../lib/renderers/acBridgeCircuitRenderer";
+import { generateAcTheveninLadder, __originalLadderForVerify } from "../lib/generation/topologies/acTheveninLadder";
+import { renderAcTheveninLadderCircuit, renderAcTheveninEquivCircuit } from "../lib/renderers/acTheveninLadderCircuitRenderer";
+import { generateOpampThreeStageSum, __originalThreeStageSumForVerify } from "../lib/generation/topologies/opampThreeStageSum";
+import { renderOpampThreeStageSumCircuit } from "../lib/renderers/opampThreeStageSumCircuitRenderer";
+import { generateDcTheveninTwoSource, __originalDcTheveninForVerify } from "../lib/generation/topologies/dcTheveninTwoSource";
+import { renderDcThevenin2srcCircuit, renderDcTheveninEquivCircuit } from "../lib/renderers/dcTheveninTwoSourceCircuitRenderer";
+import { generateAcPowerFactor, __originalAcPowerFactorForVerify } from "../lib/generation/topologies/acPowerFactor";
+import { renderAcPowerFactorCircuit } from "../lib/renderers/acPowerFactorCircuitRenderer";
 import { generateSwitchedRcDcTransient as genSwRc, __originalRcForVerify as __origRc } from "../lib/generation/topologies/switchedRcDcTransient";
 import { renderSwitchedRcDcCircuit as renderSwRc } from "../lib/renderers/switchedRcDcCircuitRenderer";
 import { generateDffStateDesign } from "../lib/generation/topologies/dffStateDesign";
@@ -297,22 +305,159 @@ for (const s of [0, 1, 2]) {
   check(`변형 s${s} τ=L/R·출력 i_o(t)=i_L(0⁻)`, Math.abs(a.tau - v.react / v.Rload) < 1e-9 && a.outSym === "i_o(t)" && a.outCoeff === a.init0);
 }
 
-// ── [11] dffStateDesign (D-FF 2개 상태도 설계: ㉠~㉣ + 게이트 ㉮·㉯) ──
-console.log("\n[11] dffStateDesign (D-FF 2개 상태도→D입력→게이트)");
+// ── [11] dffStateDesign (상태도 설계: ㉠~㉣ + 게이트 ㉮·㉯) ──
+//   exam_similar = D-FF + D-FF,  exam_variant = D-FF + T-FF
+console.log("\n[11] dffStateDesign (상태도→FF입력→게이트, similar=D·D / variant=D·T)");
 for (const mode of ["exam_similar", "exam_variant"] as const) {
   for (const seed of [0, 1]) {
     const g = generateDffStateDesign({ seed, mode });
     const svg = renderDffStateDesignCircuit(g.circuitDiagram);
     check(`${mode} s${seed} 회로 SVG`, isValidSvg(svg), `${(svg as string).length}자`);
-    // 4-cycle 자율 순환 (00에서 시작, 4개 distinct state)
-    check(`${mode} s${seed} 4-cycle`, g.cycleSeq.length === 4 && new Set(g.cycleSeq).size === 4, g.cycleSeq.map((s) => `${(s >> 1) & 1}${s & 1}`).join("→"));
+    // FF 종류: similar=D·D, variant=D·T
+    const expectB = mode === "exam_variant" ? "T" : "D";
+    check(`${mode} s${seed} FF 종류 D·${expectB}`, g.ffAType === "D" && g.ffBType === expectB, `${g.ffAType}-FF + ${g.ffBType}-FF`);
+    // 자율 상태기계: 4상태 전부 전이 정의(자기루프·합류 허용 — 비-해밀턴 가능)
+    check(`${mode} s${seed} 4-state 전이`, g.transitions.length === 4 && g.nextOf.length === 4 && g.nextOf.every((n) => n >= 0 && n <= 3), g.transitions.join(", "));
     // 다음상태 빈칸 ㉠~㉣ 4개
     check(`${mode} s${seed} 다음상태 ㉠~㉣ 4개`, g.nextAnswers.length === 4);
-    // D-FF: D = 다음상태 → 상태표 D_A·D_B = 다음상태 비트와 일치
-    const tableOk = g.stateTable.rows.every((r) => (r.outputs ?? [])[0] === (r.outputs ?? [])[2] && (r.outputs ?? [])[1] === (r.outputs ?? [])[3]);
-    check(`${mode} s${seed} D=다음상태 (표 일관성)`, tableOk);
+    // 표 일관성: FF_A(D)→입력=다음Q_A. FF_B(D)→입력=다음Q_B / FF_B(T)→입력=Q_B⊕다음Q_B(여기표)
+    const tableOk = g.stateTable.rows.every((r) => {
+      const o = (r.outputs ?? []).map(Number);
+      const dA = o[0] === o[2];                                  // D_A = 다음 Q_A
+      const qB = Number((r.inputs ?? [])[1]);                    // 현재 Q_B
+      const ffB = g.ffBType === "T" ? ((qB ^ o[1]) === o[3]) : (o[1] === o[3]);
+      return dA && ffB;
+    });
+    check(`${mode} s${seed} FF입력 표 일관성 (${g.inputBName})`, tableOk);
     // 게이트 ㉮·㉯ 도출 (단일 게이트로 떨어짐 — "복합" 아님)
     check(`${mode} s${seed} ㉮·㉯ 단일게이트`, g.dAGate !== "복합" && g.dBGate !== "복합", `㉮=${g.dAGate}, ㉯=${g.dBGate}`);
+  }
+}
+
+// ── [12] acTheveninLadder (단일 AC원 사다리 + 테브난 + 복소 켤레 최대전력) ──
+console.log("\n[12] acTheveninLadder (단일 AC원 L-C-R 사다리 + 테브난 + 복소 켤레 최대전력)");
+{
+  // 원본 검산: L j2 · C −j1 · R 2 · 4∠0° → Z_TH=2−j2, V_TH=4∠180°, Z_L=2+j2, P=2W
+  const o = __originalLadderForVerify().answer;
+  check(`원본 Z_TH=2−j2`, o.Zth.re === 2 && o.Zth.im === -2, o.ZthLabel);
+  check(`원본 |V_TH|=4`, o.VthMag === 4, o.VthLabel);
+  check(`원본 Z_L=2+j2 (켤레)`, o.ZL.re === 2 && o.ZL.im === 2, o.ZLLabel);
+  check(`원본 P_max=2W`, o.Pmax === 2, o.PmaxLabel);
+
+  for (const mode of ["exam_similar", "exam_variant"] as const) {
+    for (const seed of [0, 1, 2]) {
+      const g = generateAcTheveninLadder({ seed, mode });
+      const a = g.answer;
+      check(`${mode} s${seed} 사다리 SVG`, isValidSvg(renderAcTheveninLadderCircuit(g.ladderDiagram)));
+      check(`${mode} s${seed} 등가 SVG`, isValidSvg(renderAcTheveninEquivCircuit(g.equivDiagram)));
+      check(`${mode} s${seed} Z_L=Z_TH* (켤레)`, a.ZL.re === a.Zth.re && a.ZL.im === -a.Zth.im, `Z_TH=${a.ZthLabel}, Z_L=${a.ZLLabel}`);
+      const pOk = Math.abs(a.Pmax - (a.VthMag * a.VthMag) / (4 * a.Rth)) < 1e-3;
+      check(`${mode} s${seed} P=|V_TH|²/(4R_TH)`, a.Rth > 0 && a.Pmax > 0 && pOk, `P=${a.PmaxLabel}`);
+      const isOriginal = a.Zth.re === 2 && a.Zth.im === -2 && a.VthMag === 4;
+      check(`${mode} s${seed} 원본 튜플 제외`, !isOriginal, a.ZthLabel);
+    }
+  }
+  const variant = generateAcTheveninLadder({ seed: 0, mode: "exam_variant" }).ladderDiagram;
+  check(`변형 직렬 C·션트 L (소자 교환)`, variant.ser1Type === "C" && variant.shType === "L", `ser1=${variant.ser1Type}, sh=${variant.shType}`);
+}
+
+// ── [13] opampThreeStageSum (3-OPAMP 반전+버퍼+가산, V_x·R_f 도출) ──
+console.log("\n[13] opampThreeStageSum (3-OPAMP 반전증폭 V_x + 버퍼 + 반전가산 R_f 도출)");
+{
+  // 원본 검산: V1=2·Rin1=4·Rf1=8·V2=1·Ra=2·Rb=1·Vo=12 → V_x=−4, R_f=12
+  const o = __originalThreeStageSumForVerify().answer;
+  check(`원본 V_x=−4`, o.Vx === -4, `V_x=${o.Vx}`);
+  check(`원본 R_f=12`, o.Rf === 12, `R_f=${o.Rf}`);
+
+  for (const mode of ["exam_similar", "exam_variant"] as const) {
+    for (const seed of [0, 1, 2]) {
+      const g = generateOpampThreeStageSum({ seed, mode });
+      const v = g.values, a = g.answer;
+      check(`${mode} s${seed} 회로 SVG`, isValidSvg(renderOpampThreeStageSumCircuit(g.circuitDiagram)));
+      check(`${mode} s${seed} V_x 정수`, Number.isInteger(a.Vx) && a.Vx !== 0, `V_x=${a.Vx}`);
+      check(`${mode} s${seed} R_f 양의 정수`, Number.isInteger(a.Rf) && a.Rf > 0, `R_f=${a.Rf}`);
+      if (mode === "exam_variant") {
+        // 변형 = U3 비반전 가산기. V_o=(1+R_f/R_g)·V_+, V_+ 정수
+        check(`${mode} s${seed} U3 비반전`, g.circuitDiagram.u3NonInverting === true && a.nonInv === true);
+        check(`${mode} s${seed} R_g 표기`, !!g.circuitDiagram.rgLabel && !!v.Rg);
+        const voCheck = (1 + a.Rf / (v.Rg as number)) * (a.Vplus as number);
+        check(`${mode} s${seed} V_o=(1+Rf/Rg)·V_+`, Math.abs(voCheck - v.Vo) < 1e-6, `V_o계산=${voCheck}, 목표=${v.Vo}, V_+=${a.Vplus}`);
+      } else {
+        // 유사 = U3 반전 가산기. V_o=−R_f·(V_x/Ra+V_buf/Rb)
+        check(`${mode} s${seed} U3 반전(기본)`, !g.circuitDiagram.u3NonInverting && !a.nonInv);
+        const voCheck = -a.Rf * (a.Vx / v.Ra + v.V2 / v.Rb);
+        check(`${mode} s${seed} V_o=목표 일치`, Math.abs(voCheck - v.Vo) < 1e-6, `V_o계산=${voCheck}, 목표=${v.Vo}`);
+        // 원본 튜플 제외 (유사만 — 변형은 비반전이라 별개)
+        const isOrig = v.V1 === 2 && v.Rin1 === 4 && v.Rf1 === 8 && v.V2 === 1 && v.Ra === 2 && v.Rb === 1 && v.Vo === 12;
+        check(`${mode} s${seed} 원본 튜플 제외`, !isOrig, `V_x=${a.Vx},R_f=${a.Rf}`);
+      }
+    }
+  }
+}
+
+// ── [14] dcTheveninTwoSource (2전압원 병렬가지 → 테브난 등가) ──
+console.log("\n[14] dcTheveninTwoSource (2전압원 병렬가지 → R_T·V_T, Millman)");
+{
+  // 원본 검산: 2Ω+12V(+위) ∥ 6Ω+6V(−위, 극성 반대) → R_T=1.5, V_T=7.5
+  const o = __originalDcTheveninForVerify().answer;
+  check(`원본 R_T=1.5`, o.Rt === 1.5, `R_T=${o.Rt}`);
+  check(`원본 V_T=7.5 (극성 반대)`, o.Vt === 7.5, `V_T=${o.Vt}`);
+
+  for (const mode of ["exam_similar", "exam_variant"] as const) {
+    for (const seed of [0, 1, 2]) {
+      const g = generateDcTheveninTwoSource({ seed, mode });
+      const v = g.values, a = g.answer;
+      // exam_similar = 극성 반대(원본 구조 보존), exam_variant = 같은 극성
+      if (mode === "exam_similar") check(`${mode} s${seed} 극성 반대(원본 보존)`, v.s1 !== v.s2, `s1=${v.s1},s2=${v.s2}`);
+      else check(`${mode} s${seed} 같은 극성(변형)`, v.s1 === v.s2, `s1=${v.s1},s2=${v.s2}`);
+      check(`${mode} s${seed} (가) SVG`, isValidSvg(renderDcThevenin2srcCircuit(g.circuitDiagram)));
+      check(`${mode} s${seed} (나) SVG`, isValidSvg(renderDcTheveninEquivCircuit(g.equivDiagram)));
+      // R_T = R1∥R2 검산
+      const rt = (v.R1 * v.R2) / (v.R1 + v.R2);
+      check(`${mode} s${seed} R_T=R1∥R2`, Math.abs(a.Rt - rt) < 1e-6, `R_T=${a.Rt}`);
+      // V_T = Millman 검산
+      const vt = rt * (v.s1 * v.V1 / v.R1 + v.s2 * v.V2 / v.R2);
+      check(`${mode} s${seed} V_T=Millman`, Math.abs(a.Vt - vt) < 1e-6, `V_T=${a.Vt}`);
+      // 변형(전력): 부하 R_L=R_T·P_max=V_T²/(4R_T) + 완성 회로(부하 그려짐)
+      if (mode === "exam_variant") {
+        check(`${mode} s${seed} 부하 R_L=R_T`, a.Rl === a.Rt, `R_L=${a.Rl}`);
+        const pmax = (a.Vt * a.Vt) / (4 * a.Rt);
+        check(`${mode} s${seed} P_max=V_T²/(4R_T)`, a.Pmax !== undefined && Math.abs((a.Pmax as number) - pmax) < 1e-6, `P_max=${a.Pmax}`);
+        check(`${mode} s${seed} (가)에 부하 R_L 표기`, g.circuitDiagram.loadLabel === "R_L" && renderDcThevenin2srcCircuit(g.circuitDiagram).includes("R_L"));
+      } else {
+        check(`${mode} s${seed} 부하 없음(개방)`, g.circuitDiagram.loadLabel === undefined && a.Pmax === undefined);
+      }
+      // 원본 튜플 제외
+      const isOrig = v.V1 === 12 && v.R1 === 2 && v.V2 === 6 && v.R2 === 6 && v.s1 === 1 && v.s2 === 1;
+      check(`${mode} s${seed} 원본 튜플 제외`, !isOrig, `R_T=${a.Rt},V_T=${a.Vt}`);
+    }
+  }
+}
+
+// ── [15] acPowerFactor (AC 역률보정 + 전력) ──
+console.log("\n[15] acPowerFactor (AC 역률보정: X_C·P_avg·Q·P_s)");
+{
+  // 원본 검산: V_s=100·R₁=1·X_L=1(R₂=2) → X_C=2·Z_in=2·P_avg=5000·Q=0·P_s=5000
+  const o = __originalAcPowerFactorForVerify().answer;
+  check(`원본 X_C=2`, o.Xc === 2, `X_C=${o.Xc}`);
+  check(`원본 Z_in=2(순저항)`, o.Zin === 2, `Z_in=${o.Zin}`);
+  check(`원본 P_avg=5000`, o.Pavg === 5000, `P_avg=${o.Pavg}`);
+  check(`원본 Q=0`, o.Q === 0);
+  check(`원본 P_s=5000`, o.Ps === 5000, `P_s=${o.Ps}`);
+
+  for (const mode of ["exam_similar", "exam_variant"] as const) {
+    for (const seed of [0, 1, 2]) {
+      const g = generateAcPowerFactor({ seed, mode });
+      const v = g.values, a = g.answer;
+      check(`${mode} s${seed} 회로 SVG`, isValidSvg(renderAcPowerFactorCircuit(g.circuitDiagram)));
+      // X_C = R₂ = 2X_L (중근 조건), Z_in 순저항 = R₁+R₂/2
+      check(`${mode} s${seed} X_C=R₂=2X_L`, a.Xc === v.R2 && v.R2 === 2 * v.XL, `X_C=${a.Xc}`);
+      check(`${mode} s${seed} Z_in=R₁+R₂/2 순저항`, Math.abs(a.Zin - (v.R1 + v.R2 / 2)) < 1e-6, `Z_in=${a.Zin}`);
+      // P_avg = V_s²/Z_in, Q=0, P_s=P_avg
+      check(`${mode} s${seed} P_avg=V²/Z_in·Q=0·P_s=P_avg`, Math.abs(a.Pavg - (v.Vs * v.Vs) / a.Zin) < 1e-3 && a.Q === 0 && a.Ps === a.Pavg, `P=${a.Pavg}`);
+      // 원본 튜플 제외
+      check(`${mode} s${seed} 원본 튜플 제외`, !(v.Vs === 100 && v.R1 === 1 && v.XL === 1));
+    }
   }
 }
 

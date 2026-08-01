@@ -26,7 +26,14 @@ export async function runOpampPipeline(args: {
   const opampCount = analysis?.componentInventory?.filter((c) => c.type === "OPAMP").length ?? 0;
   const interpretation = (analysis?.interpretation ?? "").toLowerCase();
   const topic = (analysis?.topic ?? "").toLowerCase();
-  const fullText = `${interpretation} ${topic}`;
+  // ★ archetype 키워드 추출 텍스트 풀을 분류기와 동일하게 넓힘 — Vision이 "정귀환" 등 핵심 키워드를
+  //   topic/interpretation이 아닌 relatedConcepts·fillInTheBlanks에만 넣는 케이스 대비(비결정성).
+  const relatedText = (analysis?.relatedConcepts ?? []).join(" ").toLowerCase();
+  const blanksText = (analysis?.fillInTheBlanks ?? [])
+    .map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`)
+    .join(" ")
+    .toLowerCase();
+  const fullText = `${interpretation} ${topic} ${relatedText} ${blanksText}`;
   // cascade 키워드 — "직렬"은 너무 광범위(회로이론 "직렬 회로"와 충돌)이라 제거. 명확한 multi-OPAMP 시그니처만.
   const cascadeKeywords = [
     "cascade", "두 단 증폭", "2단 증폭", "두 단의 연산", "2단의 연산",
