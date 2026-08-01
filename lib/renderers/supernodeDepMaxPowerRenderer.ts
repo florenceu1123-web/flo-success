@@ -5,7 +5,8 @@
  *        ┌────────── ◇ m·I_x ──────────┐        (상단: 종속 전압원)
  *        A ──R_1(a)── M ──R_2(a)── B            (중단: 두 저항)
  *   I_x ↓ R_x            V_s(a[V])      R_B     (하단: 세로 3가지)
- *       GND ─────────── GND ────────── GND
+ *        └───────────────┴──────────────┘      (하단 레일 — 접지는 ★하나만★)
+ *                       ⏚
  *
  * ★ 범용 아날로그 렌더러는 종속 전압원을 저항 기호로 그려버린다(실측, theveninDepVoltage 선례).
  *   그래서 전용 렌더러가 필요하다.
@@ -101,7 +102,6 @@ export function renderSupernodeDepMaxPower(netlist: CircuitNetlist): string {
   // I_x 화살표
   s += `<line x1="${xA - 34}" y1="${yMid + 18}" x2="${xA - 34}" y2="${yMid + 52}" stroke="${ACCENT}" stroke-width="1.5" marker-end="url(#sndArrow)"/>`;
   s += txt(xA - 40, yMid + 34, "I_x", { anchor: "end", fill: ACCENT, size: 12, weight: 600 });
-  s += gnd(xA, yBot);
 
   // M ─ V_s ─ GND
   s += wire(xM, yMid, xM, (yMid + yBot) / 2 - 18);
@@ -110,7 +110,6 @@ export function renderSupernodeDepMaxPower(netlist: CircuitNetlist): string {
   s += txt(xM, (yMid + yBot) / 2 + 12, "−", { size: 12, fill: MUTED });
   s += txt(xM + 26, (yMid + yBot) / 2 + 4, val(c("V_s"), "a[V]"), { anchor: "start", fill: ACCENT, size: 12 });
   s += wire(xM, (yMid + yBot) / 2 + 18, xM, yBot);
-  s += gnd(xM, yBot);
 
   // B ─ R_B ─ GND  (V_B)
   s += wire(xB, yMid, xB, yBot);
@@ -121,7 +120,10 @@ export function renderSupernodeDepMaxPower(netlist: CircuitNetlist): string {
   s += txt(xB - 18, (yMid + yBot) / 2 - 16, "+", { anchor: "end", fill: MUTED, size: 12 });
   s += txt(xB - 18, (yMid + yBot) / 2 + 4, "V_B", { anchor: "end", fill: RED, size: 12, weight: 600 });
   s += txt(xB - 18, (yMid + yBot) / 2 + 22, "−", { anchor: "end", fill: MUTED, size: 12 });
-  s += gnd(xB, yBot);
+
+  // ★ 접지는 하나만 — 세 가지의 아래를 가로 레일로 잇고 중앙에 접지 기호 1개(원본과 동일).
+  s += wire(xA, yBot, xB, yBot);
+  s += gnd(xM, yBot);
 
   // 슈퍼노드 표시 (A·B를 감싸는 점선)
   s += `<path d="M ${xA - 30} ${yMid - 34} L ${xB + 30} ${yMid - 34} L ${xB + 30} ${yMid + 22} L ${xA - 30} ${yMid + 22} Z" fill="none" stroke="${MUTED}" stroke-width="1.1" stroke-dasharray="5 4"/>`;

@@ -95,7 +95,12 @@ for (const p of [...sim, ...vari]) {
     p.content.match(/(?<![A-Za-z\\])a = (\d+)\\,\[\\Omega\]/)?.[1],
   );
   const rx = Number(p.conditions.join(" ").match(/R_x = (\d+)/)?.[1]);
-  const m = Number(p.conditions.join(" ").match(/= (\d+)I_x/)?.[1] ?? p.answer.match(/\\alpha = (\d+)/)?.[1]);
+  // 계수 1은 표기에서 생략된다("= I_x") — 그 경우 m=1로 읽는다.
+  const cond = p.conditions.join(" ");
+  const mTxt = cond.match(/=\s*(\d*)I_x/)?.[1];
+  const m = mTxt !== undefined
+    ? (mTxt === "" ? 1 : Number(mTxt))
+    : Number(p.answer.match(/\\alpha = (\d+)/)?.[1]);
   const kTxt = p.content.match(/R_B = (\d*)a/)?.[1];
   const k = kTxt === "" ? 1 : Number(kTxt);
   if (!Number.isFinite(aStar) || !Number.isFinite(rx) || !Number.isFinite(m) || !Number.isFinite(k)) { vbad++; continue; }

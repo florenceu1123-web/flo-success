@@ -51,7 +51,7 @@ function buildNetlist(inst: SupernodeDepMaxPowerInstance): CircuitNetlist {
       { id: "R_2", type: "R", value: "a[Ω]", pins: [{ node: "M" }, { node: "B" }] },
       { id: "R_B", type: "R", value: `${coefA(k)}[Ω]`, pins: [{ node: "B" }, { node: "GND" }] },
       { id: "V_s", type: "V", value: "a[V]", pins: [{ node: "M" }, { node: "GND" }] },
-      { id: "E_1", type: "CCVS", value: `${num(m)}I_x`, control: "R_x", pins: [{ node: "B" }, { node: "A" }] },
+      { id: "E_1", type: "CCVS", value: `${m === 1 ? "" : num(m)}I_x`, control: "R_x", pins: [{ node: "B" }, { node: "A" }] },
     ],
   } as unknown as CircuitNetlist;
 }
@@ -80,7 +80,7 @@ export async function runSupernodeDepMaxPowerPipeline(args: {
     const vbTex = `\\dfrac{${num(inst.vbNum)}a}{a + ${A}}`;
     const pbTex = `\\dfrac{${num(inst.pbNum)}a}{(a + ${A})^{2}}`;
     const common = [
-      `저항 \\( R_x = ${num(rx)}\\,[\\Omega] \\)에 흐르는 전류를 \\( I_x \\)라 하고, 종속 전압원은 \\( V_B - V_A = ${num(m)}I_x \\)이다.`,
+      `저항 \\( R_x = ${num(rx)}\\,[\\Omega] \\)에 흐르는 전류를 \\( I_x \\)라 하고, 종속 전압원은 \\( V_B - V_A = ${m === 1 ? "" : num(m)}I_x \\)이다.`,
       `\\( \\mathrm{A} \\)와 \\( \\mathrm{B} \\)는 슈퍼 노드(super node)이며, \\( a > 0 \\)이다.`,
     ];
 
@@ -101,7 +101,7 @@ export async function runSupernodeDepMaxPowerPipeline(args: {
         ].join("\n"),
         answer: `\\( V_B = ${vbTex}\\,[\\mathrm{V}] \\), \\( P_B = ${pbTex}\\,[\\mathrm{W}] \\), \\( a = ${A}\\,[\\Omega] \\), \\( P_M = ${num(inst.pMax)}\\,[\\mathrm{W}] \\)`,
         solution: [
-          `[단계 1] \\( I_x = \\dfrac{V_A}{${num(rx)}} \\)이고 슈퍼 노드 조건에서 \\( V_B = V_A + ${num(m)}I_x = ${num(1 + m / rx)}V_A \\). ` +
+          `[단계 1] \\( I_x = \\dfrac{V_A}{${num(rx)}} \\)이고 슈퍼 노드 조건에서 \\( V_B = V_A + ${m === 1 ? "" : num(m)}I_x = ${num(1 + m / rx)}V_A \\). ` +
             `슈퍼 노드(A·B)에 KCL을 적용하면 \\( \\dfrac{V_A}{${num(rx)}} + \\dfrac{V_A - a}{a} + \\dfrac{V_B - a}{a} + \\dfrac{V_B}{${coefA(k)}} = 0 \\) ` +
             `(중앙 노드는 \\( V_M = a \\)). 정리하면 \\( V_B = ${vbTex}\\,[\\mathrm{V}] \\).`,
           `[단계 2] \\( P_B = \\dfrac{V_B^{2}}{${coefA(k)}} = ${pbTex}\\,[\\mathrm{W}] \\).`,
