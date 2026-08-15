@@ -298,8 +298,12 @@ export async function extractTheveninNetlist(args: {
     const unknownComp = unknownId ? netlist.components.find((c) => c.id === unknownId) : undefined;
     const { numeric: unknownValue, unit: unknownUnit } = splitValue(unknownComp?.value);
 
-    const Rth = round3(sol.Rth), Vth = round3(sol.Vth), Isc = round3(sol.Isc);
-    const Pmax = round3((Vth * Vth) / (4 * Rth));
+    // ★ 반올림하지 않는다 (2026-08-04 실측): round3로 0.289를 만들면 route의 전역 분수 변환기가
+    //   **틀린 분수를 "복원"** 한다 — 실제 81/280(≈0.28929)인데 근사 단계가 9/31(≈0.29032)을 골랐다
+    //   (오차 1.0e-3 ≤ 허용치 1.5e-3). 정확한 실수를 그대로 두면 변환기의 **정확 단계**(분모 ≤ 400)가
+    //   81/280을 맞게 찾는다. 표시는 numText()가 분수로 처리한다.
+    const Rth = sol.Rth, Vth = sol.Vth, Isc = sol.Isc;
+    const Pmax = (Vth * Vth) / (4 * Rth);
     log.info("thevenin_extract_ok", { attempt, Vth, Rth, Isc, Pmax, unknownId, unknownValue, hasDependent });
     return {
       netlist, terminalA, terminalB,
@@ -311,4 +315,4 @@ export async function extractTheveninNetlist(args: {
   throw new Error(`extractTheveninNetlist: ${maxAttempts}회 실패 — ${lastErr}`);
 }
 
-function round3(x: number): number { return Math.round(x * 1000) / 1000; }
+// ※ round3는 제거했다 — 위 [계산] 주석 참고(반올림이 전역 분수 변환기의 오복원을 유발했다).

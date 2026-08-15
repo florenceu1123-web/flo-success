@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ImageUploader from "@/components/ImageUploader";
 import SubjectSelector from "@/components/SubjectSelector";
 import GenerationModeSelector from "@/components/GenerationModeSelector";
@@ -8,6 +8,7 @@ import ProblemCountSelector from "@/components/ProblemCountSelector";
 import AnalysisPanel from "@/components/AnalysisPanel";
 import GeneratedProblems from "@/components/GeneratedProblems";
 import SubjectNotes from "@/components/SubjectNotes";
+import RandomExamPanel from "@/components/RandomExamPanel";
 import type {
   SubjectKey,
   GenerationMode,
@@ -24,7 +25,7 @@ type ProblemValidation = {
 };
 
 /** 상단 탭 — 문제 생성(기존 파이프라인) / 요점정리(과목별 사진첩). */
-type View = "generate" | "notes";
+type View = "generate" | "notes" | "random";
 
 type GenerateResponse = {
   problems: GeneratedProblem[];
@@ -36,6 +37,12 @@ type GenerateResponse = {
 
 export default function Home() {
   const [view, setView] = useState<View>("generate");
+
+  // ★ URL로도 탭을 열 수 있게 — /#random (또는 ?view=random). 북마크·바로가기용.
+  useEffect(() => {
+    const want = new URLSearchParams(window.location.search).get("view") ?? window.location.hash.slice(1);
+    if (want === "random" || want === "notes" || want === "generate") setView(want);
+  }, []);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [subject, setSubject] = useState<SubjectKey | null>(null);
@@ -155,6 +162,9 @@ export default function Home() {
               <TabButton active={view === "notes"} onClick={() => setView("notes")}>
                 요점정리
               </TabButton>
+              <TabButton active={view === "random"} onClick={() => setView("random")}>
+                랜덤문제 풀기
+              </TabButton>
             </nav>
             <div className="hidden sm:flex items-center gap-2 text-xs text-blue-500 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
               <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
@@ -165,7 +175,16 @@ export default function Home() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {view === "notes" ? (
+        {view === "random" ? (
+          // ★ 기출 스샷 아카이브에서 랜덤 출제 → 고른 문제를 그대로 업로드 흐름으로 넘긴다.
+          //   (과목이 이미 선택돼 있으면 handleUpload가 분석까지 이어서 돌린다.)
+          <RandomExamPanel
+            onSendToGenerator={async (base64, name) => {
+              setView("generate");
+              await handleUpload(base64, name);
+            }}
+          />
+        ) : view === "notes" ? (
           <SubjectNotes />
         ) : (
         <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-8">

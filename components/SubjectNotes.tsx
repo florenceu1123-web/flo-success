@@ -9,12 +9,62 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import { SUBJECT_KEYS, SUBJECT_LABEL, type SubjectKey } from "@/types";
-import { NOTE_MAX_FILES_PER_UPLOAD, type NotePhoto, type NoteRotation } from "@/types/notes";
+import {
+  NOTE_ALBUM_KEYS,
+  NOTE_MAX_FILES_PER_UPLOAD,
+  NOTE_SEARCH_MAX,
+  NOTE_TITLE_MAX,
+  isNoteExtraAlbumKey,
+  noteAlbumLabel,
+  notePhotoTitle,
+  noteSearchTokens,
+  type NoteAlbumKey,
+  type NotePhoto,
+  type NoteRotation,
+  type NoteSearchHit,
+} from "@/types/notes";
 
-/** 과목별 요점정리 사진첩 — 사진 여러 장 업로드 · 썸네일 그리드 · 확대 보기 · 설명 · 삭제. */
-export default function SubjectNotes() {
-  const [subject, setSubject] = useState<SubjectKey>("electronics");
+export type SubjectNotesProps = {
+  /**
+   * 고르기 모드 — 썸네일을 누르면 확대 보기 대신 `onSelectPhoto`가 불린다.
+   * ★ 문제 생성 화면의 업로드 창이 **이 컴포넌트를 그대로 띄워** 사진을 고른다.
+   *   사진첩 화면과 똑같이 보이게 하려고 고르기용 그리드를 따로 만들지 않았다.
+   */
+  pickMode?: boolean;
+  /** 처음 열 앨범 (고르기 모드에서 전공스샷으로 바로 여는 용도). */
+  initialAlbum?: NoteAlbumKey;
+  /**
+   * ★ 앨범 고정 — `initialAlbum` 하나만 쓰고 **다른 앨범으로 넘어가지 못하게** 한다.
+   *   앨범 선택 줄을 감추고, 제목 검색도 그 앨범 안에서만 걸린다
+   *   (문제 이미지 업로드 창은 전공스샷만 보여야 하므로).
+   */
+  lockAlbum?: boolean;
+  /**
+   * 사진을 골랐을 때. ★ **두 번째 인자 album을 반드시 쓸 것** — 제목 검색 결과는
+   * 지금 열려 있는 앨범이 아닌 다른 앨범의 사진일 수 있다(이미지 조회 URL이 달라진다).
+   */
+  onSelectPhoto?: (photo: NotePhoto, album: NoteAlbumKey) => void;
+};
+
+/**
+ * 화면에 늘어놓는 사진 한 장 — **어느 앨범 것인지 함께** 들고 다닌다.
+ * 평소엔 지금 열린 앨범의 사진들이고, 제목 검색 중에는 여러 앨범의 결과가 섞인다.
+ * 회전·설명·삭제가 전부 앨범 키를 필요로 하므로 목록을 이 모양으로 통일했다
+ * (검색용 그리드를 따로 만들면 같은 기능을 두 벌 관리하게 된다).
+ */
+type NoteEntry = { album: NoteAlbumKey; photo: NotePhoto; position: number };
+
+/**
+ * 요점정리 사진첩 — 사진 여러 장 업로드 · 썸네일 그리드 · 확대 보기 · 설명 · 삭제.
+ * 앨범은 과목 8종 + **전공스샷**(과목과 무관한 별도 앨범)으로, 저장·API는 모두 같은 경로를 쓴다.
+ */
+export default function SubjectNotes({
+  pickMode = false,
+  initialAlbum,
+  lockAlbum = false,
+  onSelectPhoto,
+}: SubjectNotesProps = {}) {
+  const [subject, setSubject] = useState<NoteAlbumKey>(initialAlbum ?? "electronics");
   const [notes, setNotes] = useState<NotePhoto[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -23,11 +73,21 @@ export default function SubjectNotes() {
   const [notice, setNotice] = useState<string | null>(null);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // 업로드할 사진에 붙일 제목 — 휴대폰 사진(IMG_1234)은 파일명이 제목 구실을 못 한다.
+  const [uploadTitle, setUploadTitle] = useState("");
   // 순서 변경 드래그 — dragIndex=집어든 사진, overIndex=놓을 자리.
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  // 제목 검색 — 입력값과 서버가 돌려준 결과(모든 앨범). hits=null이면 검색 중이 아님.
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<NoteSearchHit[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchTruncated, setSearchTruncated] = useState(false);
 
-  const load = useCallback(async (subj: SubjectKey) => {
+  /** 검색어가 유효한가 (공백만 친 경우는 검색으로 치지 않는다). */
+  const searchMode = noteSearchTokens(query).length > 0;
+
+  const load = useCallback(async (subj: NoteAlbumKey) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -48,6 +108,88 @@ export default function SubjectNotes() {
     void load(subject);
   }, [subject, load]);
 
+  /**
+   * 검색어 입력 — 지우거나 새로 치는 즉시 상태를 맞춘다.
+   * ★ 결과 비우기·확대 보기 닫기를 **여기(이벤트)** 에서 한다. effect에서 하면 한 박자 늦게
+   *   반영돼 잠깐 옛 결과가 보이고, 렌더도 한 번 더 돈다(react-hooks/set-state-in-effect).
+   */
+  const changeQuery = useCallback((next: string) => {
+    const value = next.slice(0, NOTE_SEARCH_MAX);
+    setQuery(value);
+    setViewerIndex(null);
+    const searching = noteSearchTokens(value).length > 0;
+    setIsSearching(searching);
+    if (!searching) {
+      setHits(null);
+      setSearchTruncated(false);
+    }
+  }, []);
+
+  /**
+   * 제목 검색 — 타이핑이 멎으면(250ms) **모든 앨범**을 서버에서 훑는다.
+   * 앨범마다 조회하지 않는 이유는 `/api/notes`의 GET 주석 참고.
+   * 이전 요청은 취소해 늦게 도착한 응답이 새 결과를 덮어쓰지 못하게 한다.
+   */
+  useEffect(() => {
+    if (noteSearchTokens(query).length === 0) return;
+    const ctl = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/notes?subject=${subject}&q=${encodeURIComponent(query)}`,
+          { signal: ctl.signal },
+        );
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+        setHits(data.hits ?? []);
+        setSearchTruncated(Boolean(data.truncated));
+        setCounts(data.counts ?? {});
+        setError(null);
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+        setError(`검색 실패: ${(e as Error).message}`);
+      } finally {
+        // 취소된 요청이 뒤늦게 로딩 표시를 꺼서 새 검색이 멈춘 것처럼 보이지 않게.
+        if (!ctl.signal.aborted) setIsSearching(false);
+      }
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      ctl.abort();
+    };
+  }, [query, subject]);
+
+  /**
+   * 화면에 그릴 목록 — 검색 중이면 여러 앨범의 결과, 아니면 지금 앨범의 사진들.
+   * 아래 그리드·확대 보기·회전/삭제는 전부 이 목록 하나만 본다.
+   */
+  const entries: NoteEntry[] = useMemo(
+    () => {
+      if (!searchMode) return notes.map((photo, i) => ({ album: subject, photo, position: i }));
+      const found = (hits ?? []).map((h) => ({ album: h.album, photo: h.photo, position: h.position }));
+      // ★ 앨범 고정 모드에서는 다른 앨범 결과를 걸러낸다 — 검색은 모든 앨범을 훑기 때문에
+      //   그대로 두면 "전공스샷만 보이게" 해 둔 창에 다른 앨범 사진이 섞여 나온다.
+      return lockAlbum ? found.filter((e) => e.album === subject) : found;
+    },
+    [searchMode, hits, notes, subject, lockAlbum],
+  );
+
+  /** 검색 결과가 여러 앨범에 걸쳐 있으면 타일마다 앨범 이름을 붙여 준다. */
+  const hitAlbumCount = useMemo(
+    () => (searchMode ? new Set(entries.map((e) => e.album)).size : 0),
+    [searchMode, entries],
+  );
+
+  /**
+   * 실제로 열어 줄 확대 보기 위치 — 목록이 짧아졌으면(삭제·앨범 전환) 마지막 사진으로 당긴다.
+   * 상태를 고쳐 쓰지 않고 **그릴 때 계산**한다 — 목록이 바뀔 때마다 effect로 맞추면
+   * 한 프레임 동안 빈 자리를 가리킨다.
+   */
+  const openIndex =
+    viewerIndex === null || entries.length === 0
+      ? null
+      : Math.min(viewerIndex, entries.length - 1);
+
   const upload = useCallback(
     async (files: File[]) => {
       const images = files.filter((f) => f.type.startsWith("image/"));
@@ -58,6 +200,7 @@ export default function SubjectNotes() {
       try {
         const form = new FormData();
         form.append("subject", subject);
+        if (uploadTitle.trim()) form.append("title", uploadTitle.trim());
         // 상한을 넘겨 보내면 서버가 통째로 거부하므로 앞에서 잘라 여러 번 나눠 올린다.
         for (const file of images.slice(0, NOTE_MAX_FILES_PER_UPLOAD)) form.append("files", file);
         const res = await fetch("/api/notes", { method: "POST", body: form });
@@ -71,13 +214,14 @@ export default function SubjectNotes() {
         if (rejected.length) parts.push(`제외 ${rejected.length}장 — ${rejected.join(" / ")}`);
         if (overflow > 0) parts.push(`${overflow}장은 한 번에 올릴 수 있는 장수를 넘어 제외`);
         setNotice(parts.join(" · "));
+        setUploadTitle(""); // 다음 업로드에 이전 제목이 딸려가지 않게 비운다.
       } catch (e) {
         setError(`업로드 실패: ${(e as Error).message}`);
       } finally {
         setIsUploading(false);
       }
     },
-    [subject],
+    [subject, uploadTitle],
   );
 
   const onPick = (e: ChangeEvent<HTMLInputElement>) => {
@@ -106,17 +250,37 @@ export default function SubjectNotes() {
     return () => window.removeEventListener("paste", onPaste);
   }, [upload]);
 
-  const removeNote = async (id: string) => {
+  /**
+   * 사진 한 장의 메타를 화면 목록(지금 앨범 + 검색 결과) 양쪽에 반영한다.
+   * 검색 결과에는 다른 앨범 사진이 섞여 있으므로 앨범 키까지 맞춰 봐야 한다.
+   */
+  const applyPhotoPatch = useCallback(
+    (album: NoteAlbumKey, id: string, patch: Partial<NotePhoto>) => {
+      if (album === subject) {
+        setNotes((list) => list.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+      }
+      setHits((list) =>
+        list
+          ? list.map((h) =>
+              h.album === album && h.photo.id === id ? { ...h, photo: { ...h.photo, ...patch } } : h,
+            )
+          : list,
+      );
+    },
+    [subject],
+  );
+
+  const removeNote = async (album: NoteAlbumKey, id: string) => {
     setError(null);
     try {
-      const res = await fetch(`/api/notes?subject=${subject}&id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/notes?subject=${album}&id=${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
       const next: NotePhoto[] = data.notes ?? [];
-      setNotes(next);
-      setCounts((c) => ({ ...c, [subject]: next.length }));
-      setViewerIndex((idx) => (idx === null ? null : Math.min(idx, next.length - 1)));
-      if (next.length === 0) setViewerIndex(null);
+      if (album === subject) setNotes(next);
+      setCounts((c) => ({ ...c, [album]: next.length }));
+      // 검색 결과에서 지운 경우 — 다시 검색하지 않고 그 자리만 빼낸다.
+      setHits((list) => (list ? list.filter((h) => !(h.album === album && h.photo.id === id)) : list));
     } catch (e) {
       setError(`삭제 실패: ${(e as Error).message}`);
     }
@@ -158,79 +322,164 @@ export default function SubjectNotes() {
   };
 
   /** 회전각 저장 — 화면에 먼저 반영하고 실패 시 되돌린다 (원본 파일은 건드리지 않음). */
-  const rotatePhoto = async (id: string, rotation: NoteRotation) => {
-    const prev = notes;
-    setNotes((list) => list.map((p) => (p.id === id ? { ...p, rotation } : p)));
+  const rotatePhoto = async (album: NoteAlbumKey, id: string, rotation: NoteRotation) => {
+    const before = entries.find((e) => e.album === album && e.photo.id === id)?.photo.rotation ?? 0;
+    applyPhotoPatch(album, id, { rotation });
     setError(null);
     try {
       const res = await fetch("/api/notes", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, id, rotation }),
+        body: JSON.stringify({ subject: album, id, rotation }),
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
     } catch (e) {
-      setNotes(prev);
+      applyPhotoPatch(album, id, { rotation: before });
       setError(`회전 저장 실패: ${(e as Error).message}`);
     }
   };
 
-  const saveMemo = async (id: string, memo: string) => {
+  const saveMemo = async (album: NoteAlbumKey, id: string, memo: string) => {
     try {
       const res = await fetch("/api/notes", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, id, memo }),
+        body: JSON.stringify({ subject: album, id, memo }),
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setNotes((list) => list.map((p) => (p.id === id ? { ...p, memo } : p)));
+      applyPhotoPatch(album, id, { memo });
     } catch (e) {
       setError(`설명 저장 실패: ${(e as Error).message}`);
     }
   };
 
-  const total = SUBJECT_KEYS.reduce((s, k) => s + (counts[k] ?? 0), 0);
+  const total = NOTE_ALBUM_KEYS.reduce((s, k) => s + (counts[k] ?? 0), 0);
+  // 사진 제목(파일명) 표시 — 전공스샷 같은 별도 앨범은 파일명이 곧 내용이라 썸네일과 함께 보여준다.
+  //   과목 요점정리는 IMG_1234 같은 이름이 대부분이라 그대로 두면 화면만 시끄러워진다.
+  //   ★ 검색 중에는 과목 앨범이라도 제목을 보여준다 — 무엇이 걸렸는지 봐야 고를 수 있다.
+  const showPhotoTitles = searchMode || isNoteExtraAlbumKey(subject);
 
   return (
     <div className="space-y-5">
-      {/* 과목 앨범 선택 */}
+      {/* 앨범 선택 — 과목 8종 + 전공스샷. */}
       <section className="bg-white rounded-2xl border border-blue-100 p-5 shadow-sm">
-        <div className="flex items-baseline justify-between mb-3">
-          <h2 className="text-sm font-semibold text-blue-900">과목 앨범</h2>
+        {/*
+          ★ 고정 모드에서는 **앨범 고르는 부분만** 감춘다.
+            섹션을 통째로 감췄더니 그 안에 있던 **제목 검색칸까지 사라져** 창에서 검색을 할 수 없었다
+            (사용자가 위쪽 "사진 제목"(업로드용) 칸에 연도를 치게 됨 — 실측 신고).
+        */}
+        <div className={lockAlbum ? "hidden" : "flex items-baseline justify-between mb-3"}>
+          <h2 className="text-sm font-semibold text-blue-900">앨범</h2>
           <span className="text-xs text-slate-400">전체 {total}장</span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-          {SUBJECT_KEYS.map((key) => {
+        {/* 앨범 11개(과목 8 + 별도 3) — 한 줄에 9개를 욱여넣으면 이름이 잘려 두 줄로 나눈다. */}
+        <div className={lockAlbum ? "hidden" : "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2"}>
+          {NOTE_ALBUM_KEYS.map((key) => {
             const active = subject === key;
             const n = counts[key] ?? 0;
             return (
               <button
                 key={key}
                 type="button"
-                onClick={() => setSubject(key)}
+                // 앨범을 고르면 검색은 끝낸다 — 검색 결과는 앨범을 가로지르므로
+                // 그대로 두면 "앨범을 눌렀는데 화면이 안 바뀐다"로 보인다.
+                onClick={() => {
+                  setSubject(key);
+                  setQuery("");
+                }}
+                // 과목이 아닌 별도 앨범(전공스샷)은 호박색으로 구분한다 — 과목 버튼과 섞이지 않게
+                // (교육학 버튼만 연두색으로 구분한 SubjectSelector와 같은 방식).
                 className={`py-2.5 px-3 rounded-lg border text-sm font-medium transition-colors ${
                   active
-                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                    ? isNoteExtraAlbumKey(key)
+                      ? "border-amber-500 bg-amber-50 text-amber-700"
+                      : "border-blue-500 bg-blue-50 text-blue-700"
+                    : isNoteExtraAlbumKey(key)
+                    ? "border-amber-200 bg-amber-50/40 text-amber-700 hover:border-amber-400"
                     : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-600"
                 }`}
               >
-                <span className="block truncate">{SUBJECT_LABEL[key]}</span>
-                <span className={`block text-xs mt-0.5 ${active ? "text-blue-500" : "text-slate-400"}`}>
+                <span className="block truncate">{noteAlbumLabel(key)}</span>
+                <span
+                  className={`block text-xs mt-0.5 ${
+                    active ? (isNoteExtraAlbumKey(key) ? "text-amber-500" : "text-blue-500") : "text-slate-400"
+                  }`}
+                >
                   {n}장
                 </span>
               </button>
             );
           })}
         </div>
+
+        {/* 제목 검색 — 앨범을 옮겨 다니지 않아도 되도록 **모든 앨범**을 한 번에 훑는다. */}
+        {/* 고정 모드에서는 위쪽 앨범 격자가 없으므로 구분선·여백을 빼야 빈 줄이 안 생긴다. */}
+        <div className={lockAlbum ? "" : "mt-4 pt-4 border-t border-blue-50"}>
+          <label htmlFor="note-search" className="block text-xs text-slate-500 mb-1">
+            제목으로 찾기{" "}
+            <span className="text-slate-400">
+              {lockAlbum ? `(${noteAlbumLabel(subject)}에서 검색 · 예: 2026)` : "(모든 앨범에서 검색)"}
+            </span>
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm" aria-hidden>
+              🔍
+            </span>
+            <input
+              id="note-search"
+              type="search"
+              value={query}
+              onChange={(e) => changeQuery(e.target.value)}
+              placeholder="예: 테브난 · 2022 B-6 · 중첩"
+              className="w-full pl-9 pr-20 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-blue-400"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => changeQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-md text-xs text-slate-500 hover:bg-slate-100"
+              >
+                지우기
+              </button>
+            )}
+          </div>
+          {searchMode && (
+            <p className="mt-2 text-xs text-slate-500">
+              {isSearching && hits === null
+                ? "찾는 중..."
+                : `“${query.trim()}” 검색 결과 ${entries.length}장${
+                    hitAlbumCount > 1 ? ` · 앨범 ${hitAlbumCount}곳` : ""
+                  }`}
+              {searchTruncated && (
+                <span className="text-amber-600"> · 결과가 많아 앞부분만 보여줍니다</span>
+              )}
+            </p>
+          )}
+        </div>
       </section>
 
       {/* 업로드 */}
       <section className="bg-white rounded-2xl border border-blue-100 p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-blue-900 mb-3">
-          {SUBJECT_LABEL[subject]} 요점정리 사진 올리기
+          {noteAlbumLabel(subject)}{isNoteExtraAlbumKey(subject) ? "" : " 요점정리"} 사진 올리기
         </h2>
+        {/* 제목 — 휴대폰 사진은 파일명이 IMG_1234라 제목 구실을 못 한다. 비워두면 파일명이 제목이 된다.
+            여러 장을 한 번에 올리면 서버가 "제목 (2)"처럼 번호를 붙인다. */}
+        <div className="mb-3">
+          <label htmlFor="note-title" className="block text-xs text-slate-500 mb-1">
+            사진 제목 <span className="text-slate-400">(선택 · 비우면 파일명이 제목)</span>
+          </label>
+          <input
+            id="note-title"
+            type="text"
+            value={uploadTitle}
+            onChange={(e) => setUploadTitle(e.target.value.slice(0, NOTE_TITLE_MAX))}
+            placeholder="예: 2022 전기 B-6 중첩의 원리"
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-blue-400"
+          />
+        </div>
         <label
           htmlFor="notes-input"
           onDragOver={(e) => {
@@ -282,48 +531,70 @@ export default function SubjectNotes() {
       {/* 썸네일 그리드 */}
       <section className="bg-white rounded-2xl border border-blue-100 p-5 shadow-sm">
         <div className="flex items-baseline justify-between mb-3">
-          <h2 className="text-sm font-semibold text-blue-900">{SUBJECT_LABEL[subject]} · {notes.length}장</h2>
-          {notes.length > 0 && (
+          <h2 className="text-sm font-semibold text-blue-900">
+            {searchMode ? `제목 검색 결과 · ${entries.length}장` : `${noteAlbumLabel(subject)} · ${notes.length}장`}
+          </h2>
+          {entries.length > 0 && (
             <span className="text-xs text-slate-400">
-              누르면 크게 보기 · 끌어서 순서 변경 (Ctrl+←/→ 도 가능)
+              {searchMode
+                ? "누르면 크게 보기 · 순서 변경은 검색을 지운 뒤에"
+                : "누르면 크게 보기 · 끌어서 순서 변경 (Ctrl+←/→ 도 가능)"}
             </span>
           )}
         </div>
 
-        {isLoading ? (
-          <p className="py-12 text-center text-sm text-slate-400">불러오는 중...</p>
-        ) : notes.length === 0 ? (
+        {(searchMode ? isSearching && hits === null : isLoading) ? (
           <p className="py-12 text-center text-sm text-slate-400">
-            아직 올린 사진이 없습니다. 위에 사진을 올려 {SUBJECT_LABEL[subject]} 요점정리를 모아두세요.
+            {searchMode ? "찾는 중..." : "불러오는 중..."}
+          </p>
+        ) : entries.length === 0 ? (
+          <p className="py-12 text-center text-sm text-slate-400">
+            {searchMode ? (
+              <>제목에 “{query.trim()}”이(가) 들어간 사진이 없습니다. 다른 낱말로 찾아보세요.</>
+            ) : (
+              <>
+                아직 올린 사진이 없습니다. 위에 사진을 올려 {noteAlbumLabel(subject)}
+                {isNoteExtraAlbumKey(subject) ? " 사진을" : " 요점정리를"} 모아두세요.
+              </>
+            )}
           </p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {notes.map((photo, i) => {
+          <div
+            /* 한 줄에 5개 정도 — 썸네일이 작아도 제목이 같이 보여 고르는 데 문제가 없다(사용자 요청). */
+            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3"
+          >
+            {entries.map((entry, i) => {
+              const { photo, album } = entry;
+              // 순서 변경은 **한 앨범 안에서만** 뜻이 있다 — 검색 결과는 여러 앨범이 섞여 있어 끈다.
+              const canReorder = !searchMode;
               const isDragging = dragIndex === i;
               const isDropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
-              return (
+              // ★ 전공스샷처럼 파일명이 곧 내용인 앨범은 **제목을 타일 아래에** 함께 보여준다.
+              //   (이미지 위에 겹치면 스샷의 글씨를 가린다 — 설명 memo 오버레이와 겹치기도 한다.)
+              const tile = (
                 <div
-                  key={photo.id}
                   role="button"
                   tabIndex={0}
-                  draggable
-                  onClick={() => setViewerIndex(i)}
+                  draggable={canReorder}
+                  onClick={() => (pickMode && onSelectPhoto ? onSelectPhoto(photo, album) : setViewerIndex(i))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      setViewerIndex(i);
+                      if (pickMode && onSelectPhoto) onSelectPhoto(photo, album);
+                      else setViewerIndex(i);
                     }
                     // 키보드로도 순서 변경 — Ctrl+←/→ 로 한 칸씩 이동.
-                    if (e.ctrlKey && e.key === "ArrowLeft") {
+                    if (canReorder && e.ctrlKey && e.key === "ArrowLeft") {
                       e.preventDefault();
                       moveTo(i, i - 1);
                     }
-                    if (e.ctrlKey && e.key === "ArrowRight") {
+                    if (canReorder && e.ctrlKey && e.key === "ArrowRight") {
                       e.preventDefault();
                       moveTo(i, i + 1);
                     }
                   }}
                   onDragStart={(e) => {
+                    if (!canReorder) return;
                     setDragIndex(i);
                     e.dataTransfer.effectAllowed = "move";
                     // Firefox는 데이터가 없으면 드래그를 시작하지 않는다.
@@ -357,7 +628,7 @@ export default function SubjectNotes() {
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={`/api/notes/image?subject=${subject}&id=${photo.id}`}
+                    src={`/api/notes/image?subject=${album}&id=${photo.id}`}
                     alt={photo.memo || photo.fileName}
                     loading="lazy"
                     draggable={false} /* 이미지 자체가 끌리면 타일 드래그가 시작되지 않는다 */
@@ -365,13 +636,14 @@ export default function SubjectNotes() {
                     style={{ transform: `rotate(${photo.rotation}deg)` }}
                     className="w-full h-full object-cover"
                   />
-                  <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-black/55 text-white text-[11px] font-medium">
-                    {i + 1}
+                  {/* 평소엔 앨범 안 번호, 검색 중에는 **어느 앨범의 몇 번째**인지 (찾은 사진의 위치를 알려준다). */}
+                  <span className="absolute top-1.5 left-1.5 max-w-[85%] truncate px-1.5 py-0.5 rounded-md bg-black/55 text-white text-[11px] font-medium">
+                    {searchMode ? `${noteAlbumLabel(album)} · ${entry.position + 1}` : i + 1}
                   </span>
 
                   {/* 한 칸씩 이동 — 드래그가 어려운 환경(터치·좁은 화면)용 */}
                   <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                    {i > 0 && (
+                    {canReorder && i > 0 && (
                       <button
                         type="button"
                         aria-label="앞으로 이동"
@@ -384,7 +656,7 @@ export default function SubjectNotes() {
                         ‹
                       </button>
                     )}
-                    {i < notes.length - 1 && (
+                    {canReorder && i < entries.length - 1 && (
                       <button
                         type="button"
                         aria-label="뒤로 이동"
@@ -406,16 +678,28 @@ export default function SubjectNotes() {
                   )}
                 </div>
               );
+              if (!showPhotoTitles) return <div key={photo.id}>{tile}</div>;
+              return (
+                <figure key={photo.id} className="space-y-1.5">
+                  {tile}
+                  {/* 제목은 잘릴 수 있으므로 title 속성으로 전체 이름을 남긴다. */}
+                  <figcaption
+                    title={photo.fileName}
+                    className="px-0.5 text-[11px] leading-tight text-slate-600 truncate"
+                  >
+                    {notePhotoTitle(photo)}
+                  </figcaption>
+                </figure>
+              );
             })}
           </div>
         )}
       </section>
 
-      {viewerIndex !== null && notes[viewerIndex] && (
+      {openIndex !== null && entries[openIndex] && (
         <PhotoViewer
-          subject={subject}
-          photos={notes}
-          index={viewerIndex}
+          entries={entries}
+          index={openIndex}
           onIndexChange={setViewerIndex}
           onClose={() => setViewerIndex(null)}
           onSaveMemo={saveMemo}
@@ -459,10 +743,12 @@ function ToolButton({
 /**
  * 확대 보기 — 회전(저장됨) · 확대/축소 · 끌어서 이동.
  * 키: ESC 닫기, ←/→ 사진 이동, +/− 확대·축소, 0 화면 맞춤, R 오른쪽 회전.
+ *
+ * ★ 사진마다 **앨범 키를 함께** 받는다 — 제목 검색 결과는 여러 앨범이 섞여 있어
+ *   이미지 조회·회전·삭제 요청을 사진별 앨범으로 보내야 한다.
  */
 function PhotoViewer({
-  subject,
-  photos,
+  entries,
   index,
   onIndexChange,
   onClose,
@@ -470,16 +756,15 @@ function PhotoViewer({
   onRotate,
   onDelete,
 }: {
-  subject: SubjectKey;
-  photos: NotePhoto[];
+  entries: NoteEntry[];
   index: number;
   onIndexChange: (i: number) => void;
   onClose: () => void;
-  onSaveMemo: (id: string, memo: string) => Promise<void>;
-  onRotate: (id: string, rotation: NoteRotation) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  onSaveMemo: (album: NoteAlbumKey, id: string, memo: string) => Promise<void>;
+  onRotate: (album: NoteAlbumKey, id: string, rotation: NoteRotation) => Promise<void>;
+  onDelete: (album: NoteAlbumKey, id: string) => Promise<void>;
 }) {
-  const photo = photos[index];
+  const { photo, album } = entries[index];
   const [memoDraft, setMemoDraft] = useState(photo.memo);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -594,17 +879,17 @@ function PhotoViewer({
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft" && index > 0) onIndexChange(index - 1);
-      if (e.key === "ArrowRight" && index < photos.length - 1) onIndexChange(index + 1);
+      if (e.key === "ArrowRight" && index < entries.length - 1) onIndexChange(index + 1);
       if (e.key === "+" || e.key === "=") applyZoom(zoom * ZOOM_STEP);
       if (e.key === "-" || e.key === "_") applyZoom(zoom / ZOOM_STEP);
       if (e.key === "0") applyZoom(1);
       if (e.key === "r" || e.key === "R") {
-        void onRotate(photo.id, (((rotation + 90) % 360) as NoteRotation));
+        void onRotate(album, photo.id, (((rotation + 90) % 360) as NoteRotation));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [index, photos.length, onClose, onIndexChange, applyZoom, zoom, onRotate, photo.id, rotation]);
+  }, [index, entries.length, onClose, onIndexChange, applyZoom, zoom, onRotate, album, photo.id, rotation]);
 
   return (
     <div
@@ -621,7 +906,7 @@ function PhotoViewer({
           <div className="min-w-0">
             <p className="text-sm font-semibold text-blue-900 truncate">{photo.fileName}</p>
             <p className="text-xs text-slate-400">
-              {SUBJECT_LABEL[subject]} · {index + 1} / {photos.length} · {(photo.bytes / 1024).toFixed(0)}KB
+              {noteAlbumLabel(album)} · {index + 1} / {entries.length} · {(photo.bytes / 1024).toFixed(0)}KB
             </p>
           </div>
           <button
@@ -638,13 +923,13 @@ function PhotoViewer({
         <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-slate-100 bg-slate-50/60">
           <ToolButton
             label="왼쪽으로 90° 회전"
-            onClick={() => void onRotate(photo.id, (((rotation + 270) % 360) as NoteRotation))}
+            onClick={() => void onRotate(album, photo.id, (((rotation + 270) % 360) as NoteRotation))}
           >
             ↺
           </ToolButton>
           <ToolButton
             label="오른쪽으로 90° 회전"
-            onClick={() => void onRotate(photo.id, (((rotation + 90) % 360) as NoteRotation))}
+            onClick={() => void onRotate(album, photo.id, (((rotation + 90) % 360) as NoteRotation))}
           >
             ↻
           </ToolButton>
@@ -710,7 +995,7 @@ function PhotoViewer({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             ref={imgRef}
-            src={`/api/notes/image?subject=${subject}&id=${photo.id}`}
+            src={`/api/notes/image?subject=${album}&id=${photo.id}`}
             alt={photo.memo || photo.fileName}
             draggable={false}
             onLoad={(e) =>
@@ -747,7 +1032,7 @@ function PhotoViewer({
               ‹
             </button>
           )}
-          {index < photos.length - 1 && (
+          {index < entries.length - 1 && (
             <button
               type="button"
               onClick={() => onIndexChange(index + 1)}
@@ -765,7 +1050,7 @@ function PhotoViewer({
             type="text"
             value={memoDraft}
             onChange={(e) => setMemoDraft(e.target.value)}
-            onBlur={() => memoDraft !== photo.memo && void onSaveMemo(photo.id, memoDraft)}
+            onBlur={() => memoDraft !== photo.memo && void onSaveMemo(album, photo.id, memoDraft)}
             placeholder="설명 (예: 테브난 등가 정리 요약)"
             className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700 focus:border-blue-400 focus:outline-none"
           />
@@ -773,7 +1058,7 @@ function PhotoViewer({
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => void onDelete(photo.id)}
+                onClick={() => void onDelete(album, photo.id)}
                 className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium"
               >
                 정말 삭제

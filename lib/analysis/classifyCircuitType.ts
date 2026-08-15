@@ -9,8 +9,67 @@ import type {
 } from "@/types";
 import { createLogger } from "@/lib/logger";
 import { isDependentComponent, isDependentSourceValue } from "./dependentSource";
+import { effectiveComponentType } from "./reactiveValue";
 import { evaluateTff3Signals } from "./detectTff3AutonomousCounter";
 import { evaluateOpampRcTSignals } from "./detectOpampRcTOscillator";
+import { matchesPeriodicSignalDcRms } from "@/lib/generation/topologies/periodicSignalDcRms";
+import { matchesDffPresetClearSignature } from "@/lib/generation/topologies/dffPresetClearRegions";
+import { matchesSwitchedRlDualShort } from "@/lib/generation/topologies/switchedRlDualShort";
+import { matchesTwoSourceRlSuperposition } from "@/lib/generation/topologies/twoSourceRlSuperposition";
+import { matchesAcDcSourceSuperpositionVc } from "@/lib/generation/topologies/acDcSourceSuperpositionVc";
+import { matchesRlcAntiresonanceLadder } from "@/lib/generation/topologies/rlcAntiresonanceLadder";
+import { matchesJkTwoPhaseClock } from "@/lib/generation/topologies/jkTwoPhaseClockXor";
+import { matchesMaxPowerTwoSourceRatio } from "@/lib/generation/topologies/maxPowerTwoSourceRatio";
+import { matchesNumberReprFillBlank } from "@/lib/generation/topologies/numberReprFillBlank";
+import { matchesJfetDepletionFillBlank } from "@/lib/generation/topologies/jfetDepletionFillBlank";
+import { matchesBjtEarlyEffectFillBlank } from "@/lib/generation/topologies/bjtEarlyEffectFillBlank";
+import { matchesMaxwellConceptFillBlank } from "@/lib/generation/topologies/maxwellConceptFillBlank";
+import {
+  matchesDeltaWyeAsk,
+  matchesDeltaWyeSignature,
+  yieldsDeltaWyeToSibling,
+} from "@/lib/generation/topologies/acDeltaWyeBridge";
+import {
+  matchesOscPhaseAsk,
+  matchesOscPhaseSignature,
+  yieldsOscPhaseToSibling,
+} from "@/lib/generation/topologies/oscilloscopePhaseL";
+import {
+  matchesTwoSourceMeshAsk,
+  matchesTwoSourceMeshSignature,
+  meshSignalsFromInventory,
+  yieldsTwoSourceMeshToSibling,
+} from "@/lib/generation/topologies/acTwoSourceMeshPower";
+import {
+  matchesNullSourceAsk,
+  matchesNullSourceUnknownSource,
+  matchesNullSourceSignature,
+  nullSourceSignalsFromInventory,
+  yieldsNullSourceToSibling,
+} from "@/lib/generation/topologies/acSuperpositionNullSource";
+import {
+  matchesCapShortAsk,
+  matchesCapShortSignature,
+  yieldsCapShortToSibling,
+} from "@/lib/generation/topologies/switchedCapShortRl";
+import {
+  matchesOasAsk,
+  matchesOasSignature,
+  yieldsOasToSibling,
+} from "@/lib/generation/topologies/opampAvgSuperpositionR";
+import {
+  hasDependentInInventory,
+  hasSymbolicResistor,
+  independentCurrentSourceCount,
+  matchesTdgAsk,
+  matchesTdgSignature,
+  yieldsTdgToSibling,
+} from "@/lib/generation/topologies/theveninDepGraphMaxPower";
+import {
+  dnmTextOf,
+  matchesDffNandMuxSignature,
+  yieldsDffNandMuxToSibling,
+} from "@/lib/generation/topologies/dffNandMuxPair";
 
 const classifierLog = createLogger("lib/analysis/classifyCircuitType");
 
@@ -35,6 +94,175 @@ export function classifyCircuitType(
   analysis: AnalysisResult,
   subject: SubjectKey,
 ): CircuitTypeClassification {
+  // ── ★ 0-PRE (subject 무관) — 주기 신호 수식 → 직류값·실효값 (임용 36번 회로이론) ──────────────
+  //   ★★ 아래 **개념 명칭형 가드보다 먼저** 둔다: 이 원본은 회로도 소자도 없어 인벤토리가 비고,
+  //     그러면 개념 명칭형이 가져가 "원리·법칙의 이름을 쓰시오"가 생성됐다(사용자 신고 2026-08-12).
+  //     회로 경로(topology_driven)로 가면 없는 R₁·R₂ 회로를 지어낸다 — 양쪽 다 원본과 무관해진다.
+  if (matchesPeriodicSignalDcRms(analysis)) {
+    return {
+      type: "periodic_signal_dc_rms",
+      params: {},
+      confidence: "high",
+      reasoning: "[0-PRE] 주기 신호 수식 + 직류값·실효값 요구 → periodic_signal_dc_rms (회로·그림 없음; 개념 명칭형·generic 회로 경로 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — Maxwell 방정식 **개념** 빈칸 (임용 24번) — ★그림 없음★ ──
+  //   ★ 개념 명칭형 가드보다 **먼저** 둔다: 수치 given이 하나도 없어 그대로 걸린다(CLAUDE.md 1-4-2).
+  //   EM 계산 유형(레지스트리)은 수치를 주고 값을 구하므로 매처가 양보한다.
+  if (matchesMaxwellConceptFillBlank(analysis)) {
+    return {
+      type: "maxwell_concept_fill_blank",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] Maxwell 방정식 + 개념 서술(변위전류·연속방정식·표피깊이·미분형) → maxwell_concept_fill_blank " +
+        "(임용 24번; 개념 명칭형·EM 레지스트리 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 컴퓨터 데이터 표현·산술 연산 빈칸 (임용 27번) — ★그림 없음★ ──
+  //   보수 표현 + 진수 변환/오버플로가 함께 나오는 **순수 텍스트** 문항. 회로 낱말이 있으면 양보한다.
+  if (matchesNumberReprFillBlank(analysis)) {
+    return {
+      type: "number_repr_fill_blank",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] 1·2의 보수 + 진수 변환/오버플로 (회로 아님) → number_repr_fill_blank " +
+        "(임용 27번; universal_digital·개념 명칭형 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — npn BJT **Early 효과** 개념 빈칸 (임용 27번 전자회로) ──
+  //   ★ 개념 명칭형 가드보다 **먼저** 둔다: 수치 given이 하나도 없는 개념 문항이라 그대로 걸린다(CLAUDE.md 1-4-2).
+  //   ★ 과목 무관으로 두는 이유 — 소자는 아날로그(BJT)인데 원본이 개념 판별 객관식이라
+  //     Vision이 electronics·circuit_theory 어디로도 잡는다(bjt_switch_logic_gate 선례).
+  //   BJT **계산·설계** 형제(바이어스·특성곡선 영역·레귤레이터)는 매처가 양보한다.
+  if (matchesBjtEarlyEffectFillBlank(analysis)) {
+    return {
+      type: "bjt_early_effect_fill_blank",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] BJT + Early 효과 고유 신호(베이스폭 변조·유효 베이스폭·Punch Through·동적출력저항) → bjt_early_effect_fill_blank " +
+        "(임용 27번; bjt_characteristic_curve·bjt_bias·개념 명칭형 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — n채널 JFET **공핍층·핀치오프** 개념 빈칸 (임용 28번 전자회로) ──
+  //   ★ 개념 명칭형 가드보다 **먼저** 둔다 — 수치 given이 없는 개념 문항이라 그대로 걸린다(CLAUDE.md 1-4-2).
+  //   JFET **바이어스 계산** 형제(jfet_bias: 분압 저항·I_D 계산)는 매처가 수치 given으로 양보한다.
+  if (matchesJfetDepletionFillBlank(analysis)) {
+    return {
+      type: "jfet_depletion_fill_blank",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] JFET + 공핍층·핀치오프 개념 신호(채널 테이퍼링·선형/포화 영역·V_P) → jfet_depletion_fill_blank " +
+        "(임용 28번; jfet_bias·개념 명칭형 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 전원 크기만 다른 **두 회로**의 최대전력 부하 + 비 (임용 17번) ──
+  //   형제 최대전력 유형들은 전부 **단일 회로**다 — "두 회로를 비교해 비를 묻는다"가 판별선이다.
+  if (matchesMaxPowerTwoSourceRatio(analysis)) {
+    return {
+      type: "max_power_two_source_ratio",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] 최대전력 + (가)·(나) 두 회로 비교 + 부하 저항·인덕턴스 설계 → max_power_two_source_ratio " +
+        "(임용 17번; 단일 회로 테브난·최대전력 형제 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — JK + **2상 클럭발생기** + 출력 게이트 2개 (임용 30번) ──
+  //   "2상 클럭발생기"는 형제 어느 유형도 쓰지 않는 고유 낱말이라 그 자체가 강한 판별선이다.
+  //   낱말을 흘린 회차는 (JK + FF 2개 + 게이트 2개 + 출력 Y 파형)의 구조 신호로 잡는다.
+  if (matchesJkTwoPhaseClock(analysis)) {
+    return {
+      type: "jk_two_phase_clock",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] JK 플립플롭 + 2상 클럭발생기 + 출력 게이트 2개 → jk_two_phase_clock " +
+        "(임용 30번; universal_digital·jk_sync_counter 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 병렬 LC **반공진**으로 우측이 개방되는 RLC 사다리 (임용 16번) ──
+  //   L∥C의 리액턴스 크기가 같아 개방이 되고 회로가 단일 직렬로 축약되는 것이 채점 포인트다.
+  if (matchesRlcAntiresonanceLadder(analysis)) {
+    return {
+      type: "rlc_antiresonance_ladder",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] 교류 단일 전압원 + 인덕터 2·커패시터 2 이상 사다리 + 정상상태 전류 요구 → rlc_antiresonance_ladder " +
+        "(임용 16번; universal_ac·rlc_resonance 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 교류 전압원 + 직류 전류원 RLC → 정상상태 v_C(t) 중첩 (임용 15번) ──
+  //   전원 구성(교류 **전압**원 + 직류 **전류**원)이 이 유형의 뼈대다. 스위치 과도·테브난·공진이면 양보.
+  if (matchesAcDcSourceSuperpositionVc(analysis)) {
+    return {
+      type: "ac_dc_source_superposition_vc",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] 교류 전압원 + 직류 전류원 + 커패시터 + 정상상태 요구 → ac_dc_source_superposition_vc " +
+        "(임용 15번; universal_ac·ac_superposition 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 전압원 2개(계단+정현파) RL/RC → 테브난 + 중첩 5단계 (임용 4번) ──
+  //   실측 신고: **스위치가 없는데** 임용 3번 SPDT 절체 유형이 가져가 단자 A·B 회로로 변질됐다.
+  //   판별선은 "두 전원이 **동시에** 인가되고 **중첩·테브난**으로 분해"하는 절차다(스위치면 양보).
+  if (matchesTwoSourceRlSuperposition(analysis)) {
+    return {
+      type: "two_source_rl_superposition",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] 전압원 2개 + 중첩(+테브난·단위계단·합성저항) + 리액티브 → two_source_rl_superposition " +
+        "(임용 4번; switched_rl_source_switch·ac_superposition 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 스위치 2개가 t=0에 **소자를 단락**시키는 전류원 RL 과도 (임용 17번) ──
+  //   실측 라우팅: generic `switched_rl`(medium) — 그 경로는 **단일 전압원 직렬 RL**만 만들어
+  //   전류원·스위치 2개·병렬 구조를 통째로 잃는다. 형제(2전압원 SPDT·종속전원·RLC)도 재현 못 한다.
+  //   매처가 커패시터·종속전원·교류 형제에 양보하므로 넓은 분기보다 위에 두어도 안전하다(1-5 규칙).
+  if (matchesSwitchedRlDualShort(analysis)) {
+    return {
+      type: "switched_rl_dual_short",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] 전류원 + 인덕터 2개 + 스위치 2개(닫힘·소자 단락) + 과도 → switched_rl_dual_short " +
+        "(임용 17번; generic switched_rl 오탈취 차단, 과목 무관)",
+    };
+  }
+
+  // ── ★ 0-PRE (subject 무관) — D-FF + 비동기 PR·CLR + A·B 조합논리 → 구간 ㉠~㉢ Q 파형 (임용 27번) ──
+  //   ★★ **개념 명칭형 가드보다 먼저** 둔다: 이 원본은 수치 given이 하나도 없는 디지털 문항이라
+  //     `hasQuantitativeGivens=false`로 개념 명칭형에 그대로 걸린다(실측: 3과목 전부 `unsupported`
+  //     → 디지털이면 route에서 `universal_digital`로 코어션돼 원본과 무관한 문제가 생성됐다).
+  //     CLAUDE.md 1-4-2와 같은 사고 — 디지털 설계·해석 문항은 수치 판별선이 통하지 않는다.
+  //   형제 양보는 매처가 담당한다(카운터·상태기계·MUX면 false).
+  if (matchesDffPresetClearSignature(analysis)) {
+    return {
+      type: "dff_preset_clear_regions",
+      params: {},
+      confidence: "high",
+      reasoning:
+        "[0-PRE] 단일 플립플롭 + 비동기 PR·CLR(또는 입력 A·B) + 구간 ㉠~㉢의 출력 Q 요구 → dff_preset_clear_regions " +
+        "(임용 27번; 개념 명칭형·universal_digital·ff_with_waveform 오탈취 차단, 과목 무관)",
+    };
+  }
+
   // ── ★ 0-PRE (subject 무관) — 개념 명칭형(원리·법칙·소자 이름 쓰기)은 회로 archetype 금지 ─────────
   //   실측 신고: "㉠·㉡에서 설명하는 원리 또는 법칙의 이름을 순서대로 쓰시오"(㉠=KVL, ㉡=중첩의 원리)는
   //   **수치 계산이 전혀 없는 개념형**인데, "중첩"·"전원" 낱말 때문에 ac_superposition(AC 다중 전원
@@ -57,6 +285,141 @@ export function classifyCircuitType(
         params: {},
         confidence: "high",
         reasoning: "원리·법칙의 명칭을 쓰는 개념형(수치 계산 없음) → 회로 archetype 미사용, 텍스트 경로",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — D-FF 2개 + 3-NAND 입력망 + 점선부 AND/OR 도시 (임용 12번 디지털) ──
+  //   ★ 실측(2026-08-04, 사용자 신고): 전용 항목이 없어 `sequential_dff_generic`(GPT 구조추출)으로
+  //     떨어져 원본과 다른 회로가 나왔고 점선 영역에 정답 게이트가 그대로 그려져 답이 노출됐다.
+  //   판별선 = D 플립플롭 + (점선부 AND/OR 도시 요구 OR 지점별 Q₁Q₀ 요구). JK·T·MUX·상태도면 양보.
+  {
+    // ★ topic·interpretation만 본다 — relatedConcepts·fillInTheBlanks는 Vision이 만든 빈칸 학습 문장이라
+    //   구조적 사실이 아니다(실측: 빈칸의 "카르노맵" 한 낱말이 형제 양보를 발화시켜 감지가 죽었다).
+    const dnmText = dnmTextOf(analysis);
+    if (matchesDffNandMuxSignature(dnmText) && !yieldsDffNandMuxToSibling(dnmText)) {
+      classifierLog.info("classify_result", { type: "dff_nand_mux_pair", route: "0pre_dff_nand_mux", subject });
+      return {
+        type: "dff_nand_mux_pair",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] D 플립플롭 2개 + NAND 입력망 + 점선부 AND/OR 도시 → dff_nand_mux_pair (임용 12번 디지털; sequential_dff_generic 오탈취 차단, 과목 무관)",
+      };
+    }
+  }
+  // ── ★ 0-PRE (subject 무관) — 2전원(V+I) 페이저 + 중첩 → **V_L = 0이 되는 전류원 역산** (임용 3번 회로이론) ──
+  //   원본: 직사각 2-메시. 좌 세로 = 전압원 V_s(√2∠45°), 우 세로 = 전류원 I_s(↑),
+  //         상단 1Ω·1Ω, 가운데 j2Ω(V_L), 하단 −j1Ω·−j1Ω. 〈해석 절차〉
+  //         [1] I_s 개방 시 V_L1 [2] V_s 단락 시 V_L2 [3] 중첩 + V_L=0 → I_s.
+  //   ★ 실측(2026-08-05, 사용자 신고): 전용 항목이 없어 **generic `universal_ac`** 로 떨어져
+  //     정답이 **"(query 없음)"**, 풀이는 "AC 정상상태 phasor 해석 — 입력 ω = 10000 rad/s" placeholder였다
+  //     (로그에 `generic_dispatch_warning`, validator는 issues=0으로 통과).
+  //   ★ 판별선 = **영(0) 조건으로 전원을 역산**한다는 요구 — 형제 `ac_superposition_source_design`은
+  //     0이 아닌 목표 페이저 전압(−7−j 등)을 주고 **두 전원의 크기**를 구한다. 평균전력·테브난이면 양보.
+  {
+    const nsText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    // ★ 감지기(detectAcSuperpositionNullSource)와 **같은 매처**를 공유한다 — 복제 금지(드리프트).
+    const nsSig = nullSourceSignalsFromInventory(analysis.componentInventory);
+    // 요구는 두 갈래 중 하나면 된다 — 낱말로 드러난 **영(0) 조건**, 또는 Vision이 그것마저
+    // 흘렸을 때 인벤토리에 남는 **미지 전류원 기호**(matchesNullSourceUnknownSource 주석 참고).
+    const nsAsk =
+      matchesNullSourceAsk(nsText) || matchesNullSourceUnknownSource(nsText, nsSig);
+    if (matchesNullSourceSignature(nsText, nsSig) && nsAsk && !yieldsNullSourceToSibling(nsText)) {
+      classifierLog.info("classify_result", { type: "ac_superposition_null_source", route: "0pre_ac_null_source", subject });
+      return {
+        type: "ac_superposition_null_source",
+        params: {},
+        confidence: "high",
+        reasoning:
+          "[0-PRE] 교류 2전원(V+I) + 리액티브 + **소자 양단 전압 0 조건** + 전원 역산 → ac_superposition_null_source " +
+          "(임용 3번 회로이론; universal_ac 추락 차단, 과목 무관)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — **2전원** RLC 메시 → 페이저 전류 I₁·I₂ + 평균전력 (임용 5번 회로이론) ──
+  //   원본: 좌·우 세로에 교류 전원 2개, 상단 좌 R₁(I₁)·상단 우 C₂(I₂), 가운데 R₂, 하단 C₁·L.
+  //   [1] I₁·I₂ [2] R₂ 소비 평균전력 [3] v₁이 공급하는 평균전력.
+  //   ★ 실측(2026-08-04, 사용자 신고): 전용 항목이 없어 **바로 아래 `ac_rl_average_power`(단일 전원)** 가
+  //     가로챘고 생성물의 **정답이 빈 문자열**, 풀이는 "모든 branch 전류가 0A"였다(issues=0으로 조용히 통과).
+  //   ★ 판별선 = **교류 전원 2개** + 평균전력 + 페이저 전류/메시 요구 → 반드시 그 블록 **앞**에 둔다.
+  {
+    const t2s = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    // ★ 시그니처는 감지기(detectAcTwoSourceMeshPower)와 **같은 매처**를 공유한다 — 복제 금지(드리프트).
+    const meshSig = meshSignalsFromInventory(analysis.componentInventory);
+    if (matchesTwoSourceMeshSignature(t2s, meshSig) && matchesTwoSourceMeshAsk(t2s) && !yieldsTwoSourceMeshToSibling(t2s)) {
+      classifierLog.info("classify_result", { type: "ac_two_source_mesh_power", route: "0pre_ac_two_source_mesh", subject });
+      return {
+        type: "ac_two_source_mesh_power",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] 교류 전원 2개 + 메시 페이저 전류 + 평균전력 → ac_two_source_mesh_power (임용 5번 회로이론; ac_rl_average_power 오탈취 차단, 과목 무관)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — (+)단자 3입력 평균 + 2단 중첩 → 미지 저항 (임용 8번 전자회로) ──
+  //   원본: 1단 (+)에 3입력(각 R_in)이 한 마디로 모이고 (−)는 접지-R_g + R_f1 궤환 → 비반전 증폭.
+  //         2단은 V₁—R—(−), R_f2 궤환, (+)에 V₂. 〈해석 절차〉 [1] V₁ [2] a점 중첩 [3] R.
+  //   ★ 실측(사용자 신고): 전용 항목이 없어 generic OPAMP 경로로 가서 **(+)단자 3입력이
+  //     반전 가산기로 뒤집힌** 회로가 나왔다("이건 반전증폭기잖아").
+  //   ★ 형제 opamp_two_stage_rx와의 판별선 = (+) 마디에 **접지로 내려가는 미지 R_X가 없다**.
+  {
+    const oas = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+    ].join(" ").toLowerCase();
+    const invO = analysis.componentInventory ?? [];
+    const opampN = invO.filter((c) => String(c?.type ?? "").toUpperCase() === "OPAMP").length;
+    const srcN = invO.filter((c) => String(c?.type ?? "").toUpperCase() === "V").length;
+    if (!yieldsOasToSibling(oas) && matchesOasSignature(oas, opampN, srcN) && matchesOasAsk(oas)) {
+      classifierLog.info("classify_result", { type: "opamp_avg_superposition_r", route: "0pre_opamp_avg_superposition", subject });
+      return {
+        type: "opamp_avg_superposition_r",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] 연산증폭기 2단 + (+)단자 다중 입력 + 중첩으로 미지 저항 도출 → opamp_avg_superposition_r (임용 8번 전자회로; generic OPAMP 오탈취 차단, 과목 무관)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 종속전원 저항회로 + V-I 그래프 → 미지 R → I_SC → 최대전력 (임용 9번) ──
+  //   원본: 점선 박스 안 `9V — 5Ω — ◇2i_x — 1Ω — 마디 M — 2Ω — a`, `M — R(i_x↓) — b`,
+  //         박스 밖 `a — Ⓐ — R_L(Ⓥ) — b`. (나)는 V_RL–I_RL 직선(y절편만 수치, x절편은 I_SC 기호).
+  //   ★ 판별선 = **종속전원 + 테브난 + (그래프 신호 OR 인벤토리의 기호 저항)**.
+  //     그래프 낱말을 Vision이 통째로 흘린 회차가 실측됐고(그때 (나)가 사라지고 미지 R에 값이 노출됐다),
+  //     그 회차에 남는 신호가 **값이 기호인 저항**이다(CLAUDE.md 1-4-5).
+  //   ★ generic `thevenin_dependent_generic`/`thevenin_max_power_generic`(GPT 구조 추출)보다 **앞**에 둔다 —
+  //     그 경로는 점선 박스·계기·i_x 표기를 잃고 토폴로지도 회차마다 흔들린다.
+  {
+    const tdg = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+    ].join(" ").toLowerCase();
+    // ★ 분류기와 감지기(detectTheveninDepGraph)가 **같은 매처**를 공유한다 — 복제 금지(드리프트).
+    const symR = hasSymbolicResistor(analysis.componentInventory as Array<{ type?: string; value?: string }>);
+    const depInv = hasDependentInInventory(analysis.componentInventory as Array<{ type?: string; value?: string }>);
+    // ★ 독립 전류원 개수 — 텍스트가 "종속 전원"을 지어낸 회차에서 형제(임용 5번)를 지켜 준다.
+    const indepI = independentCurrentSourceCount(analysis.componentInventory as Array<{ type?: string; value?: string }>);
+    if (!yieldsTdgToSibling(tdg) && matchesTdgSignature(tdg, symR, depInv, indepI) && matchesTdgAsk(tdg)) {
+      classifierLog.info("classify_result", { type: "thevenin_dep_graph_max_power", route: "0pre_thevenin_dep_graph", subject });
+      return {
+        type: "thevenin_dep_graph_max_power",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] 종속전원 + 테브난 + V-I 그래프(또는 기호 미지 저항) → thevenin_dep_graph_max_power (임용 9번 회로이론; generic 테브난 경로 오탈취 차단, 과목 무관)",
       };
     }
   }
@@ -552,6 +915,260 @@ export function classifyCircuitType(
     }
   }
 
+  // ── ★ 0-PRE (subject 무관) — JK-FF 2개 **Mealy 상태도** + 상태표 빈칸 (임용 9번 디지털) ─────────
+  //   판별선 = 상태도/상태표 + **Mealy 출력 y(x/y 표기)** + J-K 입력 기호. 형제(여기표만·D/T-FF·
+  //   시퀀스 검출기·카운터 파형)에는 "상태도 + 출력 y" 조합이 없다. 넓은 fsm 분기보다 **위**(1-5 규칙).
+  {
+    const jkmText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    const stateCtxM = /상태도|상태\s*전이도|state\s*diagram|상태표|state\s*table/.test(jkmText);
+    const jkCtxM = /j-?k\s*플립플롭|jk\s*플립플롭|j-?k\s*flip|j_?a|k_?a|j_?b|k_?b/.test(jkmText);
+    const mealyM = /출력\s*y|x\s*\/\s*y|mealy|입력\s*x에\s*대한\s*출력/.test(jkmText);
+    const yieldM = /t\s*플립플롭|t-?ff|t_?a\b|t_?b\b|시퀀스\s*검출|검출기|카운터|counter|타이밍\s*도표|파형/.test(jkmText);
+    if (stateCtxM && jkCtxM && mealyM && !yieldM) {
+      classifierLog.info("classify_result", { type: "jk_mealy_state_design", route: "0pre_jk_mealy", subject });
+      return {
+        type: "jk_mealy_state_design",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] 상태도/상태표 + Mealy 출력 y + J-K 입력 → jk_mealy_state_design (임용 9번 디지털, fsm·jk 형제 앞)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — BJT 바이어스 + **베이스망 테브난 등가** (임용 10번 전자회로) ─────────
+  //   실측: generic `bjt_bias`(임용 7번 — 저항률 ρ로 저항 구하기)가 잡아 전혀 다른 문제가 생성됐다.
+  //   판별선 = **테브난 등가 변환 단계**(점선 부분 → R_T·V_T). bjt_bias에는 그 단계가 없다.
+  {
+    const btbText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    const invB = analysis.componentInventory ?? [];
+    const bjtB =
+      /bjt|쌍극성|접합\s*트랜지스터|트랜지스터/.test(btbText) ||
+      invB.some((c) => ["BJT", "Q", "NPN", "PNP"].includes(String(c.type ?? "").toUpperCase()));
+    const biasB = /바이어스|bias|동작점|v_?be|베이스\s*전류|i_?b\b/.test(btbText);
+    const thevB = /테브난|thevenin|등가\s*저항\s*r_?t|점선\s*부분/.test(btbText);
+    // ★★ Vision이 "테브난"·"점선"을 요약에서 통째로 빼는 회차가 잦다(실측 2/2) →
+    //   **구조 신호**로도 잡는다: 이 원본은 베이스망 전원 2개 + 이미터 음전원(V≥3)이고
+    //   컬렉터망에 **전류원**이 있다. 형제 bjt_bias(임용 7번)는 V_CC 하나뿐이고 전류원이 없다.
+    const nTypeB = (t: string) => invB.filter((c) => String(c.type ?? "").toUpperCase() === t).length;
+    const structB = nTypeB("I") >= 1 || nTypeB("V") >= 3;
+    const yieldB = /논리\s*게이트|논리게이트|진리표|제너|정전압|레귤레이터|특성\s*곡선|저항률|비저항/.test(btbText);
+    if (bjtB && biasB && (thevB || structB) && !yieldB) {
+      classifierLog.info("classify_result", { type: "bjt_thevenin_bias", route: "0pre_bjt_thevenin_bias", subject });
+      return {
+        type: "bjt_thevenin_bias",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] BJT + 바이어스 + 테브난 등가 변환(점선 부분) → bjt_thevenin_bias (임용 10번 전자회로, generic bjt_bias 앞)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — BJT 이상적 스위치 → 진리표 + 동일 동작 논리게이트 (임용 2번) ─────────
+  //   회로는 아날로그(BJT)인데 요구는 디지털이라 Vision이 과목을 electronics·digital_logic·mixed_signal
+  //   어느 쪽으로도 잡는다 → **모든 과목 분기보다 먼저** 판정한다(실측: digital이면 kmap_sop로 샜다).
+  // ★ BJT 이상적 스위치 → 진리표 + **동일 동작 논리게이트** (임용 2번).
+  //   형제 BJT archetype은 전부 아날로그(바이어스·특성곡선·레귤레이터)라 이 요구를 재현 못 한다.
+  //   ★ 과목 무관 — Vision이 digital_logic·electronics 어느 쪽으로 잡아도 같은 유형이다.
+  {
+    const bjtText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    const invPS = analysis.componentInventory ?? [];
+    const bjtPS =
+      /bjt|쌍극성|접합\s*트랜지스터|트랜지스터/.test(bjtText) ||
+      invPS.some((c) => ["BJT", "Q", "NPN", "PNP"].includes(String(c.type ?? "").toUpperCase()));
+    const logicAskPS =
+      /논리\s*게이트|논리게이트|logic\s*gate|게이트를?\s*그리|등가\s*게이트/.test(bjtText) ||
+      (/진리표/.test(bjtText) && /스위칭|스위치/.test(bjtText));
+    const analogYieldPS = /바이어스|동작점|q[- ]?점|소신호|증폭도|특성\s*곡선|제너|정전압|레귤레이터/.test(bjtText);
+    if (bjtPS && logicAskPS && !analogYieldPS) {
+      classifierLog.info("classify_result", { type: "bjt_switch_logic_gate", route: "pre_subject_bjt_logic", subject });
+      return {
+        type: "bjt_switch_logic_gate",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] BJT + 이상적 스위칭 + 논리게이트/진리표 요구 → bjt_switch_logic_gate (임용 2번, 과목 무관)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 비교기 2개 + 다이오드 결합 → 구간별 V_out·다이오드 ON/OFF (임용 3번) ──
+  //   ★ 실측(2026-08-03, 사용자 신고 이미지): Vision 분석은 정확했는데(topic="연산 증폭기 응용 회로 분석",
+  //     inventory=[OPAMP×2, D×2, R, V, V]) 분류기가 **㉠㉡ 마커 + ON/OFF**만 보고
+  //     `bjt_characteristic_curve`(BJT 출력특성곡선)로 가로채 전혀 다른 문제를 생성했다.
+  //     → 넓은 분기보다 **위**에 두어야 한다(CLAUDE.md 1-5).
+  //   ★ 판별선은 **구조**다 — 연산 증폭기(비교기) + 다이오드 2개 + 출력/상태 요구.
+  //     형제 중 이 조합을 갖는 것이 없다(diode_clamper는 OPAMP 없음, flash_adc는 사다리·인코더,
+  //     OPAMP 형제(가산기·필터·발진기·레귤레이터)는 다이오드 없음).
+  {
+    const cdText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    const invCD = analysis.componentInventory ?? [];
+    const upCD = (x: unknown) => String(x ?? "").toUpperCase();
+    const nOpampCD = invCD.filter((c) => ["OPAMP", "OP-AMP", "U"].includes(upCD(c.type))).length;
+    const nDiodeCD = invCD.filter((c) => ["D", "DIODE"].includes(upCD(c.type))).length;
+    const opampCtxCD = nOpampCD >= 1 || /연산\s*증폭기|op-?amp|opamp|비교기|comparator/.test(cdText);
+    const diodeCtxCD = nDiodeCD >= 2 ||
+      (/다이오드|diode/.test(cdText) && /d_?\s*1|d₁|d_?\s*2|d₂/.test(cdText)) ||
+      (/다이오드/.test(cdText) && nDiodeCD >= 1);
+    const askCD =
+      /on\s*[,/·]?\s*off|on\s*\/\s*off|도통|차단|상태\s*를?\s*(구|판정|쓰)/.test(cdText) ||
+      /출력\s*전압/.test(cdText);
+    // 형제 양보 — 클램퍼·리미터·정류, 플래시 ADC, 발진기, 제너/정전압, 아날로그 증폭 설계.
+    const yieldCD =
+      /클램퍼|clamper|리미터|limiter|정류|rectif|배전압/.test(cdText) ||
+      /플래시|flash\s*adc|인코더|encoder|a\s*\/\s*d\s*변환|디지털\s*출력/.test(cdText) ||
+      /발진|oscillat|삼각파|구형파\s*발생/.test(cdText) ||
+      /제너|zener|정전압|레귤레이터/.test(cdText) ||
+      /이득|증폭도|바이어스|동작점|전달\s*함수/.test(cdText);
+    if (opampCtxCD && diodeCtxCD && askCD && !yieldCD) {
+      classifierLog.info("classify_result", {
+        type: "comparator_diode_or", route: "pre_subject_comparator_diode", subject, nOpampCD, nDiodeCD,
+      });
+      return {
+        type: "comparator_diode_or",
+        params: {},
+        confidence: "high",
+        reasoning:
+          "[0-PRE] 연산증폭기(비교기) + 다이오드 2개 + 출력전압·ON/OFF 요구 → comparator_diode_or " +
+          "(임용 3번 전자회로, bjt_characteristic_curve·generic opamp 오탈취 차단, 과목 무관)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 교류 테브난 → **소자 값 a·b 설계** + 최대 평균전력 (임용 7번 회로이론) ──
+  //   ★ 실측(2026-08-03, 사용자 신고): `ac_bridge_max_power`(브리지 4-arm + 순저항 R_L)로 dispatch돼
+  //     전혀 다른 회로가 생성됐다. 형제(ladder·bridge·two_box)는 모두 **부하**를 구하는데,
+  //     이 유형만 **회로 소자 값(a·b)** 을 역산한다 — 그게 판별선이다.
+  //   ★ 넓은 `universal_ac`(AC + L/C + 최대전력)보다 **위**에 둬야 한다(1-5 규칙) — 실측에서 그쪽이 가져갔다.
+  {
+    const abText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    const thevAB = /테브난|thevenin|등가\s*임피던스/.test(abText);
+    const maxPAB = /최대\s*평균\s*전력|최대\s*전력|maximum\s*power/.test(abText);
+    // ★★ Vision이 "a, b의 값"을 요약에서 통째로 흘리는 회차가 있다(실측) — 그때 남는 유일한 신호는
+    //   **인벤토리의 기호 소자 값**(`a[Ω]`·`jb[Ω]`·`-jb[Ω]`)이다. 미지 소자 값을 기호로 들고 있는
+    //   회로는 이 유형뿐이므로, 텍스트와 인벤토리 **둘 중 하나만 맞아도** 인정한다.
+    const SYMBOLIC_AB = /^\s*[-−+]?\s*j?\s*[ab]\s*(\[|Ω|ω|$)/i;
+    const symbolicCount = (analysis.componentInventory ?? [])
+      .filter((c) => SYMBOLIC_AB.test(String(c.value ?? ""))).length;
+    const designAB =
+      /a\s*,\s*b\s*의?\s*값|a와\s*b의?\s*값|jb|−jb|-jb/.test(abText) || symbolicCount >= 2;
+    const yieldAB = /브리지|bridge|휘트스톤|점선\s*박스|종속\s*전원/.test(abText);
+    if (thevAB && maxPAB && designAB && !yieldAB) {
+      classifierLog.info("classify_result", { type: "ac_thevenin_design_ab", route: "pre_subject_ac_thev_design_ab", subject });
+      return {
+        type: "ac_thevenin_design_ab",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] 테브난 + 최대평균전력 + **소자 값 a·b 설계** → ac_thevenin_design_ab (임용 7번 회로이론, 과목 무관)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 제너 n개 직렬 션트 정전압 → 부하 저항 최솟값·최댓값 (임용 2번 전자회로) ──
+  //   ★ 실측(2026-08-03, 사용자 신고): 전용 항목이 없어 electronics 분기의 fallback(dc_mesh/unsupported)으로
+  //     떨어졌고, **원본을 거의 그대로 베낀 문항에 정답만 틀리게**(a=5, 실제 3) 나왔다.
+  //   ★ electronics 분기는 함수 중간에서 早期 return하므로 **반드시 subject 무관 구역**에 둬야 한다
+  //     (decideType 안에 넣었더니 electronics에서 도달조차 못 했다 — 스모크가 즉시 잡음).
+  //   판별선 = 제너 + **부하 저항의 최솟값/최댓값(범위)**. BJT·OPAMP가 끼면 형제 레귤레이터에 양보.
+  {
+    const zText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    const zener = /제너|zener/.test(zText);
+    const activeSibling = /트랜지스터|transistor|bjt|npn|pnp|연산s*증폭기|opamp|op-amp|오차s*증폭기/.test(zText);
+    const rangeSig =
+      /r_?ls*의?s*(최솟값|최소값|최댓값|최대값)|부하s*저항의?s*(최솟값|최소값|최댓값|최대값|범위)|r_?lmin|r_?lmax/.test(zText) ||
+      (/최솟값|최소값/.test(zText) && /최댓값|최대값/.test(zText));
+    if (zener && rangeSig && !activeSibling) {
+      classifierLog.info("classify_result", { type: "zener_shunt_regulator", route: "pre_subject_zener_shunt", subject });
+      return {
+        type: "zener_shunt_regulator",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] 제너 + 부하 저항 최솟값·최댓값(범위) → zener_shunt_regulator (임용 2번 전자회로; I_Z=0·I_ZM 경계, 과목 무관)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 오실로스코프 파형 판독 → 위상차 α → 미지 소자값 (임용 11번 회로이론) ──
+  //   원본: (가) 스코프 화면(Ch1 v_s / Ch2 v_L, V/div·µs/div) + (나) R + 미지 L ∥ (1H+1H).
+  //   [1] V_m·f [2] α와 v_L(t) [3] L.
+  //   ★ 실측(2026-08-04, 사용자 신고): 전용 항목이 없어 **universal_ac**로 떨어져 정답이
+  //     **"(query 없음)"** 인 빈 문제 + generic analog_netlist figure가 나왔다(스코프 화면 소실).
+  //   ★ 판별선 = **오실로스코프 화면 판독**(V/div·µs/div·Ch1/Ch2). 과도응답·디지털 파형은 양보.
+  {
+    const oscText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    // ★ 시그니처는 감지기(detectOscilloscopePhaseL)와 **같은 매처**를 공유한다 — 복제 금지(드리프트).
+    if (matchesOscPhaseSignature(oscText) && matchesOscPhaseAsk(oscText) && !yieldsOscPhaseToSibling(oscText)) {
+      classifierLog.info("classify_result", { type: "oscilloscope_phase_l", route: "pre_subject_osc_phase", subject });
+      return {
+        type: "oscilloscope_phase_l",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] 오실로스코프 화면 판독(V/div·µs/div) + 위상차 → oscilloscope_phase_l (임용 11번 회로이론; universal_ac 빈 문제 차단, 과목 무관)",
+      };
+    }
+  }
+
+  // ── ★ 0-PRE (subject 무관) — 교류 브리지 + Δ-Y(델타-와이) 변환 → 등가 임피던스 (임용 2번 회로이론) ──
+  //   원본: 단자 A-B 사이 5-arm 브리지(좌상 j2·우상 2·가교 −j2·좌하 j2·우하 2). 상단 델타를 Y로 변환해
+  //   Z_AB를 구하고, V=20∠0° 인가 시 I=a∠−45°의 a를 구한다.
+  //   ★ 실측(2026-08-04, 사용자 신고): 전용 항목이 없어 **`ac_parallel_branches`(임용 5번)** 가 가로챘다
+  //     — "L≥2 + C + R + 단자 a·b 없음"이라는 넓은 조건에 그대로 걸린다(로그 실측). 그 형제는 브리지·
+  //     Δ-Y·등가 임피던스 요구 어느 것도 재현하지 못한다 ⇒ 전용 archetype.
+  //   ★ 판별선 = **Δ-Y 변환**(다른 형제가 쓰지 않는 고유 절차). 최대전력·3상·종속전원이면 양보.
+  //   ★ 반드시 subject 무관 구역 — Vision이 과목을 electronics/mixed_signal로 뱉는 회차가 있고,
+  //     그 분기들은 함수 중간에서 早期 return한다(zener_shunt_regulator 사고와 동일).
+  {
+    const dwText = [
+      analysis.topic ?? "",
+      analysis.interpretation ?? "",
+      (analysis.relatedConcepts ?? []).join(" "),
+      (analysis.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
+    ].join(" ").toLowerCase();
+    // ★ 시그니처는 감지기(detectAcDeltaWyeBridge)와 **같은 매처**를 공유한다 — 복제 금지(드리프트).
+    if (matchesDeltaWyeSignature(dwText) && matchesDeltaWyeAsk(dwText) && !yieldsDeltaWyeToSibling(dwText)) {
+      classifierLog.info("classify_result", { type: "ac_delta_wye_bridge", route: "pre_subject_ac_delta_wye", subject });
+      return {
+        type: "ac_delta_wye_bridge",
+        params: {},
+        confidence: "high",
+        reasoning: "[0-PRE] 교류 + Δ-Y 변환 + 등가 임피던스 → ac_delta_wye_bridge (임용 2번 회로이론; ac_parallel_branches 오탈취 차단, 과목 무관)",
+      };
+    }
+  }
+
   // ── ★ 0-PRE (subject 무관) — 유한 이득 OPAMP + 출력단 오프셋 전압원 V_B (임용 9번 전자회로) ─────────
   //   원본: 개루프 이득 A₀(유한) + 되먹임 R₁·R₂ + ★출력단에 직렬로 놓인 전압원 V_B★.
   //   〈해석 절차〉 [1] β·V_D [2] V_out = V_D − V_B [3] 수치 대입.
@@ -810,6 +1427,61 @@ export function classifyCircuitType(
       }
     }
 
+    // ★ 0-PRE (subject 무관). SW₁ 닫힘 + SW₂(접점 b→c) **2전압원** RLC (2022 전기 B-5).
+    //   원본: V_s—SW₁—R₁—L—노드 a, 노드 a∥C, 노드 a—SW₂{b: V_b, c: R₂}. 초기조건 → 2차 미분방정식 → v_c(t).
+    //   ★ 실측: 이 원본이 `switched_rlc_step`(v1 3-leg = **전류원** + R_c+L 병렬가지)으로 가서
+    //     전류원이 없는 회로가 전류원 회로로 변질됐다 → 전용 archetype. 형제(5leg·step v1)는 모두
+    //     전원이 V·I 혼합이므로 **전류원 유무**로 갈린다(여기는 전압원 2개·전류원 0).
+    {
+      const twoSwitchKw = counts.SW >= 2 || matchesKeyword(text, [
+        "sw_1", "sw₁", "sw1", "스위치 1", "두 개의 스위치", "스위치 sw_1", "접점 b", "접점 c",
+      ]);
+      const transientKwD = matchesKeyword(text, [
+        "라플라스", "laplace", "미분 방정식", "미분방정식", "초기 조건", "초깃값", "과도", "t=0", "t = 0",
+      ]);
+      if (
+        counts.L >= 1 && counts.C >= 1 &&
+        counts.V >= 2 && counts.I === 0 && counts.dep === 0 &&
+        hasSwitchInferred && twoSwitchKw && transientKwD
+      ) {
+        return {
+          type: "switched_rlc_dual_switch",
+          params: {},
+          confidence: "high",
+          reasoning:
+            `[0-PRE] 스위치 2개 + RLC(L=${counts.L},C=${counts.C}) + 전압원 ${counts.V}개(전류원 0) + 과도/라플라스 ` +
+            `→ switched_rlc_dual_switch (2022 전기 B-5; 전류원 있는 switched_rlc_step v1과 구분)`,
+        };
+      }
+    }
+
+    // ★ 0-PRE (subject 무관). **스위치가 커패시터를 단락** → 1차 RL 계단응답 (임용 7번 회로이론).
+    //   실측 오분류(2026-08-10 신고): 전용 항목이 없어 `switched_rlc_step`(v1)이 가로채
+    //   원본에 **없는 전류원 2A·SPDT**가 들어간 회로로 변질되고 묻는 양도 i_L(t)→v_C(t)로 바뀌었다.
+    //   판별선: 단일 전압원 + 전류원 0 + C·L 존재 + 스위치가 **닫힌다**(형제 switched_rlc_source_free는 **열린다**).
+    //   ★ 감지기(detectSwitchedCapShortRl)와 **같은 매처**를 공유한다 — 복제 금지(드리프트).
+    {
+      const capShortText = text.toLowerCase();
+      const capShortSig = {
+        v: counts.V, i: counts.I, c: counts.C, l: counts.L, dep: counts.dep,
+      };
+      if (
+        matchesCapShortSignature(capShortText, capShortSig) &&
+        matchesCapShortAsk(capShortText) &&
+        !yieldsCapShortToSibling(capShortText)
+      ) {
+        classifierLog.info("classify_result", { type: "switched_cap_short_rl", route: "0pre_cap_short_rl", subject });
+        return {
+          type: "switched_cap_short_rl",
+          params: {},
+          confidence: "high",
+          reasoning:
+            `[0-PRE] 단일 직류 전압원 + C·L + 스위치 **닫힘**(커패시터 단락) + 인덕터 전류 과도 ` +
+            `→ switched_cap_short_rl (임용 7번 회로이론; 전류원 있는 switched_rlc_step·스위치가 열리는 source_free와 구분)`,
+        };
+      }
+    }
+
     // ★ 0-PRE (subject 무관). AC 역률보정 + 전력 (임용 9번 회로이론) — "역률"(power factor)은 매우 독특한 키워드.
     //   직렬 R+L + 부하 R∥C, 역률 1 되는 X_C·P_avg·Q·P_s. ★ generic topology-driven은 직렬-병렬(부하 R∥C)
     //   구조를 잃어 R·L·C 단일 직렬로 변질(실측) → 전용 archetype. Vision이 subject를 mixed_signal/dc_mesh로
@@ -860,6 +1532,44 @@ export function classifyCircuitType(
         classifierLog.info("ac_admittance_gate_miss", {
           isAdmittanceKw, hasReImDecomp, L: counts.L, C: counts.C, V: counts.V, I: counts.I,
         });
+      }
+    }
+
+    // ★ 0-PRE (subject 무관). 종속전원 포함 페이저 회로 → 테브난 등가(★단락전류법★) + 복소 켤레 최대평균전력
+    //   (임용 6번 회로이론). 원본: 독립 전류원 ∥ 션트 Z₁ — 상단 종속 전압원(k·I₂) — 션트 Z₂ — 단자 A·B,
+    //   부하 Z_L=R+jX. [1] V_AB [2] A–B 단락 전류 I_AB로 Z_AB [3] 켤레 정합 R+jX·P_L(max).
+    //   ★ 실측: 이 원본이 `switched_rl_dep_i`(직류 스위치 RL 종속전원 과도)에 가로채여 전혀 다른 문제가 됐다
+    //     — 그 감지기가 "종속전원 + L"만 보고 교류 문맥을 확인하지 않기 때문. 여기서 먼저 잡는다.
+    //   ★ 형제와 구분: `ac_thevenin_ladder`(종속전원 없음·전원 무효화로 Z_TH)·`theveninMaxPower`(2독립전원·순저항 R_L)
+    //     ·`ac_vccs_phasor`(테브난·최대전력이 없는 순수 페이저 도출) — ★종속전원 + 테브난 + 최대전력★ 3박자가 이 유형 고유.
+    {
+      const hasDepSrcT =
+        counts.dep > 0 ||
+        inv.some(isDependentComponent) ||
+        Boolean(analysis.topologySignature?.features?.hasDependentSource) ||
+        matchesKeyword(text, ["종속 전원", "종속전원", "종속 전압원", "종속 전류원", "dependent source"]);
+      const theveninKwD = matchesKeyword(text, ["테브난", "thevenin", "등가 임피던스", "등가임피던스", "등가 전압", "등가 회로"]);
+      const maxPowerKwD = matchesKeyword(text, MAX_POWER_KEYWORDS) ||
+        matchesKeyword(text, ["최대 전력", "최대전력", "최대 평균 전력", "maximum power"]);
+      // 양보 가드: 스위치·과도(직류 스위칭), 공진·역률·어드미턴스·대역폭·브리지는 각자 전용 archetype.
+      const otherArchetypeKwD = matchesKeyword(text, [
+        "공진", "resonance", "역률", "어드미턴스", "admittance", "대역폭", "bandwidth", "브리지", "bridge", "휘트스톤",
+      ]);
+      if (
+        hasDepSrcT &&
+        (counts.L > 0 || counts.C > 0) &&
+        theveninKwD && maxPowerKwD &&
+        !hasSwitchInferred &&
+        !otherArchetypeKwD
+      ) {
+        return {
+          type: "ac_thevenin_dependent",
+          params: {},
+          confidence: "high",
+          reasoning:
+            `[0-PRE] 종속전원(dep=${counts.dep}) + 리액티브(L=${counts.L},C=${counts.C}) + 테브난 + 최대전력 ` +
+            `→ ac_thevenin_dependent (임용 6번 회로이론; 단락전류법 Z_AB + 켤레 정합)`,
+        };
       }
     }
 
@@ -1048,6 +1758,52 @@ export function classifyCircuitType(
         };
       }
     }
+    // ★ 반전 가산기(미지 R₁) + **T형 궤환 반전증폭기** + **부하 전류 I_L** (임용 7번 전자회로).
+    //   실측: generic `opamp_cascade_voltage_divider`가 잡아 **전역 되먹임 전달함수** 문제로 변질됐다
+    //   (T형 궤환망·미지 R₁·부하 전류가 전부 소실) → cascade·generic **앞**에 둔다(CLAUDE.md 1-5).
+    //   ★ 판별자 = **부하 전류 I_L**(형제 OPAMP archetype엔 부하 전류가 없다) + 중간 출력 V₁.
+    {
+      const loadCurrentPS =
+        /부하\s*전류|i_?l\b/i.test(textPS) ||
+        (analysis.componentInventory ?? []).some((c) => /r_?l/i.test(String(c.value ?? "")));
+      // ★ 중간 출력 V₁을 요구하지 않는다 — 실측 2회차에서 Vision이 V_1을 한 번도 안 쓰고
+      //   "각 노드의 전압을 분석하고 부하에 흐르는 전류를 구한다"로만 요약했다(1회차엔 V_1이 있었다).
+      //   대신 **2단 구조**(OPAMP 2개) 또는 **미지 저항** 신호 중 하나만 있으면 인정한다.
+      const midOutPS = /v_?1\b|v₁/i.test(textPS) || /1단\s*출력|중간\s*출력/.test(textPS);
+      const unknownRPS =
+        /되기\s*위한|미지의?\s*저항|저항\s*값?\s*(을|를)\s*(구|결정)/.test(textPS) ||
+        (analysis.componentInventory ?? []).some((c) => /^r_?[0-9x]?\s*\[/i.test(String(c.value ?? "").trim()));
+      const twoStagePS = opampPS >= 2 || midOutPS || unknownRPS;
+      const yieldPS = /발진|oscillat|저역|고역|대역폭|차단\s*주파수|제너|정전압|레귤레이터|개방\s*루프|개루프|블록도/.test(textPS);
+      if (opampStrongCtxPS && loadCurrentPS && twoStagePS && !transferFnKw && !yieldPS) {
+        classifierLog.info("classify_result", { type: "opamp_summer_tfeedback", route: "pre_subject_opamp_tfeedback", opampCount: opampPS, subject });
+        return {
+          type: "opamp_summer_tfeedback",
+          params: {},
+          confidence: "high",
+          reasoning: `[PRE-SUBJECT] opamp + **부하 전류 I_L** + 중간 출력 V₁ + 전달함수 아님 → opamp_summer_tfeedback (임용 7번 전자회로, cascade·generic 앞)`,
+        };
+      }
+    }
+    // ★ 2단 OPAMP + **비반전측 분압 저항 R_X 설계** (임용 2번 전자회로) — ★3-OPAMP R_f 설계보다 먼저★.
+    //   판별자는 미지 저항의 **이름과 위치**다: 이쪽은 접지로 내려가는 분압 저항 **R_X**(+단자측),
+    //   형제(opamp_three_stage_sum)는 **R_f**(피드백). 3단 원본에는 R_X가 등장하지 않는다.
+    //   ★ 실측(2026-08-02): 이 원본이 (a) generic opamp → opamp_finite_gain_block 안전망,
+    //     (b) 그다음엔 designRf 조건이 넓은 opamp_three_stage_sum에 연속으로 가로채였다(CLAUDE.md 1-5).
+    {
+      const rxSigPS = /r_?x/i.test(textPS) ||
+        (analysis.componentInventory ?? []).some((c) => /r_?x/i.test(String(c.value ?? "")));
+      const vxKwPS = /v_?x\b/i.test(textPS) || /중간\s*전압|1단\s*출력/.test(textPS);
+      if (opampStrongCtxPS && !transferFnKw && rxSigPS && vxKwPS) {
+        classifierLog.info("classify_result", { type: "opamp_two_stage_rx", route: "pre_subject_opamp_rx", opampCount: opampPS, subject });
+        return {
+          type: "opamp_two_stage_rx",
+          params: {},
+          confidence: "high",
+          reasoning: `[PRE-SUBJECT] opamp + 미지 저항 R_X(비반전 분압) + 중간 출력 V_X + 전달함수 아님 → opamp_two_stage_rx (임용 2번 전자회로, three_stage_sum·generic 앞)`,
+        };
+      }
+    }
     // ★ 3-OPAMP 반전증폭(V_x)+버퍼+반전가산(R_f 도출) (임용 2번 전자) — ★opamp_generic·two_stage·cascade보다 먼저★.
     //   판별: opamp 맥락 + "출력 전압=목표가 되기/얻기 위한 저항(R_f)을 구/조정"(designRf) + 전달함수 아님 + 차동가산(V≥3) 아님.
     //   ★ Vision terse("출력 전압을 얻기 위한 저항 값을 구하는")에도 designRf로 잡힘 (V_x·R_f 리터럴 의존 금지).
@@ -1072,6 +1828,34 @@ export function classifyCircuitType(
     //   ★ 회귀 방지: 2-OPAMP 캐스케이드(임용 5번, opampQualifies+cascade+R다수)면 opamp_cascade에 양보.
     //     (opamp_generic이 opampPS≥2 && solveResistorKw로 캐스케이드를 먼저 가로채 지저분한 generic 렌더로 변질.)
     const wouldBeCascade = opampQualifies && rPS >= 4 && cascadePS;
+    // ★ 2단 OPAMP + **비반전측 분압 저항 R_X 설계** + 출력 V_o (임용 2번 전자회로) — opamp_generic **앞**.
+    //   원본: 1단(V₁—R_a—(−), R_b 피드백 / V₂—R_c—(+), R_X—GND) → V_X, 2단(V_X 분압 → 비반전 증폭) → V_o.
+    //   "V_X = n[V]가 되기 위한 저항 R_X와 전압 V_o를 순서대로" 구하는 형식.
+    //   ★ 실측: generic `analog_netlist`(opamp_generic)로 떨어져 **없던 전원(V₃·V_ref)·가변저항이 생기고
+    //     두 OPAMP 배선이 무너진** 회로가 생성됐다 → 전용 archetype.
+    //   ★ 형제와 구분: opamp_two_stage(V_P given → V_i·V_o, 저항 설계 아님)·
+    //     opamp_three_stage_sum(3단·반전가산 R_f)·opamp_generic(단일단 가산/차동 역산).
+    {
+      // ★ Vision이 inventory에 OPAMP를 하나도 안 넣고("R" 12개만) 텍스트도 "연산 증폭기"를 단수로 쓰는
+      //   회차가 있다(실측) → "2단"을 낱말로 요구하면 통째로 샌다. **구조 신호**로 대체한다:
+      //   미지 저항 R_X + 중간 출력 V_X + 최종 출력 V_o가 함께 나오면 그 자체가 2단 구조다.
+      const rxKw = /r_?x/i.test(textPS) ||
+        (analysis.componentInventory ?? []).some((c) => /r_?x/i.test(String(c.value ?? "")));
+      const targetVKw = /(가|이)\s*되기\s*위한|되도록|목표/.test(textPS);
+      const midOutKw = (/v_?x\b/i.test(textPS) || /중간\s*전압|1단\s*출력/.test(textPS)) && /v_?o\b/i.test(textPS);
+      if (
+        opampStrongCtxPS && solveResistorKw && !transferFnKw &&
+        (opampPS >= 2 || multiOpampTextPS || (rxKw && midOutKw)) &&
+        (rxKw || (targetVKw && midOutKw))
+      ) {
+        return {
+          type: "opamp_two_stage_rx",
+          params: {},
+          confidence: "high",
+          reasoning: `[PRE-SUBJECT] 2단 OPAMP + 저항 설계(R_X) + 목표 전압(V_X·V_o) + 전달함수 아님 → opamp_two_stage_rx (임용 2번 전자회로, opamp_generic 앞)`,
+        };
+      }
+    }
     if (opampContext && (summingSig || (opampPS >= 2 && solveResistorKw && !wouldBeCascade)) && !transferFnKw) {
       classifierLog.info("classify_result", {
         type: "opamp_generic", route: "pre_subject_opamp_generic",
@@ -1702,6 +2486,30 @@ export function classifyCircuitType(
         "시퀀스 검출기", "시퀀스검출기", "순서 검출기", "순차 검출기", "sequence detector", "검출기",
       ]);
       const hasMealyIo = hasExternalIo || hasSeqDetector;
+      // ★ 입력 X를 갖는 2-bit 상태기계 + FF 설계 (임용 12번 디지털논리) — dff_state_design **앞**.
+      //   형제(dff_state_design)는 **입력 없는 자율** 상태도라 hasMealyIo에서 스스로 양보하지만,
+      //   그 양보 뒤에 받아 줄 전용 분기가 없으면 generic fsm(Mealy 출력 Z 날조)으로 샌다.
+      //   판별선 = **외부 입력 X 존재 + 출력 Z/y 없음**(상태표 8행·3변수 카르노맵).
+      //   ※ 원본은 D-FF지만 사용자 지정으로 **T-FF**로 출제한다(생성기가 여기표 T=Q⊕Q⁺ 적용).
+      {
+        const hasInputXOnly =
+          matchesKeyword(text, ["입력 x", "입력 변수 x", "입력을 갖는", "입력 x를"]) &&
+          !matchesKeyword(text, ["출력 z", "출력 y", "출력 함수"]) && !hasSeqDetector;
+        const hasKmapOrBool = matchesKeyword(text, [
+          "카르노맵", "k-map", "kmap", "불 함수", "불함수", "논리식", "최소항", "간략화",
+        ]);
+        if (
+          hasStateGraph && hasInputXOnly && !hasJkFfLocal && !hasMuxLocalD &&
+          (hasGateImpl || hasKmapOrBool)
+        ) {
+          return {
+            type: "tff_state_design_input",
+            params: {},
+            confidence: "high",
+            reasoning: "digital_logic + 상태도/상태표 + 외부 입력 X(출력 Z 없음) + 플립플롭/카르노맵 설계 → 입력 있는 2-bit FF 상태기계 설계 (임용 12번, dff_state_design·generic fsm 앞)",
+          };
+        }
+      }
       if (hasDFfLocal && !hasJkFfLocal && hasStateGraph && hasGateImpl && !hasMuxLocalD && !hasMealyIo) {
         return {
           type: "dff_state_design",
@@ -1795,23 +2603,32 @@ export function classifyCircuitType(
       const apcSignals = analysis.signals ?? { inputs: [], outputs: [] };
       const apcInputs = apcSignals.inputs ?? [];
       const apcOutputs = apcSignals.outputs ?? [];
+      // ★ 아래첨자 정규화 (2026-08-04 실측 신고 "유사문제가 생성이 안돼"):
+      //   Vision은 같은 원본을 회차에 따라 `I_0, I_1, I_2`(ASCII)로도 `I₀, I₁, I₂`(유니코드
+      //   아래첨자 + 쉼표)로도 쓴다. 기존 조건은 ASCII 표기와 "공백으로 붙은" 아래첨자만 봤기 때문에
+      //   **쉼표로 나열된 아래첨자 회차에서 구조 신호가 통째로 미발화**했고, 그 회차에 "SET" 낱말까지
+      //   빠지자 넓은 분기(ff_with_waveform)가 가져가 FF 1개짜리 다른 문제가 생성됐다(로그 실측).
+      //   → 표기 흔들림은 분류 조건이 아니라 **정규화 층에서 흡수**한다([[feedback_gpt_format_normalization]]).
+      const textApc = normalizeSubscriptDigits(text);
       const hasFfApc =
         matchesKeyword(text, ["플립플롭", "flip-flop", "flipflop", "d-ff", "d 플립", "dff", "f/f", "ff"]) ||
         Boolean(analysis.semantic?.hasStateTransition) ||
         apcOutputs.some((s) => /^Q/i.test(s));
       // I₀I₁I₂ 병렬입력 — text(라벨/본문) 또는 signals.inputs 양쪽에서 검출.
+      //   정규화 후라 `I₀ I₁ I₂`·`I₀, I₁, I₂`·`I₀·I₁·I₂`·`I_0, I_1, I_2`가 모두 같은 형태가 된다.
       const iInTextApc =
-        /i₀\s*i₁\s*i₂/i.test(text) ||
-        (/i_?0\b/i.test(text) && /i_?1\b/i.test(text) && /i_?2\b/i.test(text));
+        /i_?0\b/i.test(textApc) && /i_?1\b/i.test(textApc) && /i_?2\b/i.test(textApc);
       const iInSignalsApc =
-        ["I0", "I1", "I2"].filter((v) => apcInputs.some((s) => s.replace(/[_₀₁₂]/g, (m) => ({ "₀": "0", "₁": "1", "₂": "2", _: "" }[m] ?? "")) === v)).length >= 2;
+        ["I0", "I1", "I2"].filter((v) => apcInputs.some((s) => normalizeSubscriptDigits(s).replace(/_/g, "") === v)).length >= 2;
       const hasIInputs = iInTextApc || iInSignalsApc;
       // 다중 Q 출력 (Q₀Q₁Q₂ 등)
       const qOutsApc = apcOutputs.filter((s) => /^Q/i.test(s)).length;
-      const multiQApc =
-        qOutsApc >= 2 ||
-        /q_?0\s*q_?1\s*q_?2|q₀\s*q₁\s*q₂/i.test(text) ||
-        (/q_?0\b/i.test(text) && /q_?1\b/i.test(text) && /q_?2\b/i.test(text));
+      // ★ 3비트 Q(Q₀·Q₁·Q₂)는 이 archetype 고유 구조다 — 임용8 ff_with_waveform은 **단일 Q**,
+      //   임용12 sequential_dff_generic은 **2비트(Q₁Q₀)** 라 셋 다 언급되는 형식은 이것뿐이다.
+      const tripleQApc =
+        apcOutputs.filter((s) => /^Q_?[012]\b/i.test(normalizeSubscriptDigits(s))).length >= 3 ||
+        (/q_?0\b/i.test(textApc) && /q_?1\b/i.test(textApc) && /q_?2\b/i.test(textApc));
+      const multiQApc = qOutsApc >= 2 || tripleQApc;
       const hasRegionApc = matchesKeyword(text, BLANK_CIRCLE_MARKERS);
       // ★ 정의적 시그니처: **D 플립플롭 + 비동기 + SET + RESET**.
       //   원본은 항상 "비동기식 SET과 RESET을 갖는 D 플립플롭"으로 기술 → Vision이 표현을 바꿔도
@@ -1828,13 +2645,16 @@ export function classifyCircuitType(
         (hasDFf || hasFfApc) && hasAsyncKw && hasSetKw && hasResetKw;
       // structural: 비동기 표현이 흘려도 I₀I₁I₂ 병렬입력(고유 구조)이면 매치.
       const structural = hasFfApc && hasIInputs && (multiQApc || hasResetKw || hasRegionApc);
-      if (asyncSetReset || structural) {
+      // ★ 최후의 구조 신호 — I 입력도 SET도 흘린 회차(실측)에서 남는 것은 **비동기 + 3비트 Q**뿐이다.
+      //   형제는 단일 Q(임용8)·2비트 Q(임용12)라 이 조합에 걸리지 않는다.
+      const asyncTripleQ = hasFfApc && hasAsyncKw && tripleQApc;
+      if (asyncSetReset || structural || asyncTripleQ) {
         return {
           type: "async_preset_ripple_counter",
           params: {},
           confidence: "high",
           reasoning:
-            `비동기 SET/RESET D-FF 응용회로 (D-FF·비동기·SET·RESET=${asyncSetReset}, I₀I₁I₂=${hasIInputs}, 다중Q=${multiQApc}, 구간=${hasRegionApc}) → 비동기 적재 리플 다운카운터 (ff_with_waveform·sequential_dff_generic 오분류 차단)`,
+            `비동기 SET/RESET D-FF 응용회로 (D-FF·비동기·SET·RESET=${asyncSetReset}, I₀I₁I₂=${hasIInputs}, 다중Q=${multiQApc}, 3비트Q=${tripleQApc}, 구간=${hasRegionApc}) → 비동기 적재 리플 다운카운터 (ff_with_waveform·sequential_dff_generic 오분류 차단)`,
         };
       }
     }
@@ -1971,9 +2791,14 @@ export function classifyCircuitType(
       matchesKeyword(text, ["T 플립플롭", "T-FF", "T 플립"]),
       matchesKeyword(text, ["JK 플립플롭", "JK-FF", "JK 플립", "J-K 플립플롭"]),
     ].filter(Boolean).length;
+    // ★ 아래첨자 정규화 후 검사 (2026-08-04): `Q₀, Q₁, Q₂`처럼 **유니코드 아래첨자 + 쉼표**로 쓰인
+    //   회차에서 이 가드가 통째로 미발화해, FF 3개짜리 비동기 SET/RESET 원본(임용 10번)을
+    //   단일 Q 형식인 이 분기가 가져갔다(로그 실측). 표기가 아니라 구조로 양보를 판단한다.
+    const textFfw = normalizeSubscriptDigits(text);
     const multiQOutputs =
-      /Q_?A|Q_?B|Q₀|Q₁|Q_?0\b|Q_?1\b|Q_?2\b/.test(text) &&
-      (outputs.filter((s) => /^Q/.test(s)).length >= 2 || /Q_?A[\s\S]{0,40}Q_?B|Q_?1[\s\S]{0,40}Q_?2/.test(text));
+      /Q_?A|Q_?B|Q_?0\b|Q_?1\b|Q_?2\b/i.test(textFfw) &&
+      (outputs.filter((s) => /^Q/.test(s)).length >= 2 ||
+        /Q_?A[\s\S]{0,40}Q_?B|Q_?0[\s\S]{0,40}Q_?1|Q_?1[\s\S]{0,40}Q_?2/i.test(textFfw));
     const yieldToMultiFf = ffTypeNames >= 2 || multiQOutputs;
     const ffWaveformMatch =
       ffInferred &&
@@ -2456,6 +3281,18 @@ function matchesKeyword(text: string, keywords: string[]): boolean {
   return keywords.some((k) => lower.includes(k.toLowerCase()));
 }
 
+/**
+ * 유니코드 아래첨자 숫자(₀~₉)를 ASCII 숫자로 정규화한다.
+ *
+ * Vision은 같은 신호를 회차마다 `I_0`·`I0`·`I₀`로 제각각 쓴다. 분류 조건이 한쪽 표기만 보면
+ * 다른 표기의 회차에서 구조 신호가 통째로 미발화한다(실측: `Q₀, Q₁, Q₂` 회차가
+ * async_preset_ripple_counter → ff_with_waveform으로 샘). 표기 흔들림은 조건이 아니라
+ * 정규화에서 흡수한다. `lib/generation/topologyDriven/inferDcQueries.ts`와 같은 규약.
+ */
+function normalizeSubscriptDigits(s: string): string {
+  return s.replace(/[₀-₉]/g, (ch) => String("₀₁₂₃₄₅₆₇₈₉".indexOf(ch)));
+}
+
 // ─── component count 집계 ──────────────────────
 type Counts = {
   R: number; V: number; I: number; C: number; L: number; SW: number; dep: number;
@@ -2475,15 +3312,17 @@ function aggregateComponentCounts(analysis: AnalysisResult): Counts {
   // branches에서 fallback 카운트 — inventory가 누락한 타입을 보충.
   //   임용 8번에서 inventory extraction이 인덕터(L)를 못 잡아 ac_superposition으로 잘못 라우팅된 케이스.
   //   inventory와 branches 둘 다 신뢰원으로 사용해 max를 취한다.
+  // ★ 두 맵 모두 **정규화된 타입**으로 센다 — 한쪽만 정규화하면 같은 소자가 R과 L로 따로 세어져
+  //   fallback이 없는 소자를 있다고 착각한다(예: inventory는 L로 교정됐는데 branch는 R로 남는 경우).
   const invByType: Record<string, number> = {};
   for (const item of inv) {
-    const t = (item.type ?? "").toUpperCase();
+    const t = effectiveComponentType(item);
     invByType[t] = (invByType[t] ?? 0) + 1;
   }
   const brByType: Record<string, number> = {};
   for (const b of branches) {
     for (const comp of b.components ?? []) {
-      const t = (comp.type ?? "").toUpperCase();
+      const t = effectiveComponentType(comp);
       brByType[t] = (brByType[t] ?? 0) + 1;
     }
   }
@@ -2501,11 +3340,20 @@ function aggregateComponentCounts(analysis: AnalysisResult): Counts {
  *  ★ 종속전원 정규화: Vision이 다이아몬드 종속전원을 일반 V/I 타입으로 추출하고 제어식만
  *    value에 남기는 일이 잦다("2V_c"·"0.2V₃"). 그대로 두면 "독립 전원 2개"로 세어져 엉뚱한
  *    archetype에 잡히므로(실측: ac_dc_superposition_rc 오분류), 값이 제어량을 참조하면 dep로 센다.
+ *  ★ 리액티브 정규화: Vision이 임피던스 표기(`j[Ω]`·`−j½[Ω]`)를 R로 추출하는 일이 잦다.
+ *    그대로 두면 counts.L=counts.C=0이 되어 "리액티브" 게이트가 통째로 미발화한다
+ *    (실측: 임용 6번이 ac_thevenin_dependent 대신 ac_superposition으로 샘). 값이 순허수면 L·C로 센다.
  */
 function bumpCount(c: Counts, type: string, value?: string | null): void {
   const t = (type ?? "").toUpperCase();
   if ((t === "V" || t === "I") && isDependentSourceValue(value)) {
     c.dep++;
+    return;
+  }
+  const effective = effectiveComponentType({ type: t, value });
+  if (effective !== t) {
+    if (effective === "L") c.L++;
+    else if (effective === "C") c.C++;
     return;
   }
   if (t === "R") c.R++;
@@ -2599,6 +3447,55 @@ function decideType(args: DecideArgs): DecideResult {
   //     같은 회로가 ac_superposition으로 새는 문제 발생. 이 패턴의 정의적 시그니처로 교체:
   //     전압원 ≥ 2 + 전류원 0(= ac_superposition과 구분) + 리액티브 + AC 신호 + 스위치(전원 선택)
   //     + 강한 과도 키워드 없음. (정상상태 키워드는 보조 — 있으면 신뢰 ↑, 없어도 트리거.)
+  // ─────────────────────────────────────────────────────────────────────────
+  // 0-PRE-SWITCHED-RLC-SOURCE-FREE. t=0 스위치 **개방** → 무전원 직렬 RLC 자연응답 (임용 5번 회로이론).
+  //   ★ 실측(2026-08-03, 사용자 신고): 이 원본이 `switched_rlc_step`(v1: SPDT + **전류원** + R_c+L
+  //     병렬가지)으로 가서 **원본에 없는 전류원과 SPDT 스위치**가 있는 회로로 변질됐다.
+  //   판별선 = **전류원 0 + 전압원 1개 + 스위치가 "열린다"**. 전류원이 있으면 형제(step·5leg)가 맞다.
+  {
+    const opensAtZero =
+      /스위치가?\s*(개방|열리|열린|끊)|개방되는|switch\s*(opens|is\s*opened)/.test(text) &&
+      /t\s*=\s*0|t=0/.test(text);
+    const yieldSib = matchesKeyword(text, ["페이저", "phasor", "테브난", "thevenin", "최대 전력", "공진", "역률"]);
+    if (
+      opensAtZero && !yieldSib &&
+      counts.I === 0 && counts.V === 1 && counts.dep === 0 &&
+      counts.L >= 1 && counts.C >= 1
+    ) {
+      return {
+        type: "switched_rlc_source_free",
+        confidence: "high",
+        reasoning: `[0-PRE] t=0 스위치 개방 + 전류원 0·전압원 1 + RLC(L=${counts.L},C=${counts.C}) → switched_rlc_source_free (임용 5번; 무전원 직렬 RLC 자연응답)`,
+      };
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 0-PRE-RLC-STATE-EQUATION. 직류 V원·I원 RLC → **상태 방정식 행렬 A·B** (임용 6번 회로이론).
+  //   ★ 실측(2026-08-03, 사용자 신고): 이 원본이 `ac_superposition`으로 분류돼 전혀 다른
+  //     "교류 중첩" 문제가 생성됐다. Vision 요약(topic="RLC 회로의 상태 방정식")도 인벤토리도
+  //     정확했는데 분류기가 **V=1·I=1·L=1·C=1 구성만 보고** 넘긴 것 — **요구**를 안 봤다.
+  //   ⇒ "상태 방정식"은 다른 어떤 유형도 쓰지 않는 고유 요구다. ac_superposition **앞**에 둔다.
+  //     페이저·테브난·공진·스위치 과도면 형제에 양보(그쪽이 진짜 소관).
+  {
+    const stateSig =
+      matchesKeyword(text, ["상태 방정식", "상태방정식", "state equation", "상태 변수", "상태 공간", "state-space"]) ||
+      /행렬\s*a와\s*b|행렬\s*a\s*,?\s*b/.test(text);
+    const yieldSibling = matchesKeyword(text, [
+      "페이저", "phasor", "테브난", "thevenin", "최대 전력", "공진", "resonance", "역률", "어드미턴스",
+      "스위치", "switch", "초기 조건", "초깃값",
+    ]) || /∠|t\s*=\s*0/.test(text);
+    const hasRlcHere =
+      (counts.L >= 1 && counts.C >= 1) || matchesKeyword(text, ["rlc", "인덕터", "커패시터"]);
+    if (stateSig && !yieldSibling && hasRlcHere) {
+      return {
+        type: "rlc_state_equation",
+        confidence: "high",
+        reasoning: `[0-PRE] 상태 방정식 요구 + RLC(L=${counts.L},C=${counts.C}) → rlc_state_equation (임용 6번 회로이론; di/dt·dv/dt → 행렬 A·B)`,
+      };
+    }
+  }
+
   // 0-PRE-AC-DC-SUPER-RC. 스위치 없는 AC+DC 중첩 RC 회로 (임용 12번 회로이론 형식) — switch 분기보다 먼저.
   //   ★ 구조 시그니처 기반 (Vision이 "중첩" 키워드를 자주 누락 — topic "교류 전원과 RC 회로 해석" 등):
   //     교류 전원(1+) + 직류 전압원(1+) + C(RC) + 스위치 없음 + 강한 과도 키워드 없음 = AC+DC 중첩 RC.
@@ -2661,6 +3558,31 @@ function decideType(args: DecideArgs): DecideResult {
         inductorCount: counts.L,
         capacitorCount: counts.C,
         switchCount: counts.SW,
+      },
+    };
+  }
+
+  // 0-PRE-AC-THEVENIN-TWO-BOX. 점선 박스 2개(전압원망 a-b + 전류원망 c-d)가 **직렬로** 부하 R_L을
+  //   구동하는 형식 (임용 10번 회로이론). 아래 theveninMaxPower(2전원이 한 마디에서 **병렬**,
+  //   단자쌍 하나)와 토폴로지가 다르다 — 실측에서 그쪽이 이 원본을 가로채 단자쌍 하나짜리 회로로
+  //   변질됐고 Z_th 계산도 틀렸다(CLAUDE.md 1-5: 넓은 분기 위에 전용 분기를 둔다).
+  //   ★ 판별자 = **단자쌍이 둘(a-b와 c-d)**. 병렬형 원본에는 c·d 단자가 없다.
+  if (
+    counts.V >= 1 && counts.I >= 1 &&
+    (counts.L > 0 || counts.C > 0) &&
+    /a\s*[-–~]\s*b|단자\s*a\b/.test(text) && /c\s*[-–~]\s*d|단자\s*c\b/.test(text) &&
+    (matchesKeyword(text, MAX_POWER_KEYWORDS) ||
+      matchesKeyword(text, ["테브난", "thevenin", "등가 임피던스", "등가임피던스"]))
+  ) {
+    return {
+      type: "ac_thevenin_two_box",
+      confidence: "high",
+      reasoning: `2전원 + 리액티브 + **단자쌍 2개(a-b·c-d)** → 점선 박스 2개 직렬 테브난 전용 archetype`,
+      params: {
+        hasACSource: true,
+        resistorCount: counts.R,
+        inductorCount: counts.L,
+        capacitorCount: counts.C,
       },
     };
   }

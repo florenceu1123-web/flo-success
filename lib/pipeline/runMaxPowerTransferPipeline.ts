@@ -36,7 +36,9 @@ export async function runMaxPowerTransferPipeline(args: {
   const iN = Math.max(p?.iSourceCount ?? 0, inv.filter((c) => up(c.type) === "I").length);
   if (vN >= 2 && iN >= 2) {
     return generateInParallel(count, async (i, seed) => {
-      const gen = generateViTheveninMaxPower({ seed });
+      // ★ mode를 반드시 넘긴다 — 이전엔 넘기지 않아 **유사와 변형이 완전히 동일한 문제**였다
+      //   (사용자 신고 2026-08-04). 생성기가 mode별로 겹치지 않는 값 풀을 쓴다.
+      const gen = generateViTheveninMaxPower({ seed, mode });
       const a = gen.answer;
       log.info("vi_thevenin_maxpower_generated", { Vc: a.Vc, Iab: a.IabMa, Rth: a.Rth, Pmax: a.PmaxMw, values: gen.values });
       const text = {

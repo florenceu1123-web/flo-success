@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readNoteImage, isSubjectKey, isNoteId } from "@/lib/noteStore";
+import { readNoteImage, isNoteAlbum, isNoteId } from "@/lib/noteStore";
 
 // 파일 시스템 접근 — 항상 동적 실행 (캐시 금지).
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const subject = req.nextUrl.searchParams.get("subject");
   const id = req.nextUrl.searchParams.get("id");
-  if (!isSubjectKey(subject) || !isNoteId(id)) {
+  if (!isNoteAlbum(subject) || !isNoteId(id)) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
 

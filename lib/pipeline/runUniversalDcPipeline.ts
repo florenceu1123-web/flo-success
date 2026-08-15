@@ -64,19 +64,42 @@ export async function runUniversalDcPipeline(args: {
   //   __rvalue:N / __rlabel:R_k / __rdefault__ placeholder를 실제 저항 id로 확정.
   //   원본(비perturb) 토폴로지를 한 번 빌드 → valueRand가 원본 값을 그대로 쓰므로 "N Ω"
   //   저항을 값으로 매칭 가능. id는 위치 기반이라 이후 perturbed 빌드에서도 동일 → 안정.
-  const hasResistorPowerPlaceholder = rawQueries.some(
-    (q) => q.kind === "resistorPower" && q.resistorId.startsWith("__r"),
+  //   ★ resistorCurrent도 같은 __rvalue: 규약을 쓴다 (임용 3번류 "4[kΩ]에 흐르는 전류 I₁").
+  const hasResistorPlaceholder = rawQueries.some(
+    (q) => (q.kind === "resistorPower" || q.kind === "resistorCurrent") && q.resistorId.startsWith("__r"),
   );
-  if (hasResistorPowerPlaceholder) {
+  if (hasResistorPlaceholder) {
     const baseGen = buildFromTopology({ topology: baseTopology, mode, seed: 1 });
     for (const q of rawQueries) {
-      if (q.kind === "resistorPower" && q.resistorId.startsWith("__r")) {
+      if ((q.kind === "resistorPower" || q.kind === "resistorCurrent") && q.resistorId.startsWith("__r")) {
         const resolved = resolveResistorPowerTarget(q.resistorId, baseGen.netlistOpen);
         if (resolved) {
           log.info("resistor_power_target_resolved", { placeholder: q.resistorId, resistorId: resolved });
           q.resistorId = resolved;
         } else {
           log.warn("resistor_power_target_unresolved", { placeholder: q.resistorId });
+        }
+      }
+    }
+
+    // ★ resistorCurrent 대상 **중복 제거** (2026-08-02 실측):
+    //   복구된 topology의 branch에 소자 값이 없으면 base 빌드가 임의값을 뽑아
+    //   "4kΩ"·"3kΩ" 값 매칭이 모두 실패 → 두 쿼리가 **같은 저항**으로 폴백해
+    //   "I = 3/34A, I = 3/34A"처럼 같은 답이 두 번 나왔다.
+    //   원본이 서로 다른 저항 2개를 물었으면 생성물도 서로 다른 저항이어야 한다 →
+    //   겹치면 netlist 순서상 아직 안 쓴 저항으로 분산한다(결정론).
+    const rcs = rawQueries.filter((q) => q.kind === "resistorCurrent");
+    if (rcs.length > 1) {
+      const allR = baseGen.netlistOpen.components.filter((c) => c.type === "R").map((c) => c.id);
+      const used = new Set<string>();
+      for (const q of rcs) {
+        if (q.kind !== "resistorCurrent") continue;
+        if (!q.resistorId.startsWith("__r") && !used.has(q.resistorId)) { used.add(q.resistorId); continue; }
+        const next = allR.find((id) => !used.has(id));
+        if (next) {
+          log.warn("resistor_current_target_deduped", { from: q.resistorId, to: next });
+          q.resistorId = next;
+          used.add(next);
         }
       }
     }
@@ -177,7 +200,22 @@ export async function runUniversalDcPipeline(args: {
           queryResults = [...queryResults, ...solveDcQueries(gen.solverNetOpen, costlyQueries)];
         }
         const verdict = validateDcResult(queryResults);
-        const att: Attempt = { gen, queryResults, niceness: verdict.niceness, reasons: verdict.reasons };
+        // ★ resistorCurrent 대상 저항의 **값이 서로 같으면 발문이 모호해진다**
+        //   ("250Ω 저항에 흐르는 I₁"과 "250Ω 저항에 흐르는 I₂" — 학생이 어느 저항인지 못 고른다).
+        //   perturbation이 우연히 같은 값을 뽑은 표본은 버린다(실측 신고 2026-08-02).
+        const rcTargets = resolvedQueries
+          .filter((q): q is Extract<DcQuery, { kind: "resistorCurrent" }> => q.kind === "resistorCurrent")
+          .map((q) => gen.netlistOpen.components.find((c) => c.id === q.resistorId)?.value ?? "");
+        const rcAmbiguous = rcTargets.length > 1 && new Set(rcTargets).size < rcTargets.length;
+        const att: Attempt = {
+          gen, queryResults,
+          niceness: rcAmbiguous ? verdict.niceness - 100 : verdict.niceness,
+          reasons: rcAmbiguous ? [...verdict.reasons, "resistorCurrent 대상 저항 값 중복"] : verdict.reasons,
+        };
+        if (rcAmbiguous) {
+          if (!bestFallback || att.niceness > bestFallback.niceness) bestFallback = att;
+          continue;   // 이 표본은 채택하지 않는다
+        }
 
         if (verdict.valid) {
           if (verdict.allInteger) {

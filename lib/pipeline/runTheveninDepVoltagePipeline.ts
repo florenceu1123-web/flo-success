@@ -52,6 +52,13 @@ export function detectTheveninDepVoltageProblem(analysis?: AnalysisResult | null
     (inv.some((c) => ["CCCS", "VCCS"].includes(up(c.type))) || /종속\s*전류원/.test(text));
   if (!depVoltage || depCurrentOnly) return false;
 
+  // ★★ 형제 양보 — 임용 9번(**V-I 직선 그래프 + 미지 저항 R 역산 + I_sc + 최대전력**)은
+  //   `thevenin_dependent_generic` → runTheveninMaxPowerGenericPipeline이 담당한다.
+  //   실측(2026-08-04, 사용자 신고): Vision이 종속 **전류**원 `2i_x`를 `2v_x`(전압 제어)로 오독해
+  //   이 감지기가 발화, 임용 6번의 "1A 시험 전원" 문제로 통째 변질됐다(그래프·I_sc·P_L 소실).
+  //   ⇒ 이 유형에 없는 신호(그래프·단락전류·최대전력·계측기)가 보이면 양보한다.
+  if (/그래프|graph|i_?sc|단락\s*전류|최대\s*전력|최대전력|전류계|전압계/.test(text)) return false;
+
   const thevenin = /테브난|thevenin|등가\s*회로|등가회로|r_?th|v_?th/.test(text);
   const load = /부하|r_?l\b|양단\s*전압|단자\s*a/.test(text);
   return thevenin && load;

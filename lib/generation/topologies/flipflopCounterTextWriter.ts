@@ -1,4 +1,5 @@
 import { getOpenAI, DEFAULT_MODEL } from "@/lib/openai";
+import { STEP_QUESTION_RULE } from "@/lib/format/threeStep";
 import { createLogger } from "@/lib/logger";
 import { SYSTEM_PROMPT } from "@/lib/prompts";
 import type { GenerationMode } from "@/types";
@@ -70,6 +71,7 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
 }
 
 [규칙]
+${STEP_QUESTION_RULE}
 - answer는 솔버 식 그대로. 다른 식으로 바꾸지 마라.
 - solution은 ${ffType} FF 특성 + K-map 풀이 절차 명시. LaTeX inline 가능.
 - 회로 도식·K-map을 다시 만들지 마라. 코드가 ${ffInputs.length}개 K-map + 구현회로 1개 모두 자동 생성.

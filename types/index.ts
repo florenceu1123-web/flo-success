@@ -492,8 +492,33 @@ export type DiagramType =
   | "function_generator_circuit" // 비정현파 발진기: 비교기(가)+적분기(나)+R₂·R₃ 피드백 루프 (임용 29번)
   | "ac_bridge_circuit"           // AC 휘트스톤 브리지 (가) — 4-arm + R_L 가교 (임용 7번)
   | "ac_bridge_thevenin_circuit"  // 위의 테브난 등가 (나) — V_TH·Z_TH·R_L
+  | "ac_delta_wye_bridge_circuit" // 교류 브리지 (가) — 5-arm 다이아몬드 + 단자 A·B (임용 2번 회로이론, Δ-Y 변환)
+  | "ac_delta_wye_equiv_circuit"  // 위의 Δ-Y 변환 등가 (나) — Y 3팔(박스) + 하단 2 arm
+  | "oscilloscope_screen"         // 오실로스코프 화면 (가) — 10×8 격자 + 2채널 파형 + α (임용 11번 회로이론)
+  | "oscilloscope_phase_circuit"  // 위의 측정 대상 회로 (나) — v_s─R─마디 ∥ 미지소자 ∥ (직렬+세로)
+  | "ac_two_source_mesh_circuit"  // 2전원 RLC 2-메시 회로 (임용 5번 회로이론) — I₁·I₂ 페이저 + 평균전력
+  | "thevenin_dep_graph_circuit"  // 종속전원 저항회로 + 점선 박스 + 전류계·전압계 (임용 9번 회로이론)
+  | "opamp_avg_superposition_circuit" // (+)단자 3입력 평균 + 2단 중첩 (임용 8번 전자회로)
   | "ac_thevenin_ladder_circuit"  // 단일 AC원 L-C-R 사다리 (가) — 직렬-션트-직렬 + 부하 Z_L (임용 7번 회로이론)
   | "ac_thevenin_equiv_circuit"   // 위의 테브난 등가 (나) — V_TH 직렬 Z_TH → 단자 a·b → Z_L
+  | "ac_thevenin_design_ab_circuit" // 교류 테브난 소자값 설계 회로 (임용 7번) — V∠θ ∥ 션트, a·jb 직렬 → A ∥ −jb, Z_L
+  | "zener_shunt_regulator_circuit" // 제너 n개 직렬 션트 정전압 회로 (임용 2번) — V_i·a → 마디 P ∥ 제너열 ∥ R_L
+  | "switched_rlc_source_free_circuit" // t=0 스위치 개방 무전원 직렬 RLC (임용 5번) — V_s·R_s·SW → 마디 N ∥ R_p, 우측 R_3+C+L 직렬
+  | "rlc_state_equation_circuit" // 직류 V₁·I₁ RLC 상태방정식 회로 (임용 6번) — V₁·R₁·L(i) → 마디 A ∥ C(v) ∥ R₂ ∥ I₁
+  | "switched_rlc_dual_switch_circuit" // SW1 닫힘 + SW2(b→c) 2전압원 RLC (2022 전기 B-5) — V_s·SW1·R₁·L → 노드 a ∥ C → SW2{b:V_b, c:R₂}
+  | "opamp_two_stage_rx_circuit"    // 2단 OPAMP + 비반전측 분압 저항 R_X 설계 (임용 2번 전자회로) — V_X·V_o
+  | "bjt_thevenin_bias_circuit" // BJT 바이어스 (가)원본 + (나)테브난 등가 (임용 10번 전자회로)
+  | "bjt_switch_logic_circuit" // BJT 스위치 응용 회로 (임용 2번)
+  | "comparator_diode_or_circuit" // 비교기 2개 + 다이오드 결합 + 풀다운/풀업 (임용 3번 전자회로)
+  | "opamp_summer_tfeedback_circuit" // 반전 가산기 + T형 궤환 반전증폭기 (임용 7번 전자회로)
+  | "ac_thevenin_two_box_circuit"  // 점선 박스 2개 직렬 + 부하 R_L (임용 10번 회로이론)
+  | "diode_clamper_circuit"        // 다이오드 클램퍼 (가) — 직렬 C + 다이오드·전지 + R (임용 2번 전자회로)
+  | "diode_clamper_waveform"       // 위의 (나) — 입력 v_i·출력 v_o 파형 2단 패널 (a·b 표시)
+  | "dc_two_source_ladder_circuit"  // 전압원+전류원 DC 사다리 (임용 3번 회로이론) — I₁·I₂
+  | "diode_clamper_circuit"        // 다이오드 클램퍼 (가) — 직렬 C + 다이오드·바이어스 전지 + R (임용 2번 전자회로)
+  | "diode_clamper_waveform"       // 위의 (나) — 입력 v_i·출력 v_o 파형 2단 패널 (a·b 표시)
+  | "ac_thevenin_dep_circuit"      // 종속전원 포함 페이저 회로 (가) — 전류원∥Z₁ → 종속전압원 → Z₂ → 단자 A·B (임용 6번 회로이론)
+  | "ac_thevenin_dep_equiv_circuit" // 위의 테브난 등가 (나) — V_AB 직렬 Z_AB → 단자 A·B → 부하 Z_L(R + jX)
   | "dc_thevenin_2src_circuit"    // 2전압원 병렬가지 (가) — R1+V1 ∥ R2+V2, 단자 a·b (임용 3번 회로이론)
   | "demux_circuit"              // 1→4 디멀티플렉서 조합논리회로 (임용 8번 (가))
   | "number_ring_diagram"        // n비트 수 표현 원형(고리) 다이어그램 — 임용 4번 (가)·(나)
@@ -503,6 +528,13 @@ export type DiagramType =
   | "opamp_rc_t_oscillator_circuit" // 반전 OPAMP + 전방/귀환 T형 RC망 (가), 출력↔입력 연결 발진기 (나) — 임용 9번
   | "ac_rl_average_power_circuit" // AC 전원 + 직렬 jX_L(유사)/−jX_C(변형) + 병렬 R₁∥R₂ — 평균전력 (임용 8번)
   | "jk_excitation_circuit"      // JK-FF 2개 + 조합논리 ㉲ 블록 + HIGH + CLK (2025 전기 A-8 (나))
+  | "dff_preset_clear_circuit"   // D-FF(D=Q̄ 토글) + 비동기 PR·CLR을 A·B NAND 조합논리로 구동 — 임용 27번 (가)
+  | "switched_rl_dual_short_circuit" // 전류원 + [SW₁∥R_b] + [SW₂∥L₁] + R_c + L₂ — t=0에 두 스위치가 소자를 단락 (임용 17번)
+  | "max_power_two_source_circuit" // 전원 크기만 다른 두 회로의 최대전력 부하 설계 (임용 17번 (가)/(나))
+  | "jk_two_phase_clock_circuit"  // JK₁ + 2상 클럭발생기(점선) + EX-OR/EX-NOR 2개 → Y₁·Y₂ (임용 30번)
+  | "rlc_antiresonance_ladder_circuit" // 병렬 LC 반공진으로 우측이 개방되는 RLC 사다리 (임용 16번)
+  | "ac_dc_source_superposition_circuit" // 교류 전압원 + 직류 전류원 RLC — 정상상태 v_C(t) 중첩 (임용 15번)
+  | "two_source_rl_superposition_circuit" // 전압원 2개(계단+정현파) RL 중첩 — (가)전체/(나)v₁만/(다)v₂만 (임용 4번)
   | "ac_superposition_source_design_circuit" // 2전원 페이저 RLC (임용 5번) — R₁·R₂ 상단 + R₃/jX_L/−jX_C 가운데 leg + V_s∠0°/I_s∠−90°
   | "dc_wheatstone_balance_circuit" // DC 휘트스톤 브리지 평형 — V_s+R_s + 다이아몬드 4암(미지 R_x∥R_p) + 브리지 암 + 개방 V_o (임용 3번 회로이론)
   | "inductor_ramp_circuit"      // i(t) 램프 RL 회로 (임용 2번) — V_s+SW+R+L 직렬
@@ -513,6 +545,7 @@ export type DiagramType =
   | "ac_vccs_phasor_circuit"      // 종속전류원(g·V_c) 2단 구동 페이저 회로 (임용 3번 회로이론) — 좌측망 V_c → 우측망 I_R
   | "switched_rc_dc_circuit"      // t=0 스위치 개방 RC (임용 2번) — V_s+R_s∥I_s ─SW─ C∥R_load
   | "switched_rl_dual_src_circuit" // 2전원 SPDT 스위치 RL 과도 (임용 3번 회로이론) — V_A leg ∥ V_B leg → SPDT(단자A↔B) → 직렬 R+L, i(t)
+  | "switched_cap_short_rl_circuit" // 스위치가 커패시터를 단락(t=0 닫힘) → 1차 RL 계단응답 (임용 7번 회로이론)
   | "dff_state_design_circuit"    // D-FF 2개 + 게이트 구현 회로 (임용 9번 정보과 (다))
   | "jk_sync_counter_circuit"     // JK 플립플롭 3개 동기식 카운터 (가) — 전용 fixed-slot (교과서식 깔끔 배치)
   | "jk_state_machine_circuit"    // JK 카운터 (비순환 상태형, 단일신호 J·K 직결) — 전용 fixed-slot
@@ -525,6 +558,10 @@ export type DiagramType =
   | "vi_line_graph"               // 테브난 V-I 직선 (임용 9번 (나)) — 세로 긴 전용 그래프
   | "em_field_diagram"            // 전자기학 전용 도식 (점전하·선전하·평행판·솔레노이드·운동봉·전자기파 등)
   | "code_block"                  // C언어 전용 — 코드 스니펫 (monospace 블록, 코드 분석·출력 예측)
+  | "jfet_depletion_panels"      // 임용 28번 — n채널 JFET V_DS별 공핍층 4패널 도식
+  | "r2r_ladder_dac_circuit"     // 임용 28번 — 4비트 R-2R 사다리형 D/A + OPAMP
+  | "bjt_early_structure"         // 임용 27번 (가) — npn BJT 단면도 (CBJ·EBJ 공핍층 + 유효 베이스폭)
+  | "bjt_early_curve"             // 임용 27번 (나) — I_C-V_CE 특성곡선 (활성영역 외삽 → −V_A)
   | "comm_diagram";               // 통신 전용 — 파형/스펙트럼/블록도 (변조·표본화·정보이론 등)
 
 /**
@@ -716,6 +753,65 @@ export type CharacteristicCurveDiagram = {
     /** 궤적 옆 주석 (예: "V_DS = V_GS − V_T") */
     note?: string;
   };
+};
+
+/**
+ * 임용 27번 (가) — npn BJT 세로 단면도 (Early 효과 설명용).
+ * Collector / CBJ 공핍층 / Base / EBJ 공핍층 / Emitter 5단 구성은 **고정**이고,
+ * 폭 라벨만 바꿀 수 있다(빈칸이 걸리면 생성기가 기호로 바꿔 보낸다).
+ */
+/** 임용 28번 — n채널 JFET의 V_DS별 공핍층 변화 4패널 도식. */
+export type JfetDepletionPanelsDiagram = {
+  /** 네 패널의 V_DS [V] — 선형·테이퍼·핀치오프·포화 순 */
+  vdsList: number[];
+  /** 핀치오프 전압 [V] (V_GS=0 기준) */
+  pinchOff: number;
+  /** 게이트-소스 전압 [V] (기본 0) */
+  vgs?: number;
+};
+
+/** 임용 28번 — 4비트 R-2R 사다리형 D/A 변환회로 (고정 슬롯). */
+export type R2rLadderDacDiagram = {
+  /** 직렬 저항 표기 (예: "5kΩ") */
+  seriesLabel: string;
+  /** 션트·종단 저항 표기 (예: "10kΩ") */
+  shuntLabel: string;
+  /** OPAMP 귀환 저항 표기 */
+  rfLabel: string;
+  /** OPAMP (−) 접지측 저항 표기 */
+  rgLabel: string;
+  /** 비트 단자 라벨 — 좌→우 (LSB→MSB). 기본 A·B·C·D */
+  bitLabels?: string[];
+  outLabel?: string;
+  caption?: string;
+};
+
+export type BjtEarlyStructureDiagram = {
+  /** 중성 베이스 구간 화살표 라벨 — 기본 "W_B^eff". */
+  effWidthLabel?: string;
+  /** 공핍층을 포함한 원래 폭 라벨 — 기본 "W_B". */
+  nominalWidthLabel?: string;
+  caption?: string;
+};
+
+/**
+ * 임용 27번 (나) — I_C-V_CE 출력특성곡선 (활성영역 직선을 왼쪽으로 연장 → −V_A).
+ *
+ * ★ `roNote`는 **정답 노출 방지 장치**다 — `r_o = 1/(dI_C/dV_CE)`가 그 문항의 빈칸이면
+ *   생성기가 `r_o = ( ㉣ )` 처럼 기호를 넣어 보낸다(그림이 답을 알려주지 않게).
+ */
+export type BjtEarlyCurveDiagram = {
+  /** V_CE축 음수쪽 절편 라벨 — 기본 "−V_A". */
+  interceptLabel?: string;
+  /** 기울기 주석 — 기본 "r_o = 1/(dI_C/dV_CE)". 빈 문자열이면 주석을 그리지 않는다. */
+  roNote?: string;
+  saturationLabel?: string;
+  activeLabel?: string;
+  /** 곡선 옆 표기 — 기본 "V_BE". */
+  curveLabel?: string;
+  xLabel?: string;
+  yLabel?: string;
+  caption?: string;
 };
 
 /**
@@ -1298,7 +1394,24 @@ export type LogicNetworkDiagram = {
    *  · gateIds: 박스로 감쌀 게이트들 (이 게이트들의 bbox + 여백으로 사각형 산정)
    *  · label: 박스 좌상단 라벨 (예: "㉡")
    */
-  dashedRegions?: { gateIds: string[]; label?: string }[];
+  /**
+   *  · hideContents: true면 **박스 안을 비워** 그린다(게이트·배선이 보이지 않음).
+   *    [단계 N]이 "점선 부분을 논리회로로 **도시하시오**"인 문항은 답이 그림에 노출되면 안 되므로
+   *    문제 figure는 반드시 이 옵션을 켜고, 채워진 그림은 solutionFigures로 보낸다.
+   *    (기본값 false — 게이트 **종류를 식별**하는 유형(임용 5번)은 내용을 그대로 보여준다.)
+   */
+  dashedRegions?: { gateIds: string[]; label?: string; hideContents?: boolean }[];
+  /**
+   * ★ 박스 크기 배율 (가산적 옵션 — 미지정이면 기존 그림과 **완전히 동일**).
+   *   원본 임용 24번처럼 **플립플롭이 크고 게이트가 작은** 배치를 원할 때만 쓴다.
+   *   이 렌더러는 형제 archetype 12종 이상이 공유하므로 기본값을 바꾸지 않는다.
+   */
+  sizeHints?: { gateScale?: number; ffScale?: number };
+  /**
+   * ★ 순방향 FF 출력(소비자가 모두 오른쪽)을 **회로 아래쪽 채널**로 우회시킨다.
+   *   기본(미지정)은 기존 동작 = 전부 상단 우회 → 형제 archetype 그림 불변.
+   */
+  routeForwardBelow?: boolean;
 };
 
 /** truth_table diagram 권장 shape.
@@ -1348,6 +1461,12 @@ export type WaveformDiagram = {
   xAxis?: { symbol?: string; unit?: string };
   /** y축에 수평 점선 + 라벨 (예: I_max). 모든 lane 가로지름. lane 안쪽 v좌표. */
   yMarkers?: Array<{ v: number; label: string }>;
+  /**
+   * 시간축 **구간 표시** — 축 아래 span bar(양끝 눈금)와 가운데 라벨(㉠·㉡·㉢).
+   *   marker(세로 점선 1개)로는 "구간"을 나타낼 수 없어 추가한 가산적 옵션이다.
+   *   미지정이면 기존 그림과 완전히 동일 (형제 archetype 무영향).
+   */
+  regions?: Array<{ from: number; to: number; label: string }>;
 };
 
 /**
@@ -1380,8 +1499,9 @@ export type SrFfMuxSequentialCircuitDiagram = {
 
 /**
  * ac_dc_superposition_rc_circuit payload — 임용 12번 회로이론 (가) AC+DC 중첩 RC 회로.
- *  고정 토폴로지: g─v(t)─TL─C─a / a─V_dc─b / a─R_3─c / c─R_4─g / b─R_5─g.
- *  renderer가 고정 슬롯에 배치. 라벨 문자열만 받음.
+ *  고정 토폴로지(원본 확대로 확정): g─v(t)─TL─C─a / a─[병렬쌍]─c / c─(우측 세로 R)─g /
+ *  a─V_dc─**R_1**─b─g. renderer가 고정 슬롯에 배치. 라벨 문자열만 받음.
+ *  ※ 화면 표기는 원본 이름을 따른다 — R₁=직류 전원 직렬, R₂·R₃=상단 병렬쌍, R₄=우측 세로(문항이 묻는 저항).
  */
 export type AcDcSuperpositionRcCircuitDiagram = {
   vacLabel: string;   // "v(t) = 10√2 cos5000t [V]"
@@ -1389,10 +1509,11 @@ export type AcDcSuperpositionRcCircuitDiagram = {
   vdcLabel: string;   // "20V"
   cLabel: string;     // "0.2µF"
   omegaLabel: string; // "5000 rad/s"
-  r3Label: string;    // "2kΩ"
-  r4Label: string;
-  r5Label: string;
-  iabLabel: string;   // "i_ab(t)"
+  r1Label?: string;   // 직류 전원 직렬 저항 (원본 R₁, "2kΩ")
+  r3Label: string;    // 상단 병렬쌍 위 (원본 R₂)
+  r4Label: string;    // 상단 병렬쌍 아래 (원본 R₃)
+  r5Label: string;    // 우측 세로 (원본 R₄ — 문항이 묻는 저항)
+  iabLabel: string;   // "i_ac(t)"
   idcLabel: string;   // "I_DC"
 };
 
@@ -1406,6 +1527,7 @@ export type AcDcSuperpositionRcDualCircuitDiagram = {
   idcLabel: string;   // "20 mA" (DC 전류원)
   lLabel: string;     // "L = 0.2 H"
   omegaLabel: string;
+  r1Label?: string;   // R₁의 쌍대 — 직류 전류원과 **병렬** (원본의 직류 직렬 저항에 대응)
   r3Label: string;
   r4Label: string;
   r5Label: string;
@@ -1505,6 +1627,12 @@ export type OpampSeriesRegulatorCircuitDiagram = {
   rlLabel: string;  // 부하 "5kΩ"
   /** 변형(역문제): R_a가 미지(도출 대상) → 점선 강조. */
   raUnknown?: boolean;
+  /**
+   * ★ 무부하(출력 단자 개방) — 원본 임용 30번의 **동작 판정형** 객관식이 이 형태다.
+   *   부하가 없어야 "정전압 안정화 상태에서 패스 트랜지스터는 도통하지 않는다"가 성립한다.
+   *   미지정이면 기존과 동일하게 R_L·I_L을 그린다(형제 수치형 무회귀).
+   */
+  noLoad?: boolean;
 };
 
 /**
@@ -1690,6 +1818,116 @@ export type AcBridgeTheveninCircuitDiagram = {
 };
 
 /**
+ * oscilloscope_screen payload — 오실로스코프 화면 (가, 임용 11번 회로이론).
+ *   10 div × 8 div 격자에 2채널 정현파. ㉠(실선)=Ch1, ㉡(점쇄선)=Ch2.
+ *   위상차 α는 두 파형의 **상승 영교차 사이**를 화살표로 표시한다(원본 배치).
+ */
+export type OscilloscopeScreenDiagram = {
+  widthDiv: number;          // 가로 division 수 (10)
+  heightDiv: number;         // 세로 division 수 (8)
+  periodDiv: number;         // 주기 [div]
+  phaseDiv: number;          // 위상차 α [div]
+  troughOffsetDiv: number;   // 실선의 골이 중앙에서 오른쪽으로 밀린 양 [div]
+  ch1AmpDiv: number;         // ㉠ 진폭 [div]
+  ch2AmpDiv: number;         // ㉡ 진폭 [div]
+  ch2Leads: boolean;         // ㉡이 ㉠보다 앞서는가 (유도성=true)
+  ch1Label: string;          // "Ch1  2.00 V/div"
+  ch2Label: string;          // "Ch2  1.00 V/div"
+  timeLabel: string;         // "500µs/div"
+  markerCh1?: string;        // "㉠"
+  markerCh2?: string;        // "㉡"
+  alphaLabel?: string;       // "α"
+};
+
+/**
+ * oscilloscope_phase_circuit payload — 측정 대상 회로 (나, 임용 11번 회로이론).
+ *   `v_s(t) ─ R ─ 마디 A`, 마디 A에 **미지 소자**(세로, v_L 측정),
+ *   그리고 `마디 A ─ 직렬소자 ─ 마디 B ─ 세로소자 ─ 접지` 가지가 병렬.
+ */
+export type OscilloscopePhaseCircuitDiagram = {
+  vsLabel: string;        // "v_s(t)"
+  rLabel: string;         // "2000π/√3 Ω"
+  kind: "L" | "C";        // 리액티브 소자 종류 (유사=L / 변형=C)
+  unknownLabel: string;   // 미지 소자 표기 ("L" · "C")
+  measureLabel: string;   // 측정 전압 표기 ("v_L" · "v_C")
+  serLabel: string;       // 직렬 가지 소자 ("1H")
+  shuntLabel: string;     // 그 가지의 세로 소자 ("1H")
+};
+
+/** 2-메시 회로의 한 소자 — 종류 + 표기 라벨 + 이름(R₁·C₂ 등). */
+export type AcTwoSourceMeshArm = {
+  kind: "R" | "L" | "C";
+  label: string;   // "1Ω" · "−j2Ω" · "j3Ω"
+  name: string;    // "R₁" · "C₂" · "L"
+};
+
+/**
+ * ac_two_source_mesh_circuit payload — 2전원 RLC 2-메시 회로 (임용 5번 회로이론).
+ *   직사각 2-메시: 좌 세로=v₁, 우 세로=v₂(둘 다 + 위), 상단 좌/우 = topLeft/topRight(전류 I₁·I₂ →),
+ *   가운데 세로 = mid(평균전력을 묻는 저항), 하단 좌/우 = botLeft/botRight.
+ */
+export type AcTwoSourceMeshCircuitDiagram = {
+  v1Label: string;   // "V₁ √8∠45°"
+  v2Label: string;   // "V₂ 2∠180°"
+  topLeft: AcTwoSourceMeshArm;
+  mid: AcTwoSourceMeshArm;
+  topRight: AcTwoSourceMeshArm;
+  botLeft: AcTwoSourceMeshArm;
+  botRight: AcTwoSourceMeshArm;
+  i1Label?: string;  // "I₁"
+  i2Label?: string;  // "I₂"
+  // ── 아래는 가산적 확장 (미지정이면 기존 ac_two_source_mesh_power 그림과 완전히 동일) ──
+  /** 우측 세로 전원 종류. "current"면 전류원 심볼(원+화살표)로 그린다. 기본 "voltage". */
+  rightSource?: "voltage" | "current";
+  /** 상단 메시 전류 화살표(I₁·I₂) 표시 여부. 기본 true. */
+  showMeshArrows?: boolean;
+  /** 가운데 세로 가지 양단 전압 표기(예: "V_L") — 있으면 +/− 극성 기호와 함께 그린다. */
+  midMeasureLabel?: string;
+  /** 하단 캡션 문구 override. */
+  caption?: string;
+};
+
+/** Δ-Y 브리지의 한 arm — 소자 종류 + 크기(리액턴스/저항, Ω). label은 렌더 표기용. */
+export type AcDeltaWyeArm = {
+  kind: "R" | "L" | "C";
+  mag: number;      // 크기(Ω). L이면 +jmag, C면 −jmag
+  label?: string;   // "j2[Ω]" · "−j2[Ω]" · "2[Ω]"
+};
+
+/**
+ * ac_delta_wye_bridge_circuit payload — 교류 브리지 (가, 임용 2번 회로이론).
+ *   다이아몬드: 상단 = 단자 A, 하단 = 단자 B, 좌마디 L, 우마디 R.
+ *   topLeft=A→L, topRight=A→R, bridge=L→R(가운데 수평), botLeft=L→B, botRight=R→B.
+ *   전원 V∠0°는 좌측(A↔B), 전류 I는 A로 유입.
+ */
+export type AcDeltaWyeBridgeCircuitDiagram = {
+  vLabel: string;    // "V=20∠0°[V]"
+  iLabel?: string;   // "I[A]"
+  arms: {
+    topLeft: AcDeltaWyeArm;
+    topRight: AcDeltaWyeArm;
+    bridge: AcDeltaWyeArm;
+    botLeft: AcDeltaWyeArm;
+    botRight: AcDeltaWyeArm;
+  };
+  boxLabel?: string; // 점선 박스 옆 표기 (예: "Z[Ω]")
+};
+
+/**
+ * ac_delta_wye_equiv_circuit payload — Δ-Y 변환 등가 (나).
+ *   상단 델타(A,L,R)만 Y로 바뀌고 하단 두 arm은 원본 그대로 남는다.
+ *   A → [Z_A 박스] → 마디 N → 좌 [Z_1 박스] · 우 [Z_2 박스] → 각각 botLeft·botRight → B.
+ *   ★ Y 세 팔은 학생이 [단계 1]에서 구하는 값이므로 **빈 박스**로 그린다(값 미표기).
+ */
+export type AcDeltaWyeEquivCircuitDiagram = {
+  vLabel: string;
+  iLabel?: string;   // "I=a∠−45°[A]"
+  botLeft: AcDeltaWyeArm;
+  botRight: AcDeltaWyeArm;
+  boxLabel?: string; // "Δ-Y 변환"
+};
+
+/**
  * ac_thevenin_ladder_circuit payload — 단일 AC원 사다리 (가, 임용 7번 회로이론).
  *   좌: AC원(세로) — 상단: 직렬 ser1 — 마디 M — [션트 sh ↓ 하단 rail] — 직렬 ser2 — 단자 a.
  *   단자 b = 하단 rail. 부하 Z_L(점선)이 a–b 가교.  (원본: ser1=L(j2), sh=C(−j1), ser2=R(2))
@@ -1705,11 +1943,290 @@ export type AcTheveninLadderCircuitDiagram = {
   loadLabel: string;    // "Z_L"
 };
 
+/**
+ * bjt_thevenin_bias_circuit payload — BJT 직류 바이어스 + 베이스망 테브난 등가 (임용 10번 전자회로).
+ *   variant="original" → 베이스 점선망 [R₁+V₁] ∥ [R₂+V₂] / "thevenin" → R_T + V_T로 치환.
+ */
+export type BjtTheveninBiasCircuitDiagram = {
+  variant: "original" | "thevenin";
+  reLabel: string; veeLabel: string;                       // 이미터측
+  r1Label: string; v1Label: string; v1TopSign: "+" | "-";  // 베이스 가지 1
+  r2Label: string; v2Label: string; v2TopSign: "+" | "-";  // 베이스 가지 2
+  rtLabel: string; vtLabel: string;                        // 테브난 등가
+  rpLabel: string; rcLabel: string;                        // 컬렉터측 병렬 저항
+  rmLabel: string; isLabel: string;                        // 마디 M 아래
+};
+
+/**
+ * bjt_switch_logic_circuit payload — BJT 이상적 스위치 응용 회로 (임용 2번).
+ *   config별 고정 토폴로지: PNP 하이사이드 / NPN 로우사이드 / NPN 직렬 2개 / NPN 병렬 2개.
+ */
+export type BjtSwitchLogicCircuitDiagram = {
+  config: "pnp_high_side" | "npn_low_side" | "npn_series2" | "npn_parallel2";
+  vccLabel: string;      // "+5V"
+  rbLabel: string;       // "R_B"
+  rcLabel: string;       // "R_C"
+  inputLabels: string[]; // ["X"] 또는 ["X_1","X_2"]
+  outputLabel: string;   // "출력 Y"
+};
+
+/**
+ * comparator_diode_or_circuit payload — 비교기 2개 + 다이오드 결합 회로 (임용 3번 전자회로).
+ *
+ *  config="or_pulldown" (**원본**): 두 비교기 출력이 다이오드(애노드=비교기 쪽)로 공통 마디에 묶이고
+ *    그 마디에 **풀다운 저항**이 접지로 → V_out = max(출력들, 0)  ⇒ 창(window) **밖** 검출.
+ *  config="and_pullup": 다이오드 **방향 반전**(캐소드=비교기 쪽) + **풀업 저항**을 +V_CC로
+ *    → V_out = min(출력들, V_CC)  ⇒ 창 **안** 검출.
+ *
+ *  각 비교기는 (+)·(−) 중 어느 쪽에 V_in이 들어가는지로 동작이 갈린다(`inPin`).
+ */
+export type ComparatorDiodeOrCircuitDiagram = {
+  config: "or_pulldown" | "and_pullup";
+  /** 위·아래 비교기 — refLabel은 기준 전압 표기("+5[V]"), inPin은 V_in이 물리는 단자. */
+  comparators: Array<{ refLabel: string; inPin: "plus" | "minus"; diodeLabel: string }>;
+  vinLabel: string;    // "V_in"
+  outLabel: string;    // "V_out"
+  rLabel: string;      // "10[kΩ]"
+  /** and_pullup일 때 풀업이 물리는 전원 표기. or_pulldown이면 생략(접지). */
+  pullSupplyLabel?: string;
+};
+
+/**
+ * opamp_summer_tfeedback_circuit payload — 반전 가산기 + T형 궤환 반전증폭기 (임용 7번 전자회로).
+ *   1단: V_a—R_a—S, V_b—R₁—S, S—R_f—V₁ (궤환), (+)는 접지
+ *   2단: V₁—R_in—M(=(−)), M—R_ta—T, T—R_tb—접지, T—R_tc—단자 a(V_o), (+)는 접지, a—R_L—접지(I_L)
+ */
+export type OpampSummerTFeedbackCircuitDiagram = {
+  vaLabel: string; vbLabel: string;
+  raLabel: string; r1Label: string; rfLabel: string;
+  v1Label: string;
+  rinLabel: string; rtaLabel: string; rtbLabel: string; rtcLabel: string;
+  rlLabel: string; voLabel: string; ilLabel: string;
+};
+
+/**
+ * ac_thevenin_two_box_circuit payload — 점선 박스 2개 직렬 + 부하 R_L (임용 10번 회로이론).
+ *   위 박스(전압원망): V_s — R₁ — 마디 m — jX_L1 — 단자 a,  m ↓ −jX_C1 ↓ 접지(=단자 b)
+ *   아래 박스(전류원망): I_s ↑ 마디 f (R₂ ∥ jX_L2 접지) — −jX_C2 — 단자 c,  접지 = 단자 d
+ *   우측: 단자 a와 d 사이에 부하 R_L (두 박스가 직렬로 R_L을 구동).
+ */
+export type AcTheveninTwoBoxCircuitDiagram = {
+  vsLabel: string;    // "1∠0°V"
+  r1Label: string;    // "100Ω"
+  xc1Label: string;   // "−j100Ω"
+  xl1Label: string;   // "j50Ω"
+  isLabel: string;    // "0.01∠0°A"
+  r2Label: string;    // "100Ω"
+  xl2Label: string;   // "j100Ω"
+  xc2Label: string;   // "−j50Ω"
+  rlLabel: string;    // "R_L"
+};
+
+/**
+ * diode_clamper_circuit payload — 다이오드 클램퍼 (가, 임용 2번 전자회로).
+ *   v_i(좌 단자) — C(가로) — 마디 A — [다이오드 + 바이어스 전지](세로) — 접지
+ *   마디 A — R(세로) — 접지, v_o는 R 양단(우 단자).
+ */
+export type DiodeClamperCircuitDiagram = {
+  cLabel: string;      // "1[µF]"
+  rLabel: string;      // "100[kΩ]"
+  biasLabel: string;   // "5[V]"
+  /** 다이오드 방향 — "down"=애노드가 마디 A(상한 클램프) / "up"=캐소드가 A(하한 클램프) */
+  diodeDir: "down" | "up";
+  /** 바이어스 전지의 위쪽 단자 극성 */
+  biasTopSign: "+" | "-";
+  viLabel: string;     // "v_i"
+  voLabel: string;     // "v_o"
+};
+
+/**
+ * diode_clamper_waveform payload — (나) 입력·출력 파형 2단 패널.
+ *   위: v_i (V_H/V_L 사각파, 수치 표시) / 아래: v_o (레벨을 a·b 문자로 — 학생이 구할 값).
+ */
+export type DiodeClamperWaveformDiagram = {
+  vH: number; vL: number;      // 입력 상·하한 [V] (정현파면 +V_m / −V_m)
+  /** 입력 파형 종류 — 기본 "sine"(정현파). "square"는 구형파. */
+  shape?: "sine" | "square";
+  halfPeriodMs: number;        // 반주기 [ms]
+  cycles: number;              // 그릴 주기 수
+  aLabel: string;              // "a" (출력 상한 — 미지)
+  bLabel: string;              // "b" (출력 하한 — 미지)
+  /** a·b의 실제 값 — **위치 계산에만** 쓴다(라벨은 문자 그대로). 원본처럼 0 기준 위/아래가 맞게 그려진다. */
+  aValue: number;
+  bValue: number;
+};
+
+/**
+ * dc_two_source_ladder_circuit payload — 전압원+전류원 DC 사다리 (임용 3번 회로이론).
+ *   좌: V_s(세로) — 상단: R_a(가로, 전류 I₁ →) — 마디 M — R_b(가로) — 우: I_s(세로, ↑)
+ *   마디 M 아래: R_c(세로) — 마디 N — [R_d ∥ R_e](세로 2개, R_e에 전류 I₂ ↓) — 하단 rail.
+ */
+export type DcTwoSourceLadderCircuitDiagram = {
+  vsLabel: string;   // "24[V]"
+  raLabel: string;   // "4[kΩ]"
+  rbLabel: string;   // "1[kΩ]"
+  isLabel: string;   // "12[mA]"
+  rcLabel: string;   // "2[kΩ]"
+  rdLabel: string;   // "6[kΩ]"
+  reLabel: string;   // "3[kΩ]"
+  i1Label: string;   // "I₁"
+  i2Label: string;   // "I₂"
+  /** I₁·I₂ 화살표를 어느 소자에 붙일지 — 유사=R_a·R_e, 변형=R_c·R_d */
+  i1On: "Ra" | "Rc";
+  i2On: "Re" | "Rd";
+};
+
+/**
+ * opamp_two_stage_rx_circuit payload — 2단 OPAMP + 저항 R_X 설계 (임용 2번 전자회로).
+ *   1단 U₁: V₁—R_a—(−)—R_b(피드백)—V_X, V₂—R_c—(+)—R_X—GND
+ *   2단 U₂: V_X—R_d—(+)—R_e—GND, GND—R_f—(−)—R_g(피드백)—V_o, V_o—R_L—GND(부하)
+ *   unknown: 어느 값이 "목표로 주어지는가" — "Vx"(유사) / "Vo"(변형). R_X는 항상 미지(점선 박스).
+ */
+export type OpampTwoStageRxCircuitDiagram = {
+  v1Label: string;
+  /** ★1단 비반전(+) 입력 — 사용자 지정으로 **3입력**(각 전원과 직렬 저항). */
+  plusInputs: Array<{ vLabel: string; rLabel: string; name: string }>;
+  raLabel: string; rbLabel: string; rxLabel: string;
+  rdLabel: string; reLabel: string; rfLabel: string; rgLabel: string; rlLabel: string;
+  vxLabel: string; voLabel: string;
+  unknown: "Vx" | "Vo";
+};
+
+/** ac_thevenin_design_ab_circuit payload — 교류 테브난 소자 값 설계 회로 (임용 7번 회로이론). */
+export type AcTheveninDesignAbCircuitDiagram = {
+  /** 전원 라벨 (예 "V=8∠90°[V]") */
+  vLabel: string;
+  /** 좌측 distractor 션트 저항 (예 "2[Ω]") */
+  rdLabel: string;
+  /** 좌측 distractor 션트 용량 리액턴스 (예 "−j3[Ω]") */
+  xdLabel: string;
+  /** 상단 직렬 저항 (유사는 "a[Ω]") */
+  aLabel: string;
+  /** 상단 직렬 유도 리액턴스 (유사는 "jb[Ω]") */
+  jbLabel: string;
+  /** 마디 A의 션트 용량 리액턴스 (유사는 "−jb[Ω]") */
+  shuntLabel: string;
+  /** 부하 저항부 라벨 */
+  zlRLabel: string;
+  /** 부하 리액턴스부 라벨 */
+  zlXLabel: string;
+};
+
+/** zener_shunt_regulator_circuit payload — 제너 n개 직렬 션트 정전압 회로 (임용 2번 전자회로). */
+export type ZenerShuntRegulatorCircuitDiagram = {
+  /** 입력 전원 라벨 (예 "V_i=40[V]") */
+  viLabel: string;
+  /** 직렬 저항 라벨 (유사는 "a[kΩ]", 변형은 수치) */
+  aLabel: string;
+  /** 부하 저항 라벨 (예 "R_L[kΩ]") */
+  rlLabel: string;
+  /** 제너 전압 라벨 (예 "V_Z=5[V]") */
+  vzLabel: string;
+  /** 제너 최대 전류 라벨 (예 "I_ZM=8[mA]") */
+  izmLabel: string;
+  /** 직렬 제너 개수 */
+  zenerCount: number;
+};
+
+/** switched_rlc_source_free_circuit payload — t=0 스위치 개방 무전원 직렬 RLC (임용 5번 회로이론). */
+export type SwitchedRlcSourceFreeCircuitDiagram = {
+  /** 전압원 라벨 (예 "25[V]") */
+  vsLabel: string;
+  /** 직렬 저항 라벨 (예 "10[Ω]") */
+  rsLabel: string;
+  /** 션트 저항 라벨 (예 "40[Ω]") */
+  rpLabel: string;
+  /** 우측 직렬 저항 라벨 (예 "60[Ω]") */
+  r3Label: string;
+  /** 커패시터 라벨 (예 "2×10⁻³[F]") */
+  cLabel: string;
+  /** 인덕터 라벨 (예 "5[H]") */
+  lLabel: string;
+};
+
+/**
+ * rlc_state_equation_circuit payload — 직류 V₁·I₁ RLC 상태방정식 회로 (임용 6번 회로이론).
+ *
+ * 고정 토폴로지: `V₁ ─ R₁ ─ L(i) ─ 마디 A`, 마디 A ─ C(v) ∥ R₂ ∥ I₁(↑) ─ 접지.
+ * 변형(A·B가 주어지고 소자 값을 역산)에서는 각 라벨이 기호("R₁[Ω]" 등)로 들어온다.
+ */
+export type RlcStateEquationCircuitDiagram = {
+  /** 직렬 저항 라벨 (예 "1[Ω]") */
+  r1Label: string;
+  /** 인덕터 라벨 (예 "1/5[H]") */
+  lLabel: string;
+  /** 커패시터 라벨 (예 "1/2[F]") */
+  cLabel: string;
+  /** 병렬 저항 라벨 (예 "2[Ω]") */
+  r2Label: string;
+  /** 전압원 라벨 (기호 "V₁[V]") */
+  vLabel: string;
+  /** 전류원 라벨 (기호 "I₁[A]") */
+  iLabel: string;
+};
+
+/**
+ * switched_rlc_dual_switch_circuit payload — SW1 닫힘 + SW2(b→c) 2전압원 RLC (2022 전기 B-5).
+ *   좌: V_s(세로) — 상단: SW1(t=0 닫힘) — R₁ — L(전류 i₁) — 노드 a — [C 세로(v_c)] —
+ *   SW2(t=0에 접점 b→c) — {접점 c: R₂ 세로, 접점 b: V_b 세로} — 하단 rail.
+ *   t<0: SW1 열림(i₁=0) + SW2=b (커패시터가 V_b로 충전) → i₁(0₊)=0, v_c(0₊)=V_b.
+ */
+export type SwitchedRlcDualSwitchCircuitDiagram = {
+  vsLabel: string;      // "1[V]" — 좌측 전원
+  r1Label: string;      // "4[Ω]"
+  lLabel: string;       // "1[H]"
+  cLabel: string;       // "1/2[F]"
+  vbLabel: string;      // "2[V]" — 접점 b 쪽(t<0) 전원
+  r2Label: string;      // "2[Ω]" — 접점 c 쪽(t≥0) 부하
+  currentLabel: string; // "i₁(t)"
+  vcLabel: string;      // "v_c(t)"
+};
+
+/**
+ * ac_thevenin_dep_circuit payload — 종속전원 포함 페이저 회로 (가, 임용 6번 회로이론).
+ *   좌: 독립 전류원(세로, ↑) ∥ 션트 Z₁(세로) — 상단: ★종속 전압원(다이아몬드, k·I₂)★ 직렬 —
+ *   마디 2: 션트 Z₂(세로, 전류 I₂ ↓) — 단자 A. 단자 B = 하단 rail. (원본: Z₁=j1, k=½, Z₂=−j½)
+ */
+export type AcTheveninDepCircuitDiagram = {
+  isrcLabel: string;      // "I_rms = √2∠0°[A]"
+  z1Type: "R" | "L" | "C";
+  z1Label: string;        // 션트 1 (예: "j1Ω")
+  depLabel: string;       // 종속 전압원 (예: "½ I₂")
+  z2Type: "R" | "L" | "C";
+  z2Label: string;        // 션트 2 (예: "−j½Ω")
+  currentLabel: string;   // 제어 전류 (예: "I₂")
+  /** true면 단자 A–B에 부하 Z_L을 함께 그린다(기본 false — (가)는 개방 단자). */
+  showLoad?: boolean;
+};
+
+/** ac_thevenin_dep_equiv_circuit payload — 테브난 등가 (나). V_AB 직렬 Z_AB → 단자 A·B → 부하 Z_L = R + jX. */
+export type AcTheveninDepEquivCircuitDiagram = {
+  vthLabel: string;   // "V_AB"
+  zthLabel: string;   // "Z_AB"
+  loadLabel: string;  // "Z_L[Ω]"
+  rLabel: string;     // "R"
+  xLabel: string;     // "jX"
+};
+
 /** ac_thevenin_equiv_circuit payload — 테브난 등가 (나). V_TH 직렬 Z_TH → 단자 a·b → Z_L. */
 export type AcTheveninEquivCircuitDiagram = {
   vthLabel: string;  // "V_TH"
   zthLabel: string;  // "Z_TH"
   loadLabel: string; // "Z_L"
+};
+
+/**
+ * switched_cap_short_rl_circuit payload — 스위치가 **커패시터와 병렬**로 붙어 t=0에 닫히며
+ * C를 단락시키는 RLC 회로 (임용 7번 회로이론). V_s ─ R ─ [C ∥ SW] ─ L 직렬 루프.
+ */
+export type SwitchedCapShortRlCircuitDiagram = {
+  vLabel: string;         // "12[V]"
+  rLabel: string;         // "4[Ω]"
+  cLabel: string;         // "1[F]"
+  lLabel: string;         // "2[H]"
+  currentLabel?: string;  // "i_L(t)" (기본)
+  /** 변형 모드에서 인덕터 양단 전압을 물을 때만 — 극성(+/−)과 함께 표시. */
+  voltageLabel?: string;
 };
 
 /** switched_rl_dual_src_circuit payload — 2전원 SPDT RL 과도 (임용 3번 회로이론).
@@ -1812,6 +2329,148 @@ export type JkExcitationCircuitDiagram = {
   ffBLabel?: string;     // "FF_B"
   highLabel?: string;    // "HIGH"
   clockLabel?: string;   // "CLK"
+};
+
+/**
+ * dff_preset_clear_circuit payload — 임용 27번 (가).
+ *   D 플립플롭 하나(D ← Q̄ 되먹임 = 토글)에 **비동기 PR(위)·CLR(아래)** 이 달려 있고,
+ *   두 핀은 입력 A·B를 받는 **NAND 2개**가 구동한다(핀·게이트 출력 모두 active-low = 버블).
+ *
+ *   구조는 고정이고 **결선만** 데이터로 받는다(좌표 정보 금지):
+ *     presetInputs / clearInputs = 각 NAND의 두 입력 (변수명 + 반전 여부).
+ *     예) PR̄ = (Ā·B)′ → [{name:"A",inverted:true},{name:"B",inverted:false}]
+ *   렌더러는 inverted=true인 입력에만 인버터 삼각형을 그린다 → 생성기가 정한 논리와
+ *   그림이 항상 일치한다(문항과 그림이 어긋나는 사고 방지).
+ */
+export type DffPresetClearCircuitDiagram = {
+  presetInputs: [DffPresetClearGateInput, DffPresetClearGateInput];
+  clearInputs: [DffPresetClearGateInput, DffPresetClearGateInput];
+  /**
+   * PR·CLR을 구동하지 않는 **나머지 디코더 NAND 들**. 원본 (가)는 A·B와 그 보수를 받는
+   * 2-to-4 NAND 디코더(NAND 4개 + 인버터 2개)를 그려 두고, 그중 두 줄만 PR·CLR에 쓴다.
+   * 나머지 줄은 열린 단자로 남겨 그린다(부품 수를 원본과 맞추기 위함 — 동작에는 영향 없음).
+   */
+  spareGates?: Array<[DffPresetClearGateInput, DffPresetClearGateInput]>;
+  /** 외부 입력 이름 (버스 순서대로). 기본 ["A","B"]. */
+  inputNames?: string[];
+  /** 클럭 트리거 에지 — "falling"이면 CLK 핀에 버블을 그린다. 기본 "rising". */
+  clockEdge?: "rising" | "falling";
+  qLabel?: string;      // "Q"
+  qBarLabel?: string;   // "Q̄"
+  clockLabel?: string;  // "CLK"
+  caption?: string;
+};
+
+export type DffPresetClearGateInput = { name: string; inverted: boolean };
+
+/**
+ * switched_rl_dual_short_circuit payload — 임용 17번.
+ *   전류원(↑) ─ 마디 A ─ [SW₁ ∥ R_b] ─ 마디 B ─ [SW₂ ∥ L₁] ─ 마디 C ─ R_c ─ 접지,
+ *   그리고 마디 B ─ L₂ ─ 접지(측정 대상). 구조가 고정이라 **라벨만** 받는다(좌표 정보 금지).
+ *   measure: "current"면 L₂ 옆에 i(t) 화살표, "voltage"면 양단 +/− 극성 표기.
+ */
+export type SwitchedRlDualShortCircuitDiagram = {
+  sourceLabel: string;   // "2[A]"
+  raLabel: string;       // "4[Ω]" — 세로
+  rbLabel: string;       // "4[Ω]" — 가로 (SW₁과 병렬)
+  rcLabel: string;       // "4[Ω]" — 하단
+  l1Label: string;       // "1[H]" — SW₂와 병렬 (distractor)
+  l2Label: string;       // "2[H]" — 측정 대상
+  sw1Label?: string;
+  sw2Label?: string;
+  switchTimeLabel?: string;  // "t=0" — 스위치가 동작하는 시각(모든 스위치 회로에 표기)
+  /** 스위치 동작 방향 — "closing"(열렸다 닫힘) | "opening"(닫혔다 열림). 화살표로 표시된다. */
+  switchAction?: "closing" | "opening";
+  measure?: "current" | "voltage";
+  measureLabel?: string;     // "i(t)" | "v(t)"
+  caption?: string;
+};
+
+/**
+ * two_source_rl_superposition_circuit payload — 임용 4번 (가)·(나)·(다).
+ *   `v₁(+위) ─ R₁ ─ M`, `v₁(−) ─ R₂ ─ N`, `R₃: M↓N`, `M ─ [L|C](측정) ─ v₂(+위) ─ N`.
+ *   variant: full=두 전원 / v1_only=v₂ 제거(단락) / v2_only=v₁ 제거(단락).
+ *   dashedBox=true면 좌측 회로망(전원·R₁·R₂·R₃)을 점선으로 감싼다.
+ *   showPlots=true면 v₁ 펄스·v₂ 정현파 파형을 회로 옆 작은 그래프로 함께 그린다(원본 표기).
+ */
+/**
+ * ac_dc_source_superposition_circuit payload — 임용 15번.
+ *   좌: 교류 전압원 / 상단: R₁ ─ L₁ ─ 마디 M / 중간: M ─ R₂ ─ L₂ ─ C(v_C) ─ 하단 / 우: 직류 전류원(↑).
+ *   measure: "vc"면 C 양단 극성, "current"면 가운데 가지 전류 화살표.
+ */
+/**
+ * jk_two_phase_clock_circuit payload — 임용 30번 (가).
+ *   구조가 고정이라 **게이트 종류와 에지·라벨만** 받는다(좌표 정보 금지).
+ */
+/**
+ * max_power_two_source_circuit payload — 임용 17번 (가)/(나).
+ *   구조가 고정이라 **라벨과 소자 종류만** 받는다. dual=true면 직렬 L + 병렬 R∥C (부하는 R+C).
+ */
+export type MaxPowerTwoSourceCircuitDiagram = {
+  dual: boolean;
+  sourceLabel: string;     // "v₁(t)=24cos1000t V"
+  seriesLabel: string;     // "125µF" | "8mH"
+  parResLabel: string;     // "6Ω"
+  parReactLabel: string;   // "6mH" | "…µF"
+  loadResLabel: string;    // "R₁"
+  loadElemLabel: string;   // "L₁" | "C₁"
+  loadElemName?: string;
+  powerLabel: string;      // "P_max1"
+  caption?: string;
+};
+
+export type JkTwoPhaseClockCircuitDiagram = {
+  /** 출력 게이트 — 유사=EX-OR / 변형=EX-NOR. */
+  gate: "XOR" | "XNOR";
+  /** JK₁ 클럭 에지 (원본은 버블 → falling). */
+  clockEdge1?: "rising" | "falling";
+  /** JK₂ 클럭 에지 (원본은 버블 없음 → rising). */
+  clockEdge2?: "rising" | "falling";
+  highLabel?: string;
+  blockLabel?: string;
+  out1Label?: string;
+  out2Label?: string;
+  caption?: string;
+};
+
+export type RlcAntiresonanceLadderCircuitDiagram = {
+  sourceLabel: string;   // "v(t)=50√2cos1000t V"
+  r1Label: string; r2Label: string;
+  l1Label: string;       // "10mH"
+  c1Label: string;       // "500µF" (상·하단 직렬 커패시터 공통)
+  l2Label: string;       // "2mH"  — 병렬 LC의 L
+  c3Label: string;       // "500µF" — 병렬 LC의 C
+  measureLabel?: string; // "i(t)"
+  caption?: string;
+};
+
+export type AcDcSourceSuperpositionCircuitDiagram = {
+  sourceLabel: string;   // "v(t) = 12cos8t V"
+  r1Label: string; r2Label: string;
+  l1Label: string; l2Label: string;
+  cLabel: string;
+  idcLabel: string;      // "1A"
+  measure?: "vc" | "current";
+  measureLabel?: string;
+  caption?: string;
+};
+
+export type TwoSourceRlSuperpositionCircuitDiagram = {
+  variant: "full" | "v1_only" | "v2_only";
+  r1Label: string; r2Label: string; r3Label: string;
+  /** 측정 소자 종류 — 유사=L, 변형=C. */
+  reactive: "L" | "C";
+  reactiveLabel: string;   // "2H" | "1/2F"
+  v1Label?: string; v2Label?: string;
+  measureLabel?: string;   // "i(t)" | "v_C(t)" | "i_A(t)" ...
+  dashedBox?: boolean;
+  showPlots?: boolean;
+  /** 파형 그래프용 — 펄스 높이·폭 표기·정현파 진폭. */
+  pulseHeight?: number;
+  pulseWidthTex?: string;
+  sineAmp?: number;
+  omega?: number;
+  caption?: string;
 };
 
 /** ac_superposition_source_design_circuit payload — 2전원 페이저 RLC (임용 5번 회로이론).
@@ -1934,6 +2593,8 @@ export type DffStateDesignCircuitDiagram = {
   ffBType?: "D" | "T";      // FF_B 종류 (기본 D). exam_variant은 T (D-FF + T-FF)
   ffAInputName?: string;    // FF_A 입력 라벨 (예: "D_A")
   ffBInputName?: string;    // FF_B 입력 라벨 ("D_B" 또는 "T_B")
+  /** 외부 입력 이름(예 "X") — 있으면 좌측에 입력 트렁크를 그린다(입력 있는 상태기계, 임용 12번). */
+  externalInput?: string;
 };
 
 /**
@@ -1955,6 +2616,12 @@ export type JkStateMachineCircuitDiagram = {
   j0: string; k0: string; j1: string; k1: string; j2: string; k2: string;
   /** 변형유형: 있으면 J2=K2를 2입력 게이트(a,b)로 구동(게이트 1개 추가). a·b는 "Q0"/"Q1" 등. */
   gate?: { op: "AND" | "OR" | "XOR" | "NAND" | "NOR" | "XNOR"; a: string; b: string };
+  /**
+   * 클럭 트리거 에지. 원본(임용 6번)은 CP 입력에 **버블이 붙은 하강 에지**다.
+   * "falling"이면 렌더러가 클럭 삼각형 바깥에 버블을 그리고, 타이밍 도표의 Q 전이도 하강 에지에 맞춘다.
+   * 미지정 시 렌더러는 "falling"(원본)으로 본다.
+   */
+  clockEdge?: "rising" | "falling";
 };
 
 /**

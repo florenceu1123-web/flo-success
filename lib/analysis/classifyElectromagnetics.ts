@@ -133,6 +133,13 @@ export function detectDielectricBoundary(
   //   (실측: Vision이 가정문을 요약에 옮기면 6회 중 5회 이 감지기가 24번을 가로채
   //    figure 없는 dielectric_boundary_field로 변질시켰다.)
   if (detectDielectricPotentialMode(analysis)) return false;
+  // ★★ 양보 가드 — **평판 커패시터 문맥이면 dielectric_two_region_cap에 양보**한다 (실측 2026-08-02).
+  //   경계 굴절 유형은 무한 경계면의 E₂·에너지밀도를 묻지, **정전용량·전위차 V_d·극판·부피비**를 묻지 않는다.
+  //   실측 신고: 임용 11번(나란히 두 유전체 커패시터)에서 Vision이 relatedConcepts에 개념 태그
+  //   **"정전 에너지"** 를 붙이자 아래 boundarySignal이 발화해 이 감지기가 통째로 가로챘고,
+  //   "경계면 전계 굴절 + 에너지 밀도" 문제가 생성됐다.
+  //   ★ 교훈은 CLAUDE.md와 같다 — Vision이 붙인 **개념 태그는 구조적 사실이 아니다**.
+  if (/정전\s*용량|정전용량|커패시터|capacitor|축전기|극판|평판\s*도체|부피비/.test(text)) return false;
   // 두 유전율 영역 + 경계.
   const twoRegions =
     (text.includes("z<0") || text.includes("z < 0") || text.includes("z>0") || text.includes("z > 0")) ||
@@ -434,11 +441,57 @@ export function detectSheetCurrentsVectorPotential(
  *   · 면전하+선전하(sheet_line_efield_superposition)엔 점전하가 없다.
  *   → 이 조합은 이 유형 고유다.
  */
+/**
+ * 점전하 + **x축 무한 선전하** → 전계의 크기가 같아지는 전하량 Q_A → 전계가 0이 되는 위치 k
+ * (임용 9번 전자기학, `point_line_null_field`) 구조 감지기.
+ *
+ * ★ 형제 `point_line_charge_force`는 "점전하 + 선전하 + 전계"면 **무조건 true**를 낸다 —
+ *   그래서 이 유형은 강제 체인에서 **그보다 먼저** 평가되어야 하고, 그쪽에도 양보 가드를 단다.
+ *   판별선 = **요구**: 이쪽은 "크기가 같아지는 전하량"·"전계가 0이 되는 위치", 저쪽은 "크기 비"·"힘 F".
+ */
+export function detectPointLineNullField(
+  analysis: AnalysisResult | null | undefined,
+): boolean {
+  const text = buildText(analysis).toLowerCase();
+  if (!text.trim()) return false;
+
+  // 자계·전류·유전체·면전하·원형 링 문맥이면 각자 유형 소관 (형제 감지기와 같은 양보선).
+  if (/자계|자기장|자장|면전류|선전류|전류밀도/.test(text)) return false;
+  if (/유전체|비유전율/.test(text)) return false;
+  if (/면전하|면 전하|대전\s*평면|대전평면|무한\s*평면/.test(text)) return false;
+  if (/원형|링|고리/.test(text)) return false;
+
+  if (!/전계|전기장|mathbf\{e\}/.test(text)) return false;
+  if (!/점전하|점 전하/.test(text)) return false;
+  if (!/선전하|선 전하|\\rho_l|ρ_l/.test(text)) return false;
+
+  // ★ 형제 양보 먼저 — "크기 비"가 조건으로 나오면 point_line_charge_force다(그쪽 고유 표현).
+  if (/크기\s*비|크기비|크기의\s*비/.test(text)) return false;
+
+  // ★ 요구 — 낱말 하나에 걸지 않는다. Vision이 회차마다 다르게 요약하므로(실측: "크기가 같다"도
+  //   "0이 되는"도 안 쓰고 "전기장을 이용해 전하량 Q_A를 구한다"로만 서술한 회차가 있었다)
+  //   **구조 신호**를 여러 개 두고 하나만 맞아도 인정한다.
+  const equalMag = /크기가\s*같|크기\s*가\s*같|같아지는\s*전하량|\|e_?1\|\s*=\s*\|e_?2\||e_?1\s*=\s*e_?2/.test(text);
+  const nullField = /0\s*이?\s*되는|영\(0\)|상쇄|합이\s*0|크기가\s*0/.test(text);
+  //   미지가 **점전하의 전하량**이라는 것 자체가 형제와의 판별선이다(형제의 미지는 선전하밀도).
+  const chargeUnknown = /전하량\s*(을|를)?\s*(구|계산)|전하량\s*q|q_?a\b|q_\\?mathrm\{a\}/.test(text);
+  //   3단계 구조 — 전하를 (0,0,k) 같은 자리로 **이동**시켜 k를 구한다.
+  const moveToK = /(이동|옮기|옮겨)/.test(text) && /\(\s*0\s*,\s*0\s*,\s*k\s*\)|k\s*(를|을)?\s*구|위치\s*k/.test(text);
+  if (!equalMag && !nullField && !chargeUnknown && !moveToK) return false;
+
+  // 형제 양보 — 힘 F가 주 요구이고 이쪽 구조 신호가 하나도 없으면 point_line_charge_force.
+  if (/작용하는\s*힘|힘\s*\\?mathbf\{f\}|힘\s*f\b/.test(text) && !nullField && !equalMag && !moveToK) return false;
+  return true;
+}
+
 export function detectPointLineChargeForce(
   analysis: AnalysisResult | null | undefined,
 ): boolean {
   const text = buildText(analysis).toLowerCase();
   if (!text.trim()) return false;
+  // ★ 크기 일치 조건·전계 상쇄 위치를 묻는 원본은 point_line_null_field 소관 — 형제 양보.
+  //   (이 감지기는 "점전하+선전하+전계"면 무조건 true라 가드가 없으면 통째로 삼킨다.)
+  if (detectPointLineNullField(analysis)) return false;
 
   // 자계·전류 문맥이면 자기 유형 소관.
   if (/자계|자기장|자장|면전류|선전류|전류밀도/.test(text)) return false;
@@ -493,6 +546,172 @@ export function detectSheetLineEfieldSuperposition(
     text.includes("반지름") || text.includes("반경");
 
   return sheet && lineCharge && !ring;
+}
+
+/**
+ * **두 무한 직선 도선**(전류 반대 방향)의 합성 자계 → 위치 a 도출 → **단위 길이당 힘** (임용 11번) 감지 — 강제 라우팅용.
+ *
+ * ★ 실측(2026-08-02): 이 원본이 `straight_wire_B`(단일 도선 B=μ₀I/2πr)로 dispatch돼
+ *   도선 1개짜리 단순 계산 문제로 변질됐다. 텍스트에 "무한 도선"·"자기장"이 있으면
+ *   단일 도선 항목이 점수로 이기기 때문 — 이 유형 고유 신호는 **도선이 2개**라는 구조다.
+ *
+ * 구조 시그니처(표현 무관): 직선 도선 2개(A·B 또는 "두 도선") + 자계 문맥
+ *   + (단위 길이당 힘 | 합성 자계 | 크기 비) 중 하나.
+ *   · 형제 양보: 면전류·선전류(sheet_line_superposition), 원형 루프·코일(circular_loop_axis_field),
+ *     동축·원통 도체(coax_line_magnetic_field·cylinder_conductor), 솔레노이드·토로이드,
+ *     전하·전계(정전계 유형), 자속밀도 given(면벡터·회전 유형).
+ */
+export function detectTwoWiresFieldForce(
+  analysis: AnalysisResult | null | undefined,
+): boolean {
+  const text = buildText(analysis).toLowerCase();
+  if (!text.trim()) return false;
+
+  // 전기(전하·전계) 문맥이면 정전계 유형 소관.
+  if (/전하|전계|전기장|유전체|정전용량/.test(text)) return false;
+  // 형제 자기 유형 양보 — 면전류/선전류·원형 루프·솔레노이드/토로이드·동축/원통 도체.
+  if (/면전류|면 전류|선전류|surface\s*current|벡터\s*자위|스칼라\s*자위/.test(text)) return false;
+  if (/원형|루프|코일|고리|반지름|반경/.test(text)) return false;
+  if (/솔레노이드|토로이드|환상/.test(text)) return false;
+  if (/동축|원통\s*도체|도전율|전도율/.test(text)) return false;
+  // 자계가 좌표 함수로 주어지고 회전·자속을 구하는 유형(curl·flux) 양보.
+  if (/회전|∇\s*×|curl|자속밀도|자속|삼각기둥/.test(text)) return false;
+  // 시변 자속·유도 기전력(패러데이) 양보.
+  if (/유도\s*기전력|유도\s*전류|시간에\s*따라|패러데이/.test(text)) return false;
+
+  const magnetic = /자계|자기장|자장|앙페르|암페어/.test(text);
+  if (!magnetic) return false;
+
+  // 도선이 **2개**인 구조 — "도선 A·B", "두 (개의) 무한 도선", "도선 2개", "평행(한) 두 도선".
+  const twoWires =
+    /도선\s*a[^가-힣]|도선\s*b[^가-힣]|도선\s*a\b|도선\s*b\b/.test(text) ||
+    /두\s*(개의\s*)?(무한\s*)?(직선\s*)?도선|도선\s*2\s*개|평행한?\s*두\s*도선|두\s*평행\s*도선/.test(text);
+  if (!twoWires) return false;
+
+  // 이 유형 고유의 요구 — 단위 길이당 힘, 합성 자계, 또는 자계 크기 비.
+  const demand =
+    /단위\s*길이당|단위길이당|합성\s*자계|합성자계|크기\s*비|자계의\s*비/.test(text);
+  return demand;
+}
+
+/**
+ * **원점에서 꺾인 반무한 직선 도선**(y축 −a_y 유입 → x축 +a_x 유출)의 합성 자계 → 전류 I (임용 11번) 감지.
+ *
+ * ★ 실측(2026-08-03): 이 원본이 `circular_loop_axis_field`(두 원형 루프 축상 자계)로 dispatch돼
+ *   전혀 다른 문제가 생성됐다. Vision이 topic을 **"두 원형 루프의 합성 자계"** 로 요약해 버린 회차라
+ *   낱말 기반으로는 형제를 이길 수 없다 — 이 유형 고유 신호는 **전류가 좌표축을 따라 흐르고
+ *   원점에서 방향을 바꾼다**는 구조다(루프에는 "축을 따라 무한히 먼 곳"이라는 서술이 없다).
+ *
+ * 구조 시그니처(표현 무관): 자계 문맥 + 축을 따라 흐르는 선전류 + (무한히 먼 곳 | 반무한 | 원점에서 꺾임).
+ *   · 형제 양보: 원형 루프·코일(반지름이 실제로 주어지는 경우), 면전류·솔레노이드/토로이드,
+ *     동축·원통 도체, 전하·전계(정전계), 자속·회전, 시변 유도.
+ */
+export function detectBentSemiInfiniteWires(
+  analysis: AnalysisResult | null | undefined,
+): boolean {
+  const text = buildText(analysis).toLowerCase();
+  if (!text.trim()) return false;
+
+  // 정전계·형제 자기 유형 양보 (detectTwoWiresFieldForce와 같은 기준).
+  if (/전하|전계|전기장|유전체|정전용량/.test(text)) return false;
+  if (/면전류|면 전류|surface\s*current|벡터\s*자위|스칼라\s*자위/.test(text)) return false;
+  if (/솔레노이드|토로이드|환상/.test(text)) return false;
+  if (/동축|원통\s*도체|도전율|전도율/.test(text)) return false;
+  if (/회전|∇\s*×|curl|자속밀도|자속|삼각기둥/.test(text)) return false;
+  if (/유도\s*기전력|유도\s*전류|패러데이/.test(text)) return false;
+
+  const magnetic = /자계|자기장|자장|앙페르|암페어/.test(text);
+  if (!magnetic) return false;
+
+  // ★★ 가장 강한 구조 신호 = **서로 다른 두 좌표축이 각각 전류를 갖는다**
+  //   ("y축의 전류에 의한 자계"와 "x축의 전류에 의한 자계"). 원형 루프 문제는 전류를 축이 아니라
+  //   루프(C₁·C₂)에 붙이므로 이 표현이 나올 수 없다. 실측(2026-08-03)에서 Vision이 이 원본을
+  //   "두 원형 전류 루프"로 오요약하면서도 이 문구만은 남겼다 — 그래서 이게 최후의 판별선이다.
+  const axes = new Set((text.match(/[xyz]\s*축의?\s*(?:전류|선전류)/g) ?? []).map((m) => m[0]));
+  const twoAxisCurrents = axes.size >= 2;
+
+  // 축을 따라 흐르는 선전류 — "y축을 따라"·"x축 방향으로 흐".
+  const alongAxis = /[xyz]\s*축을?\s*따라|[xyz]\s*축\s*방향으로\s*흐/.test(text);
+  // 반무한 구조 — "무한히 먼 곳"·"반무한"·"원점 O까지/에서"·"꺾".
+  const semiInfinite = /무한히\s*먼\s*곳|반무한|원점\s*o?\s*까지|원점\s*o?\s*에서|꺾/.test(text);
+
+  const structural = twoAxisCurrents || (alongAxis && semiInfinite);
+  if (!structural) return false;
+
+  // ★ 원형 루프 형제 양보 — 단, 위 축-전류 신호가 있으면 양보하지 않는다.
+  //   Vision이 이 원본에 "원형 루프"·"반지름"을 덧붙여 요약해도 축 전류 구조가 우선한다.
+  if (!twoAxisCurrents && /반지름|반경|radius/.test(text)) return false;
+
+  // 요구 — 합성 자계 또는 그 조건이 되는 전류.
+  return /합성\s*자계|합성자계|자계\s*h_?3|전류\s*i를?\s*구|되는\s*전류|전류를?\s*구/.test(text);
+}
+
+/**
+ * **원통 도체의 내부 인덕턴스**(임용 10번) 감지 — 강제 라우팅용.
+ *
+ * ★ 실측(2026-08-03): 레지스트리에 이 유형이 없어 bare "인덕턴스" 낱말로 **솔레노이드 인덕턴스**
+ *   (L = μ₀N²A/l) 문제가 생성됐다(사용자 신고). Vision의 요약은 정확했는데(topic="무한 원통 도체의
+ *   내부 인덕턴스 계산") 받아 줄 항목이 없었던 것 — 항목 추가 + 구조 감지가 함께 필요하다.
+ *
+ * 구조 시그니처: (원통/원기둥 도체 문맥) + (내부 인덕턴스 | 쇄교 자속 | 표피 효과 | 도체 내부 자계).
+ *   · 형제 양보: 솔레노이드·토로이드·코일 권선(N회), 동축(두 도체), 상호 인덕턴스,
+ *     도전율·전위차(cylinder_conductor_current_field), 전하·전계(정전계), 시변 유도.
+ */
+export function detectCylinderInternalInductance(
+  analysis: AnalysisResult | null | undefined,
+): boolean {
+  const text = buildText(analysis).toLowerCase();
+  if (!text.trim()) return false;
+
+  // 형제 양보 — 권선 코일·동축·상호 인덕턴스·도전율 유형·정전계·시변 유도.
+  if (/솔레노이드|토로이드|환상|권선|감은|감겨|턴수|권수|\bn회\b/.test(text)) return false;
+  if (/동축|외부\s*도체|내부\s*도체와\s*외부/.test(text)) return false;
+  if (/상호\s*인덕턴스|mutual/.test(text)) return false;
+  if (/도전율|전도율|전위차|저항\s*r을|누설/.test(text)) return false;
+  if (/전하|전계|전기장|유전체|정전용량/.test(text)) return false;
+  if (/유도\s*기전력|패러데이|시간에\s*따라/.test(text)) return false;
+
+  // 원통 도체 문맥 — "원통(형) 도체"·"원기둥 도체"·"단면이 원형인 도체".
+  const cylinder = /원통형?\s*도체|원기둥\s*도체|원통\s*도선|cylindrical\s*conductor|원통형\s*도선/.test(text);
+  if (!cylinder) return false;
+
+  // 이 유형 고유 요구 — 내부 인덕턴스·쇄교 자속·표피 효과·도체 내부 자계.
+  return /내부\s*인덕턴스|internal\s*inductance|쇄교하?는?\s*자속|쇄교\s*자속|표피\s*효과|도체\s*내부(의)?\s*(자계|자속)/.test(text);
+}
+
+/**
+ * **무한 면전하 + 무한 직선 선전하 → 합성 전계 벡터로 두 밀도 역산** (임용 12번) 감지 — 강제 라우팅용.
+ *
+ * ★ 실측(2026-08-03, 사용자 신고): 이 원본이 `sheet_ring_efield_ratio`(면전하 + **원형 링** 선전하,
+ *   크기 비 조건)로 dispatch돼 전혀 다른 문제가 생성됐다. Vision이 topic을
+ *   **"무한 면전하와 원형 루프 선전하의 합성 전계"** 로 오요약한 회차라 낱말로는 갈리지 않는다.
+ *
+ * 구조 시그니처: 면전하 + 선전하 + **두 밀도를 동시에 구한다**(C₁·C₂ 또는 "면전하 밀도와 선전하 밀도").
+ *   · 형제 양보: **반지름이 실제로 주어진** 원형 링(sheet_ring), 자계·전류 문맥, E=0 조건만 묻는 경우.
+ */
+export function detectSheetLineEfieldVector(
+  analysis: AnalysisResult | null | undefined,
+): boolean {
+  const text = buildText(analysis).toLowerCase();
+  if (!text.trim()) return false;
+
+  if (/자계|자기장|전류|면전류|선전류|솔레노이드|토로이드/.test(text)) return false;
+  if (/유전체|정전용량|커패시터/.test(text)) return false;
+
+  const sheet = /면전하|무한\s*평면|무한\s*면/.test(text);
+  const line = /선전하|무한\s*선|무한선/.test(text);
+  if (!(sheet && line)) return false;
+
+  // ★ 두 밀도를 **동시에** 구하는 것이 이 유형 고유 — 형제(sheet_ring·sheet_line_superposition)는
+  //   미지수가 하나(λ 또는 ρ_l)다.
+  const twoUnknowns =
+    /c_?1\s*(과|와|,|·)\s*c_?2|c₁\s*(과|와|,|·)\s*c₂|면전하\s*밀도\s*(와|과).*선전하\s*밀도|두\s*전하\s*밀도|각각\s*구/.test(text) &&
+    /합성\s*전계/.test(text);
+  if (!twoUnknowns) return false;
+
+  // 진짜 원형 링 문제(반지름 given)면 양보 — Vision의 "원형 루프" 오요약만으로는 양보하지 않는다.
+  if (/반지름|반경|radius/.test(text)) return false;
+  return true;
 }
 
 function buildText(a: AnalysisResult | null | undefined): string {

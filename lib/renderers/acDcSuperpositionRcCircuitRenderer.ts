@@ -28,8 +28,11 @@ const BOT_Y = 460;
 
 const PL = 365;    // 병렬 좌측 split
 const PR = 500;    // 병렬 우측 split
-const R3_Y = 80;   // R_3 (위)
-const R4_Y = 130;  // R_4 (아래)
+const R3_Y = 80;   // 상단 병렬쌍 위 (원본 R₂)
+const R4_Y = 130;  // 상단 병렬쌍 아래 (원본 R₃)
+// 중앙 leg의 직류 전원 직렬 저항 R₁ (원본에 있으나 누락돼 있던 소자)
+const R1_Y0 = 218;
+const R1_Y1 = 272;
 
 type D = AcDcSuperpositionRcCircuitDiagram;
 
@@ -48,9 +51,12 @@ export function renderAcDcSuperpositionRcCircuit(d: D): string {
   p.push(line(PL, R3_Y, PL, R4_Y));
   p.push(line(PR, R3_Y, PR, R4_Y));
   p.push(line(PR, TOP_Y, CX, TOP_Y));
-  // 중앙 leg: a → 20V → b → (도선) → g
+  // 중앙 leg: a → 20V → R₁ → b → g
+  //   ★ R₁(직류 전원과 직렬)은 원본에 있는데 빠져 있었다(사용자 신고 2026-08-05).
+  //     이게 없으면 교류 해석에서 점 a가 접지에 그대로 클램프돼 문항이 성립하지 않는다.
   p.push(line(AX, TOP_Y, AX, 152));
-  p.push(line(AX, 208, AX, BOT_Y));   // 20V 하 → b → g (도선)
+  p.push(line(AX, 208, AX, R1_Y0));       // 20V 하단 → R₁ 상단
+  p.push(line(AX, R1_Y1, AX, BOT_Y));     // R₁ 하단 → b → g
   // 우측 leg: c → R_5 → g
   p.push(line(CX, TOP_Y, CX, 200));
   p.push(line(CX, 360, CX, BOT_Y));
@@ -61,9 +67,10 @@ export function renderAcDcSuperpositionRcCircuit(d: D): string {
   p.push(acSource(VX, 285));
   p.push(dcSource(AX, 180));
   p.push(capacitorH(185, TOP_Y));
-  p.push(zigzagH(PL, PR, R3_Y));   // R_3
-  p.push(zigzagH(PL, PR, R4_Y));   // R_4
-  p.push(zigzagV(CX, 200, 360));   // R_5 (우측 세로)
+  p.push(zigzagH(PL, PR, R3_Y));         // 상단 병렬쌍 위 (원본 R₂)
+  p.push(zigzagH(PL, PR, R4_Y));         // 상단 병렬쌍 아래 (원본 R₃)
+  p.push(zigzagV(CX, 200, 360));         // 우측 세로 (원본 R₄ — 문항이 묻는 저항)
+  p.push(zigzagV(AX, R1_Y0, R1_Y1));     // 직류 전원 직렬 (원본 R₁)
 
   // ── 노드 dot ──
   p.push(dot(AX, TOP_Y));   // a
@@ -72,9 +79,10 @@ export function renderAcDcSuperpositionRcCircuit(d: D): string {
   p.push(dot(CX, TOP_Y));   // c
   p.push(dot(VX, BOT_Y), dot(AX, BOT_Y), dot(CX, BOT_Y));
 
-  // ── i_ab 화살표 (a→b) ──
-  p.push(arrowDown(AX - 18, 124, 28));
-  p.push(text(AX - 24, 145, d.iabLabel, { size: 14, anchor: "end", fill: BLUE }));
+  // ── i_ac 화살표 — 원본처럼 **C에서 점 a로 들어가는 가로 방향**이다.
+  //   (이전엔 세로 아래 방향으로 그려 DC 가지 전류처럼 보였다 — 문항이 묻는 양과 어긋난다.)
+  p.push(arrowRight(AX - 78, TOP_Y + 16, 42));
+  p.push(text(AX - 57, TOP_Y + 36, d.iabLabel, { size: 14, anchor: "middle", fill: BLUE }));
 
   // ── 노드 라벨 ──
   p.push(text(AX - 8, TOP_Y - 10, "a", { size: 16, weight: 700, anchor: "end" }));
@@ -86,12 +94,15 @@ export function renderAcDcSuperpositionRcCircuit(d: D): string {
   p.push(text(VX - 36, 290, "v(t)", { size: 15, weight: 600, anchor: "end" }));
   p.push(text(185, TOP_Y - 18, "C", { size: 14, weight: 700 }));
   p.push(text(185, TOP_Y + 28, d.cLabel, { size: 13 }));
-  p.push(text((PL + PR) / 2, R3_Y - 12, "R₃", { size: 14, weight: 700 }));
+  // ★ 표기는 원본 이름을 따른다 — R₁(직류 직렬)·R₂·R₃(상단 병렬쌍)·R₄(우측 세로).
+  p.push(text((PL + PR) / 2, R3_Y - 12, "R₂", { size: 14, weight: 700 }));
   p.push(text(PR + 14, R3_Y + 4, d.r3Label, { size: 13, anchor: "start" }));
-  p.push(text((PL + PR) / 2, R4_Y + 22, "R₄", { size: 14, weight: 700 }));
+  p.push(text((PL + PR) / 2, R4_Y + 22, "R₃", { size: 14, weight: 700 }));
   p.push(text(PR + 14, R4_Y + 4, d.r4Label, { size: 13, anchor: "start" }));
-  p.push(text(AX - 34, 184, "20V", { size: 14, weight: 700, anchor: "end" }));
-  p.push(text(CX + 16, 275, "R₅", { size: 14, weight: 700, anchor: "start" }));
+  p.push(text(AX - 34, 184, d.vdcLabel, { size: 14, weight: 700, anchor: "end" }));
+  p.push(text(AX - 20, (R1_Y0 + R1_Y1) / 2 - 4, "R₁", { size: 14, weight: 700, anchor: "end" }));
+  p.push(text(AX - 20, (R1_Y0 + R1_Y1) / 2 + 15, d.r1Label ?? "", { size: 13, anchor: "end" }));
+  p.push(text(CX + 16, 275, "R₄", { size: 14, weight: 700, anchor: "start" }));
   p.push(text(CX + 16, 294, d.r5Label, { size: 13, anchor: "start" }));
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${SVG_H}" viewBox="0 0 ${SVG_W} ${SVG_H}">\n${p.join("\n")}\n</svg>`;
@@ -136,6 +147,12 @@ function arrowDown(x: number, y: number, len: number): string {
   const y2 = y + len;
   return `<line x1="${x}" y1="${y}" x2="${x}" y2="${y2}" stroke="${BLUE}" stroke-width="${WIRE_W}"/>` +
     `<polygon points="${x},${y2 + 5} ${x - 4},${y2 - 3} ${x + 4},${y2 - 3}" fill="${BLUE}"/>`;
+}
+/** 오른쪽 화살표 — i_ac(t)가 C에서 점 a로 흘러드는 방향(원본 표기). */
+function arrowRight(x: number, y: number, len: number): string {
+  const x2 = x + len;
+  return `<line x1="${x}" y1="${y}" x2="${x2}" y2="${y}" stroke="${BLUE}" stroke-width="${WIRE_W}"/>` +
+    `<polygon points="${x2 + 5},${y} ${x2 - 3},${y - 4} ${x2 - 3},${y + 4}" fill="${BLUE}"/>`;
 }
 
 // ─── primitives ──────────────────────────────────

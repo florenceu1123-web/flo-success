@@ -142,15 +142,33 @@ export async function runSequentialGenericPipeline(args: {
       markers: POINTS.map((p) => ({ t: p.idx, label: p.sym })),
     };
 
+    // ★ 점선 영역은 학생이 [단계 3]에서 **직접 도시**하는 부분이다 — 문제 그림에서는 **비워야** 한다
+    //   (사용자 신고 2026-08-04: 게이트가 그대로 그려져 답이 노출됐다).
+    //   문제용 figure는 hideContents=true로 마스킹하고, 채워진 그림은 solutionFigures로 보낸다.
+    const hasDashed = Boolean(diagram.dashedRegions?.length);
+    const blankedDiagram: LogicNetworkDiagram = hasDashed
+      ? { ...diagram, dashedRegions: diagram.dashedRegions!.map((r) => ({ ...r, hideContents: true })) }
+      : diagram;
+
     const figureVariants: FigureVariant[] = [
-      { id: `fig_main_${i + 1}`, label: ffLabel, role: "implementation_circuit", diagramType: "logic_network", diagram: diagram as unknown as Record<string, unknown> },
+      { id: `fig_main_${i + 1}`, label: ffLabel, role: "implementation_circuit", diagramType: "logic_network", diagram: blankedDiagram as unknown as Record<string, unknown> },
       { id: `fig_wave_${i + 1}`, label: "(나) 입력 파형", role: "input_waveform", diagramType: "waveform", diagram: timing as unknown as Record<string, unknown> },
     ];
+    const solutionFigures: FigureVariant[] | undefined = hasDashed
+      ? [{
+          id: `fig_main_sol_${i + 1}`,
+          label: "(가) 점선 부분 — 정답 회로",
+          role: "solution_circuit",
+          diagramType: "logic_network",
+          diagram: diagram as unknown as Record<string, unknown>,
+        }]
+      : undefined;
+
     return {
       id: randomUUID(),
       content: text.content, conditions: text.conditions, question: text.question,
       answer: text.answer, solution: text.solution,
-      topicKey, figureVariants,
+      topicKey, figureVariants, ...(solutionFigures ? { solutionFigures } : {}),
     };
   });
 }

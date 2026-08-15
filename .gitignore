@@ -58,3 +58,6 @@ next-env.d.ts
 
 # 시각 검증용 헤드리스 크롬 프로필 (scripts/verifyNotesViewer.mjs)
 /scripts/_chrome-profile/
+
+# dev 서버 로그
+.next-dev.out

@@ -1,4 +1,5 @@
 import { getOpenAI, DEFAULT_MODEL } from "@/lib/openai";
+import { STEP_QUESTION_RULE } from "@/lib/format/threeStep";
 import { createLogger } from "@/lib/logger";
 import { SYSTEM_PROMPT } from "@/lib/prompts";
 import type { GenerationMode } from "@/types";
@@ -84,6 +85,7 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
 }
 
 [규칙]
+${STEP_QUESTION_RULE}
 - answer는 위의 V_th, R_th 숫자를 정확히 그대로. 다른 값으로 바꾸지 마라.
 - solution은 그 숫자를 도출하는 합리적 과정. 중간 계산식 LaTeX inline \\(...\\) 사용 가능.
 - 회로 도식을 다시 만들지 마라 (figureVariants 출력 금지). 코드가 직접 처리.

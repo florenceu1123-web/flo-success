@@ -48,22 +48,17 @@ function pickValues(seed: number): { R_kohm: number; C_nF: number; R1_kohm: numb
 }
 
 /**
- * Wien Bridge oscillator 문제 생성.
- *   (가) Wien Bridge 회로 (analog_netlist),
- *   (나) 피드백 블록도 (block_diagram),
- *   3-단계 풀이 (K · β(s) · R_3/R_1).
+ * ★ Wien Bridge (가) 회로 netlist — **기호형·수치 설계형 두 경로가 함께 쓰는 단일 진실 공급원**.
  *
- *   호출별 seed로 R·C·R_1 변동. R_3/R_1 ratio는 발진 조건 K=3로 고정 (정답).
+ * 임용 30번(수치 설계형, `wien_bridge_design`)이 같은 회로를 그려야 하는데, 복제하면 한쪽만
+ * 고쳐져 조용히 드리프트한다(이 저장소의 반복 사고). 그래서 여기서 뽑아 export 한다.
+ * `feedbackLabel`은 음피드백 저항의 표시 이름 — 원본 30번은 `R_2`, 기존 기호형은 `R_3`을 쓴다.
  */
-export function generateWienBridgeOscillator(_a: AnalogAnalysis): GeneratedProblem {
-  const seed = Date.now() ^ Math.floor(Math.random() * 0x7fffffff);
-  const { R_kohm, C_nF, R1_kohm, R3_kohm } = pickValues(seed);
-  const R_ohm = R_kohm * 1000;
-  const C_F = C_nF * 1e-9;
-  const omega_0 = 1 / (R_ohm * C_F);   // rad/s
-  const f_0 = omega_0 / (2 * Math.PI); // Hz
-  const K = 1 + R3_kohm / R1_kohm;     // = 3 by design
-  const R3_R1_ratio = R3_kohm / R1_kohm; // = 2
+export function buildWienBridgeNetlist(v: {
+  R_kohm: number; C_nF: number; R1_kohm: number; Rf_kohm: number; feedbackLabel?: string;
+}): CircuitNetlist {
+  const { R_kohm, C_nF, R1_kohm, Rf_kohm } = v;
+  const fbId = v.feedbackLabel ?? "R_3";
 
   // ── (가) Wien Bridge 회로 — subcircuit expansion 방식 ──
   //
@@ -143,7 +138,7 @@ export function generateWienBridgeOscillator(_a: AnalogAnalysis): GeneratedProbl
       },
       // R_3: V_out → V− (분배기 feedback side) — 단일 2-pin (validator U1 통과)
       {
-        id: "R_3", type: "R", value: `${R3_kohm}kΩ`,
+        id: fbId, type: "R", value: `${Rf_kohm}kΩ`,
         pins: [
           { id: "p1", node: "Vminus", side: "top" },
           { id: "p2", node: "Vout",   side: "top" },
@@ -168,13 +163,30 @@ export function generateWienBridgeOscillator(_a: AnalogAnalysis): GeneratedProbl
       GND:    { x: 240, y: 600 },
       // 컴포넌트 좌표 — 노드 사이에 배치.
       R_1: { x: 240, y: 300 },   // V− → GND 수직
-      R_3: { x: 430, y: 140 },   // V− → V_out 상단 수평
+      [fbId]: { x: 430, y: 140 },   // V− → V_out 상단 수평
       R_a: { x: 540, y: 500 },   // V_out → n_Z1 (V_out 아래로 내려 좌측으로)
       C_a: { x: 340, y: 500 },   // n_Z1 → V+ 하단 수평
       R_b: { x: 200, y: 510 },   // V+ → GND 수직 (좌)
       C_b: { x: 280, y: 510 },   // V+ → GND 수직 (우, R_b 옆)
     },
   };
+  return netlist;
+}
+
+/**
+ * Wien Bridge oscillator 문제 생성 (기호형).
+ *   (가) 회로 + (나) 블록도, 3-단계 풀이 (K · β(s) · R_3/R_1).
+ *   호출별 seed로 R·C·R_1 변동. R_3/R_1 = 2는 발진 조건으로 고정.
+ */
+export function generateWienBridgeOscillator(_a: AnalogAnalysis): GeneratedProblem {
+  const seed = Date.now() ^ Math.floor(Math.random() * 0x7fffffff);
+  const { R_kohm, C_nF, R1_kohm, R3_kohm } = pickValues(seed);
+  const R_ohm = R_kohm * 1000;
+  const C_F = C_nF * 1e-9;
+  const omega_0 = 1 / (R_ohm * C_F);   // rad/s
+  const f_0 = omega_0 / (2 * Math.PI); // Hz
+  const R3_R1_ratio = R3_kohm / R1_kohm; // = 2
+  const netlist = buildWienBridgeNetlist({ R_kohm, C_nF, R1_kohm, Rf_kohm: R3_kohm });
 
   // ── (나) 블록도 ──
   const blockDiagram: BlockDiagram = {

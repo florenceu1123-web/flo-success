@@ -15,12 +15,73 @@ export function getOpenAI(): OpenAI {
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY가 .env.local에 설정되지 않았습니다.");
   }
-  client = new OpenAI({
+  const raw = new OpenAI({
     apiKey,
     maxRetries: 6,        // 429 sustained burst 견딤 (기본 2 → 6)
     timeout: 120_000,     // 2분 — Vision API + 긴 generation 응답 대비
   });
+  client = withJsonTextNormalization(raw);
   return client;
+}
+
+/**
+ * ★★ GPT 출력 **형식 정규화** — JSON 응답의 텍스트 필드를 문자열로 강제한다 (2026-08-12).
+ *
+ *  실측: GPT가 `answer`·`solution`·`question`을 간헐적으로 **배열/객체**로 돌려주는 회차가 있어
+ *  HTTP 500이 났다 — `text.replace is not a function`(switched_dc),
+ *  `text.match is not a function`(bjt_small_signal), `parsed.answer.includes is not a function`(flipflop_counter).
+ *
+ *  텍스트 라이터가 **30개 넘게 각자 `JSON.parse`** 하므로 소비자마다 방어를 넣으면 반드시 빠지는 곳이
+ *  생긴다. 모든 GPT 호출이 지나는 **클라이언트 한 곳**에서 흡수한다
+ *  ([[feedback_gpt_format_normalization]] — 프롬프트·로직 fix보다 정규화 우선).
+ *
+ *  · `response_format: json_object` 응답에만 적용하고, 아래 키에 한해 문자열로 평탄화한다.
+ *  · `conditions`는 문자열 배열로 맞춘다. 그 외 필드(회로 JSON 등)는 **건드리지 않는다**.
+ */
+const TEXT_KEYS = new Set(["content", "question", "answer", "solution"]);
+
+function flattenToText(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v == null) return "";
+  if (Array.isArray(v)) return v.map(flattenToText).filter(Boolean).join("\n");
+  if (typeof v === "object") return Object.values(v as Record<string, unknown>).map(flattenToText).filter(Boolean).join("\n");
+  return String(v);
+}
+
+/** 최상위 + problems[] 항목의 텍스트 키만 정규화한다(깊은 회로 JSON은 그대로 둔다). */
+function normalizeNode(node: unknown): unknown {
+  if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+  const o = node as Record<string, unknown>;
+  for (const k of Object.keys(o)) {
+    if (TEXT_KEYS.has(k) && o[k] != null && typeof o[k] !== "string") o[k] = flattenToText(o[k]);
+    else if (k === "conditions") {
+      const c = o[k];
+      if (c != null) o[k] = Array.isArray(c) ? c.map(flattenToText) : [flattenToText(c)];
+    }
+  }
+  if (Array.isArray(o.problems)) o.problems = o.problems.map(normalizeNode);
+  return o;
+}
+
+function withJsonTextNormalization(inner: OpenAI): OpenAI {
+  const origCreate = inner.chat.completions.create.bind(inner.chat.completions);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (inner.chat.completions as any).create = async (...args: any[]) => {
+    const res = await origCreate(...(args as Parameters<typeof origCreate>));
+    // 스트리밍 응답은 대상이 아니다.
+    const anyRes = res as unknown as { choices?: Array<{ message?: { content?: string | null } }> };
+    const msg = anyRes?.choices?.[0]?.message;
+    const wantsJson = (args[0] as { response_format?: { type?: string } })?.response_format?.type === "json_object";
+    if (!wantsJson || typeof msg?.content !== "string") return res;
+    try {
+      const parsed = JSON.parse(msg.content);
+      msg.content = JSON.stringify(normalizeNode(parsed));
+    } catch {
+      // 파싱 실패는 호출부가 각자 처리한다(여기서 삼키지 않는다).
+    }
+    return res;
+  };
+  return inner;
 }
 
 /** 프로젝트 전역 기본 모델 — 필요 시 단일 지점에서 교체. */

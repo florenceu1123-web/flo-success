@@ -4,6 +4,8 @@
  *   세로로 길고 가로로 좁은 plot → 기울기가 가파르게 보이고 절편이 명확.
  */
 
+import { decimalToFraction } from "@/lib/format/fraction";
+
 export type ViLineGraphDiagram = {
   Vth: number;            // y 절편 (V)
   Isc: number;            // x 절편 (A)
@@ -11,6 +13,13 @@ export type ViLineGraphDiagram = {
   iUnit?: string;         // 기본 "A"
   vSymbol?: string;       // 기본 "V_RL"
   iSymbol?: string;       // 기본 "I_RL"
+  /**
+   * 절편 표기 override — **수치 대신 기호**로 적는다(학생이 도출할 값).
+   * 원본 임용 9번 (나)는 y절편만 `1`로 주고 x절편은 `I_SC`라고만 적혀 있다.
+   * 값을 그대로 찍으면 [단계 2]의 답이 그림에 노출된다.
+   */
+  vInterceptLabel?: string;
+  iInterceptLabel?: string;
 };
 
 const KOREAN_FONT = `'Noto Sans CJK KR','Malgun Gothic',sans-serif`;
@@ -31,7 +40,13 @@ export function renderViLineGraph(d: ViLineGraphDiagram): string {
   const x0 = PAD_L, yBottom = PAD_T + PLOT_H, yTop = PAD_T;
   const xRight = PAD_L + PLOT_W;
   // 좌표: I=0 → x0, I=Isc → xRight ; V=0 → yBottom, V=Vth → yTop
-  const fmt = (x: number) => (Number.isInteger(x) ? String(x) : String(Math.round(x * 1000) / 1000));
+  // ★ 절편 표기는 정답과 같은 형태(기약분수)로 — 그림엔 2.571, 정답엔 18/7이 적히면 학생이 다른 값으로 읽는다.
+  //   근사 복원은 금지(approxDen=0): 근사를 허용하면 정확한 값을 엉뚱한 분수로 바꾼다(실측).
+  const fmt = (x: number) => {
+    if (Number.isInteger(x)) return String(x);
+    const f = decimalToFraction(x, 400, 0);
+    return f ? `${f.num}/${f.den}` : String(Math.round(x * 1000) / 1000);
+  };
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${KOREAN_FONT}">`;
 
@@ -53,12 +68,14 @@ export function renderViLineGraph(d: ViLineGraphDiagram): string {
   // V_th 절편 점선 + 틱 + 라벨 (y축 왼쪽)
   svg += `<line x1="${x0}" y1="${yTop}" x2="${xRight}" y2="${yTop}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 3"/>`;
   svg += `<line x1="${x0 - 4}" y1="${yTop}" x2="${x0 + 4}" y2="${yTop}" stroke="#374151" stroke-width="1.6"/>`;
-  svg += `<text x="${x0 - 10}" y="${yTop + 4}" text-anchor="end" font-size="12" font-weight="700" fill="#dc2626">V_th=${fmt(d.Vth)}${vUnit}</text>`;
+  const vLab = d.vInterceptLabel ?? `V_th=${fmt(d.Vth)}${vUnit}`;
+  svg += `<text x="${x0 - 10}" y="${yTop + 4}" text-anchor="end" font-size="12" font-weight="700" fill="#dc2626">${vLab}</text>`;
 
   // I_sc 절편 점선 + 틱 + 라벨 (x축 아래)
   svg += `<line x1="${xRight}" y1="${yBottom}" x2="${xRight}" y2="${yTop}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 3"/>`;
   svg += `<line x1="${xRight}" y1="${yBottom - 4}" x2="${xRight}" y2="${yBottom + 4}" stroke="#374151" stroke-width="1.6"/>`;
-  svg += `<text x="${xRight}" y="${yBottom + 18}" text-anchor="middle" font-size="12" font-weight="700" fill="#dc2626">I_sc=${fmt(d.Isc)}${iUnit}</text>`;
+  const iLab = d.iInterceptLabel ?? `I_sc=${fmt(d.Isc)}${iUnit}`;
+  svg += `<text x="${xRight}" y="${yBottom + 18}" text-anchor="middle" font-size="12" font-weight="700" fill="#dc2626">${iLab}</text>`;
 
   // 원점 0
   svg += `<text x="${x0 - 8}" y="${yBottom + 4}" text-anchor="end" font-size="11" fill="#6b7280">0</text>`;

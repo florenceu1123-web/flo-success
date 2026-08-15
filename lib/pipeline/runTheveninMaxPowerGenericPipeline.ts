@@ -9,6 +9,7 @@ import { getOpenAI, DEFAULT_MODEL, withRateLimitRetry } from "@/lib/openai";
 import { createLogger } from "@/lib/logger";
 import { extractTheveninNetlist, type TheveninExtraction } from "@/lib/generation/circuitTheory/extractTheveninNetlist";
 import { buildContextHint, generateInParallel } from "./_common";
+import { decimalToFraction } from "@/lib/format/fraction";
 import {
   type AnalysisResult, type CircuitNetlist, type FigureVariant,
   type GeneratedProblem, type GenerationMode, type TopicKey,
@@ -40,14 +41,28 @@ type Txt = { content: string; conditions: string[]; question: string; answer: st
  *   **그래프 없이 V_oc → I_sc → R_L·P_L**만 묻는 원본이 있다(실측 신고). 그 경우 없는 그림을
  *   만들고 발문도 원본과 달라진다 → 원본 구조에 맞춰 분기한다([[절대규칙 0]] 구조 보존).
  */
-function originalHasViGraph(analysis: AnalysisResult | null | undefined): boolean {
+export function originalHasViGraph(analysis: AnalysisResult | null | undefined): boolean {
   const text = [
     analysis?.topic ?? "",
     analysis?.interpretation ?? "",
     (analysis?.relatedConcepts ?? []).join(" "),
     (analysis?.fillInTheBlanks ?? []).map((b) => `${b?.sentence ?? ""} ${b?.answer ?? ""}`).join(" "),
   ].join(" ");
-  return /그래프|직선|특성\s*곡선|v_rl|v-i|i-v|절편/i.test(text);
+  // ★★ 가장 견고한 신호 — 인벤토리에 **값이 기호인 저항**(예: value "R")이 있으면 이 형식이다.
+  //   그 저항값을 (나) 그래프의 절편으로 역산하는 것이 문항의 뼈대라, 표현이 어떻게 흔들려도 남는다.
+  //   실측(2026-08-04): Vision이 "그래프"도 "(나)"도 안 쓴 회차에서 그래프·미지 R이 통째로 빠져
+  //   **R 값이 그림에 노출**되고 (나)가 사라졌다(사용자 신고).
+  const symbolicR = (analysis?.componentInventory ?? []).some(
+    (c) => String(c?.type ?? "").toUpperCase() === "R" &&
+      /^[A-Za-z](_[A-Za-z0-9]+)?$/.test(String(c?.value ?? "").trim()),
+  );
+  if (symbolicR) return true;
+  if (/그래프|직선|특성\s*곡선|v_rl|v-i|i-v|절편/i.test(text)) return true;
+  // ★ 낱말에만 걸면 놓친다 (실측 2026-08-04): Vision이 임용 9번의 (나) V-I 그래프를
+  //   *"**회로** (나)를 통해 I_SC를 구하여"* 라고 요약해 "그래프"라는 낱말이 아예 없었다.
+  //   ⇒ **두 번째 그림 (나) + 단락전류 I_sc** 라는 구조 신호로도 인정한다.
+  //   (그래프 없는 형제(임용 7번류)는 (나) 자체가 없어 이 조건에 걸리지 않는다.)
+  return /\(\s*나\s*\)|그림\s*나/.test(text) && /i_?sc|단락\s*전류/i.test(text);
 }
 
 const TEXT_SYSTEM = `너는 회로이론(테브난 등가 + 최대전력 전달) 임용 문제의 본문·문항·풀이를 쓰는 엔진이다.
@@ -71,6 +86,20 @@ const TEXT_SYSTEM_NO_GRAPH = `너는 회로이론(테브난 등가 + 최대전�
   [단계 3] [단계 1]과 [단계 2]를 이용하여 부하 저항 R_L에 최대 전력이 전달되도록 하는 R_L[Ω]과 부하 전력 P_L[W]을 각각 구한다.
 - solution: 단계별 풀이. 종속전원이 있으면 독립원 zero-out만으로 R_th를 구하지 말고 **R_th = V_oc/I_sc**로 구하라.`;
 
+/**
+ * 표시용 수 포맷 — **정확히 떨어지는 기약분수**(분모 ≤ 400)면 분수로, 아니면 소수 3자리.
+ *
+ * ★ 근사 복원 단계는 쓰지 않는다(approxDen=0). 솔버 값은 이미 정확한 실수라
+ *   근사를 허용하면 81/280을 9/31로 바꿔 놓는다(실측). 여기서 분수로 확정해 두면
+ *   route의 전역 변환기(CLAUDE.md 1-4-3)가 나중에 손댈 소수 자체가 남지 않는다.
+ */
+function numText(x: number): string {
+  if (!Number.isFinite(x)) return String(x);
+  if (Number.isInteger(x)) return String(x);
+  const f = decimalToFraction(x, 400, 0);
+  return f ? `${f.num}/${f.den}` : x.toFixed(3);
+}
+
 async function writeText(ex: TheveninExtraction, withGraph: boolean): Promise<Txt> {
   const openai = getOpenAI();
   const comp = ex.netlist.components
@@ -78,9 +107,9 @@ async function writeText(ex: TheveninExtraction, withGraph: boolean): Promise<Tx
     .join("\n");
   const answer = [
     ex.unknownId && ex.unknownValue !== undefined ? `R = ${ex.unknownValue}${ex.unknownUnit || "Ω"}` : null,
-    `V_th = ${ex.Vth}V, R_th = ${ex.Rth}Ω`,
-    `I_sc = ${ex.Isc}A`,
-    `R_L = R_th = ${ex.RLopt}Ω일 때 P_L(max) = ${ex.Pmax}W`,
+    `V_th = ${numText(ex.Vth)}V, R_th = ${numText(ex.Rth)}Ω`,
+    `I_sc = ${numText(ex.Isc)}A`,
+    `R_L = R_th = ${numText(ex.RLopt)}Ω일 때 P_L(max) = ${numText(ex.Pmax)}W`,
   ].filter(Boolean).join(" / ");
 
   const conditions = [
@@ -93,7 +122,7 @@ async function writeText(ex: TheveninExtraction, withGraph: boolean): Promise<Tx
 
   const userPrompt = [
     `[소자]\n${comp}`,
-    `[계산 결과 — 변경 금지] V_th=${ex.Vth}V, R_th=${ex.Rth}Ω, I_sc=${ex.Isc}A, P_max=${ex.Pmax}W` +
+    `[계산 결과 — 변경 금지] V_th=${numText(ex.Vth)}V, R_th=${numText(ex.Rth)}Ω, I_sc=${numText(ex.Isc)}A, P_max=${numText(ex.Pmax)}W` +
       (ex.unknownId ? `, 가변 R=${ex.unknownValue}${ex.unknownUnit || "Ω"}` : ""),
     `[종속전원] ${ex.hasDependent ? "있음 (2i_x 등) — V_oc/I_sc로 R_th 계산" : "없음"}`,
     `[확정 정답] ${answer}`,

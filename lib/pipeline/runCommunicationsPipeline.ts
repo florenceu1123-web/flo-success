@@ -1,3 +1,4 @@
+import { MULTIPLE_CHOICE_TO_THREE_STEP_RULE } from "@/lib/format/threeStep";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { buildContextHint } from "./_common";
@@ -39,6 +40,7 @@ export async function runCommunicationsPipeline(args: {
 - 표준 공식을 정확히 적용해 수치 정답을 도출하세요. 예: AM 변조지수 m=Am/Ac, FM 카슨 대역폭 B=2(Δf+fm), 나이퀴스트 fs≥2fmax, 엔트로피 H=−Σp·log₂p, 채널용량 C=B·log₂(1+S/N), SNR(dB)=10log₁₀(S/N).
 - 계산 과정을 solution에 단계적으로 제시하고, 단위(Hz·kHz·bps·dB·bit 등)를 정확히 표기하세요.
 - 필요하면 figure(파형/스펙트럼/블록도)를 첨부하되, 문제 이해에 실제로 도움이 될 때만 넣습니다(불필요하면 figure 생략).
+${MULTIPLE_CHOICE_TO_THREE_STEP_RULE}
 - 출력은 반드시 JSON 하나. 마크다운 코드펜스 없이 순수 JSON만.`;
 
   const user = `[원본 분석 컨텍스트]

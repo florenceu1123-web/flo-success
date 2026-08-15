@@ -19,6 +19,9 @@ import { renderAnalogMeshSVG } from "./analogMeshRenderer";
 import { renderBlockDiagramSVG } from "./blockDiagramRenderer";
 import { renderInductorRampCircuit, type InductorRampCircuitDiagram } from "./inductorRampCircuitRenderer";
 import { renderCharacteristicCurveSVG } from "./characteristicCurveRenderer";
+import { renderBjtEarlyStructureSVG, renderBjtEarlyCurveSVG } from "./bjtEarlyEffectRenderer";
+import { renderR2rLadderDacCircuit } from "./r2rLadderDacCircuitRenderer";
+import { renderJfetDepletionPanels } from "./jfetDepletionPanelsRenderer";
 import { renderConceptDiagramSVG } from "./conceptDiagramRenderer";
 import { renderKmapSVG } from "./kmapRenderer";
 import { renderLogicNetworkSVG } from "./logicNetworkRenderer";
@@ -68,11 +71,37 @@ import { renderOpampFiniteGainOffsetCircuit } from "./opampFiniteGainOffsetCircu
 import { renderOpampLoopGainStabilityCircuit } from "./opampLoopGainStabilityCircuitRenderer";
 import { renderOpampThreeStageSumCircuit } from "./opampThreeStageSumCircuitRenderer";
 import { renderAcBridgeCircuit, renderAcBridgeThevenin } from "./acBridgeCircuitRenderer";
+import { renderAcDeltaWyeBridgeCircuit, renderAcDeltaWyeEquivCircuit } from "./acDeltaWyeBridgeCircuitRenderer";
+import { renderOscilloscopeScreen, renderOscilloscopePhaseCircuit } from "./oscilloscopePhaseCircuitRenderer";
+import { renderAcTwoSourceMeshCircuit } from "./acTwoSourceMeshCircuitRenderer";
+import { renderTheveninDepGraphCircuit } from "./theveninDepGraphCircuitRenderer";
+import { renderOpampAvgSuperpositionCircuit } from "./opampAvgSuperpositionCircuitRenderer";
 import { renderAcTheveninLadderCircuit, renderAcTheveninEquivCircuit } from "./acTheveninLadderCircuitRenderer";
+import { renderAcTheveninDepCircuit, renderAcTheveninDepEquivCircuit } from "./acTheveninDependentCircuitRenderer";
+import { renderAcTheveninDesignAbCircuit } from "./acTheveninDesignAbCircuitRenderer";
+import { renderZenerShuntRegulatorCircuit } from "./zenerShuntRegulatorCircuitRenderer";
+import { renderSwitchedRlcSourceFreeCircuit } from "./switchedRlcSourceFreeCircuitRenderer";
+import { renderRlcStateEquationCircuit } from "./rlcStateEquationCircuitRenderer";
+import { renderSwitchedRlcDualSwitchCircuit } from "./switchedRlcDualSwitchCircuitRenderer";
+import { renderOpampTwoStageRxCircuit } from "./opampTwoStageRxCircuitRenderer";
+import { renderDcTwoSourceLadderCircuit } from "./dcTwoSourceLadderCircuitRenderer";
+import { renderBjtTheveninBiasCircuit } from "./bjtTheveninBiasCircuitRenderer";
+import { renderBjtSwitchLogicCircuit } from "./bjtSwitchLogicCircuitRenderer";
+import { renderComparatorDiodeOrCircuit } from "./comparatorDiodeOrCircuitRenderer";
+import { renderOpampSummerTFeedbackCircuit } from "./opampSummerTFeedbackCircuitRenderer";
+import { renderAcTheveninTwoBoxCircuit } from "./acTheveninTwoBoxCircuitRenderer";
+import { renderDiodeClamperCircuit, renderDiodeClamperWaveform } from "./diodeClamperCircuitRenderer";
 import { renderDcThevenin2srcCircuit, renderDcTheveninEquivCircuit } from "./dcTheveninTwoSourceCircuitRenderer";
 import { renderDcWheatstoneBalanceCircuit } from "./dcWheatstoneBalanceCircuitRenderer";
 import { renderAcSuperpositionSourceDesignCircuit } from "./acSuperpositionSourceDesignCircuitRenderer";
 import { renderJkExcitationCircuit } from "./jkExcitationCircuitRenderer";
+import { renderDffPresetClearCircuit } from "./dffPresetClearCircuitRenderer";
+import { renderSwitchedRlDualShortCircuit } from "./switchedRlDualShortCircuitRenderer";
+import { renderTwoSourceRlSuperpositionCircuit } from "./twoSourceRlSuperpositionCircuitRenderer";
+import { renderAcDcSourceSuperpositionCircuit } from "./acDcSourceSuperpositionCircuitRenderer";
+import { renderRlcAntiresonanceLadderCircuit } from "./rlcAntiresonanceLadderCircuitRenderer";
+import { renderJkTwoPhaseClockCircuit } from "./jkTwoPhaseClockCircuitRenderer";
+import { renderMaxPowerTwoSourceCircuit } from "./maxPowerTwoSourceCircuitRenderer";
 import { renderModNCounterCircuit } from "./modNCounterCircuitRenderer";
 import { renderTff3CounterCircuit } from "./tff3CounterCircuitRenderer";
 import { renderJfetBiasCircuit } from "./jfetBiasCircuitRenderer";
@@ -85,6 +114,7 @@ import { renderAcAdmittanceResonanceCircuit, renderAcAdmittanceResonanceDualCirc
 import { renderAcVccsPhasorCircuit } from "./acVccsPhasorCircuitRenderer";
 import { renderSwitchedRcDcCircuit } from "./switchedRcDcCircuitRenderer";
 import { renderSwitchedRlSourceSwitchCircuit } from "./switchedRlSourceSwitchCircuitRenderer";
+import { renderSwitchedCapShortRlCircuit } from "./switchedCapShortRlCircuitRenderer";
 import { renderDffStateDesignCircuit } from "./dffStateDesignCircuitRenderer";
 import { renderJkSyncCounterCircuit } from "./jkSyncCounterCircuitRenderer";
 import { renderJkStateMachineCircuit } from "./jkStateMachineCircuitRenderer";
@@ -134,6 +164,14 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderMixedCircuitSVG(figure.diagram as MixedCircuitDiagram));
     case "characteristic_curve":
       return wrapSvg(figure, renderCharacteristicCurveSVG(figure.diagram as CharacteristicCurveDiagram));
+    case "jfet_depletion_panels":
+      return wrapSvg(figure, renderJfetDepletionPanels(figure.diagram as import("@/types").JfetDepletionPanelsDiagram));
+    case "r2r_ladder_dac_circuit":
+      return wrapSvg(figure, renderR2rLadderDacCircuit(figure.diagram as import("@/types").R2rLadderDacDiagram));
+    case "bjt_early_structure":
+      return wrapSvg(figure, renderBjtEarlyStructureSVG(figure.diagram as import("@/types").BjtEarlyStructureDiagram));
+    case "bjt_early_curve":
+      return wrapSvg(figure, renderBjtEarlyCurveSVG(figure.diagram as import("@/types").BjtEarlyCurveDiagram));
     case "mux_diagram":
       return wrapSvg(figure, renderMuxDiagramSVG(figure.diagram as MuxDiagram));
     case "imyong_10_dc_nodal":
@@ -206,10 +244,28 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderAcBridgeCircuit(figure.diagram as import("@/types").AcBridgeCircuitDiagram));
     case "ac_bridge_thevenin_circuit":
       return wrapSvg(figure, renderAcBridgeThevenin(figure.diagram as import("@/types").AcBridgeTheveninCircuitDiagram));
+    case "ac_delta_wye_bridge_circuit":
+      return wrapSvg(figure, renderAcDeltaWyeBridgeCircuit(figure.diagram as import("@/types").AcDeltaWyeBridgeCircuitDiagram));
+    case "ac_delta_wye_equiv_circuit":
+      return wrapSvg(figure, renderAcDeltaWyeEquivCircuit(figure.diagram as import("@/types").AcDeltaWyeEquivCircuitDiagram));
+    case "opamp_avg_superposition_circuit":
+      return wrapSvg(figure, renderOpampAvgSuperpositionCircuit(figure.diagram as import("@/lib/generation/topologies/opampAvgSuperpositionR").OpampAvgSuperpositionCircuitDiagram));
+    case "thevenin_dep_graph_circuit":
+      return wrapSvg(figure, renderTheveninDepGraphCircuit(figure.diagram as import("@/lib/generation/topologies/theveninDepGraphMaxPower").TheveninDepGraphCircuitDiagram));
+    case "ac_two_source_mesh_circuit":
+      return wrapSvg(figure, renderAcTwoSourceMeshCircuit(figure.diagram as import("@/types").AcTwoSourceMeshCircuitDiagram));
+    case "oscilloscope_screen":
+      return wrapSvg(figure, renderOscilloscopeScreen(figure.diagram as import("@/types").OscilloscopeScreenDiagram));
+    case "oscilloscope_phase_circuit":
+      return wrapSvg(figure, renderOscilloscopePhaseCircuit(figure.diagram as import("@/types").OscilloscopePhaseCircuitDiagram));
     case "ac_thevenin_ladder_circuit":
       return wrapSvg(figure, renderAcTheveninLadderCircuit(figure.diagram as import("@/types").AcTheveninLadderCircuitDiagram));
     case "ac_thevenin_equiv_circuit":
       return wrapSvg(figure, renderAcTheveninEquivCircuit(figure.diagram as import("@/types").AcTheveninEquivCircuitDiagram));
+    case "ac_thevenin_dep_circuit":
+      return wrapSvg(figure, renderAcTheveninDepCircuit(figure.diagram as import("@/types").AcTheveninDepCircuitDiagram));
+    case "ac_thevenin_dep_equiv_circuit":
+      return wrapSvg(figure, renderAcTheveninDepEquivCircuit(figure.diagram as import("@/types").AcTheveninDepEquivCircuitDiagram));
     case "dc_thevenin_2src_circuit":
       return wrapSvg(figure, renderDcThevenin2srcCircuit(figure.diagram as import("@/types").DcThevenin2srcCircuitDiagram));
     case "dc_thevenin_equiv_circuit":
@@ -230,6 +286,20 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderTff3CounterCircuit(figure.diagram as import("@/types").Tff3CounterCircuitDiagram));
     case "jk_excitation_circuit":
       return wrapSvg(figure, renderJkExcitationCircuit(figure.diagram as import("@/types").JkExcitationCircuitDiagram));
+    case "max_power_two_source_circuit":
+      return wrapSvg(figure, renderMaxPowerTwoSourceCircuit(figure.diagram as import("@/types").MaxPowerTwoSourceCircuitDiagram));
+    case "jk_two_phase_clock_circuit":
+      return wrapSvg(figure, renderJkTwoPhaseClockCircuit(figure.diagram as import("@/types").JkTwoPhaseClockCircuitDiagram));
+    case "rlc_antiresonance_ladder_circuit":
+      return wrapSvg(figure, renderRlcAntiresonanceLadderCircuit(figure.diagram as import("@/types").RlcAntiresonanceLadderCircuitDiagram));
+    case "ac_dc_source_superposition_circuit":
+      return wrapSvg(figure, renderAcDcSourceSuperpositionCircuit(figure.diagram as import("@/types").AcDcSourceSuperpositionCircuitDiagram));
+    case "two_source_rl_superposition_circuit":
+      return wrapSvg(figure, renderTwoSourceRlSuperpositionCircuit(figure.diagram as import("@/types").TwoSourceRlSuperpositionCircuitDiagram));
+    case "switched_rl_dual_short_circuit":
+      return wrapSvg(figure, renderSwitchedRlDualShortCircuit(figure.diagram as import("@/types").SwitchedRlDualShortCircuitDiagram));
+    case "dff_preset_clear_circuit":
+      return wrapSvg(figure, renderDffPresetClearCircuit(figure.diagram as import("@/types").DffPresetClearCircuitDiagram));
     case "ac_superposition_source_design_circuit":
       return wrapSvg(figure, renderAcSuperpositionSourceDesignCircuit(figure.diagram as import("@/types").AcSuperpositionSourceDesignCircuitDiagram));
     case "dc_wheatstone_balance_circuit":
@@ -246,6 +316,36 @@ export function renderFigure(figure: FigureVariant): ReactNode {
       return wrapSvg(figure, renderSwitchedRcDcCircuit(figure.diagram as import("@/types").SwitchedRcDcCircuitDiagram));
     case "switched_rl_dual_src_circuit":
       return wrapSvg(figure, renderSwitchedRlSourceSwitchCircuit(figure.diagram as import("@/types").SwitchedRlDualSrcCircuitDiagram));
+    case "switched_cap_short_rl_circuit":
+      return wrapSvg(figure, renderSwitchedCapShortRlCircuit(figure.diagram as import("@/types").SwitchedCapShortRlCircuitDiagram));
+    case "bjt_thevenin_bias_circuit":
+      return wrapSvg(figure, renderBjtTheveninBiasCircuit(figure.diagram as import("@/types").BjtTheveninBiasCircuitDiagram));
+    case "bjt_switch_logic_circuit":
+      return wrapSvg(figure, renderBjtSwitchLogicCircuit(figure.diagram as import("@/types").BjtSwitchLogicCircuitDiagram));
+    case "comparator_diode_or_circuit":
+      return wrapSvg(figure, renderComparatorDiodeOrCircuit(figure.diagram as import("@/types").ComparatorDiodeOrCircuitDiagram));
+    case "opamp_summer_tfeedback_circuit":
+      return wrapSvg(figure, renderOpampSummerTFeedbackCircuit(figure.diagram as import("@/types").OpampSummerTFeedbackCircuitDiagram));
+    case "ac_thevenin_two_box_circuit":
+      return wrapSvg(figure, renderAcTheveninTwoBoxCircuit(figure.diagram as import("@/types").AcTheveninTwoBoxCircuitDiagram));
+    case "diode_clamper_circuit":
+      return wrapSvg(figure, renderDiodeClamperCircuit(figure.diagram as import("@/types").DiodeClamperCircuitDiagram));
+    case "diode_clamper_waveform":
+      return wrapSvg(figure, renderDiodeClamperWaveform(figure.diagram as import("@/types").DiodeClamperWaveformDiagram));
+    case "dc_two_source_ladder_circuit":
+      return wrapSvg(figure, renderDcTwoSourceLadderCircuit(figure.diagram as import("@/types").DcTwoSourceLadderCircuitDiagram));
+    case "opamp_two_stage_rx_circuit":
+      return wrapSvg(figure, renderOpampTwoStageRxCircuit(figure.diagram as import("@/types").OpampTwoStageRxCircuitDiagram));
+    case "ac_thevenin_design_ab_circuit":
+      return wrapSvg(figure, renderAcTheveninDesignAbCircuit(figure.diagram as import("@/types").AcTheveninDesignAbCircuitDiagram));
+    case "zener_shunt_regulator_circuit":
+      return wrapSvg(figure, renderZenerShuntRegulatorCircuit(figure.diagram as import("@/types").ZenerShuntRegulatorCircuitDiagram));
+    case "switched_rlc_source_free_circuit":
+      return wrapSvg(figure, renderSwitchedRlcSourceFreeCircuit(figure.diagram as import("@/types").SwitchedRlcSourceFreeCircuitDiagram));
+    case "rlc_state_equation_circuit":
+      return wrapSvg(figure, renderRlcStateEquationCircuit(figure.diagram as import("@/types").RlcStateEquationCircuitDiagram));
+    case "switched_rlc_dual_switch_circuit":
+      return wrapSvg(figure, renderSwitchedRlcDualSwitchCircuit(figure.diagram as import("@/types").SwitchedRlcDualSwitchCircuitDiagram));
     case "dff_state_design_circuit":
       return wrapSvg(figure, renderDffStateDesignCircuit(figure.diagram as import("@/types").DffStateDesignCircuitDiagram));
     case "jk_sync_counter_circuit":

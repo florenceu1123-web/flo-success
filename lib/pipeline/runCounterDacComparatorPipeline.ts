@@ -25,13 +25,15 @@ export async function runCounterDacComparatorPipeline(args: {
   const topicLabel = topicKey ? TOPIC_LABEL[topicKey] : undefined;
   const contextHint = buildContextHint(analysis);
 
-  // ★ 원본 구조 도출 — D 플립플롭 시프트레지스터(임용10)와 JK 카운터(임용8)는 근본 구조가 다르다.
+  // ★ 원본 구조 도출 — 임용10(FF 체인 + 아날로그 DAC)과 임용8(JK 카운터 + 비교기)은 근본 구조가 다르다.
   //   분석 텍스트의 FF 종류 키워드 + Q 출력 라벨 개수로 결정 (inventory FF 추출이 불안정해 텍스트 우선).
+  //   ★ 원본 **인식**은 "D 플립플롭·시프트" 키워드 그대로 — 원본 이미지가 D-FF다.
+  //     생성물만 사용자 지정에 따라 **T 플립플롭**으로 낸다(tff_dac_chain).
   const { structure, bits } = deriveShiftOrCounter(analysis);
   log.info("counter_dac_structure", { structure, bits });
 
   return generateInParallel(count, async (i, seed) => {
-    const isShift = structure === "d_shift_register";
+    const isShift = structure === "tff_dac_chain";
     const gen = isShift
       ? generateShiftRegisterDac({ bits, seed, mode })
       : generateCounterDacComparator({ params: analysis?.circuitType?.params, seed, mode });
@@ -54,7 +56,7 @@ export async function runCounterDacComparatorPipeline(args: {
       {
         id: `fig_mixed_${i + 1}`,
         label: isShift
-          ? `(가) 응용회로 (${bitsGen}-bit D 시프트레지스터 + R-2R DAC + OPAMP)`
+          ? `(가) 응용회로 (${bitsGen}-bit T 플립플롭 체인 + R-2R DAC + OPAMP)`
           : `(가) 응용회로 (${bitsGen}-bit JK 카운터 + DAC + 비교기)`,
         role: "main_circuit",
         diagramType: "mixed_circuit",
@@ -101,7 +103,7 @@ export async function runCounterDacComparatorPipeline(args: {
  *    inventory FF 추출이 자주 D(diode)로 오인되므로 텍스트의 Q 라벨 카운트를 우선.
  */
 function deriveShiftOrCounter(analysis?: AnalysisResult | null): {
-  structure: "jk_counter" | "d_shift_register";
+  structure: "jk_counter" | "tff_dac_chain";
   bits: number;
 } {
   const text = [
@@ -113,8 +115,8 @@ function deriveShiftOrCounter(analysis?: AnalysisResult | null): {
 
   const isJK = /JK|J-K/i.test(text);
   const isD = /D\s*플립플롭|D[-\s]?F\s*\/?\s*F|D\s*flip|시프트|shift\s*register/i.test(text);
-  const structure: "jk_counter" | "d_shift_register" =
-    isJK && !isD ? "jk_counter" : isD ? "d_shift_register" : "jk_counter";
+  const structure: "jk_counter" | "tff_dac_chain" =
+    isJK && !isD ? "jk_counter" : isD ? "tff_dac_chain" : "jk_counter";
 
   const qNum = new Set(Array.from(text.matchAll(/Q[_]?([0-9])/g)).map((m) => m[1]));
   const qAlpha = new Set(

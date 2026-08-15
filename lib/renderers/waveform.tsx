@@ -43,6 +43,8 @@ type WaveformDiagram = {
   xAxis?: { symbol?: string; unit?: string };
   /** y축에 수평 점선 + 라벨 (예: I_max). 가장 첫 lane 기준 v좌표로 위치. */
   yMarkers?: Array<{ v: number; label: string }>;
+  /** 시간축 구간 표시 — 축 아래 span bar + 라벨(㉠·㉡·㉢). 미지정이면 그리지 않는다. */
+  regions?: Array<{ from: number; to: number; label: string }>;
 };
 
 // 멀티 트랙(레인) 레이아웃 — 각 신호를 별도 lane으로 위·아래로 stack.
@@ -130,7 +132,11 @@ export function renderWaveform(figure: FigureVariant) {
   const plotTop = PAD_T;
   const plotBottom = plotTop + totalLanesH;
   const SVG_W = plotW + PAD_L + PAD_R;
-  const SVG_H = plotBottom + PAD_B;
+  // 구간 표시(㉠·㉡·㉢)가 있으면 축 아래에 span bar 한 줄이 더 붙는다.
+  const regionSpans = Array.isArray(d.regions) ? d.regions : [];
+  // 마커 라벨이 축 아래 +30·+45에 놓이므로 구간 bar는 그보다 확실히 아래에 둔다(겹침 방지).
+  const REGION_BAR_H = regionSpans.length ? 56 : 0;
+  const SVG_H = plotBottom + PAD_B + REGION_BAR_H;
 
   // 시간축 grid (전체 lane 영역을 가로지르는 vertical lines)
   const tTicks = niceTicks(tMin, tMax, 6);
@@ -229,6 +235,26 @@ export function renderWaveform(figure: FigureVariant) {
         .join("")
     : "";
 
+  // 구간 표시 — 경계 세로 점선 + 축 아래 span bar(양끝 눈금) + 가운데 라벨(㉠·㉡·㉢).
+  //   원본 임용 문제의 (나) 하단 표기를 그대로 재현한다. regions 미지정이면 아무것도 그리지 않는다.
+  const regionBarY = plotBottom + PAD_B - 6;
+  const regionMarks = regionSpans
+    .map((r) => {
+      const x1 = xOf(r.from);
+      const x2 = xOf(r.to);
+      const cx = (x1 + x2) / 2;
+      const tick = (x: number) =>
+        `<line x1="${x}" y1="${regionBarY - 5}" x2="${x}" y2="${regionBarY + 5}" stroke="#1e3a8a" stroke-width="1.4"/>`;
+      return (
+        `<line x1="${x1}" y1="${plotTop}" x2="${x1}" y2="${plotBottom}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 3"/>` +
+        `<line x1="${x2}" y1="${plotTop}" x2="${x2}" y2="${plotBottom}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 3"/>` +
+        `<line x1="${x1}" y1="${regionBarY}" x2="${x2}" y2="${regionBarY}" stroke="#1e3a8a" stroke-width="1.4"/>` +
+        tick(x1) + tick(x2) +
+        `<text x="${cx}" y="${regionBarY + 24}" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="700">${escapeSvg(r.label)}</text>`
+      );
+    })
+    .join("");
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${SVG_H}" viewBox="0 0 ${SVG_W} ${SVG_H}">
 ${gridLines}
 ${laneFrames}
@@ -239,6 +265,7 @@ ${signalLines}
 ${xAxis}
 ${tLabels}
 ${xUnitLabel}
+${regionMarks}
 </svg>`;
 
   return (

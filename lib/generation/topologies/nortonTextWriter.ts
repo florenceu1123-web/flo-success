@@ -1,4 +1,5 @@
 import { getOpenAI, DEFAULT_MODEL } from "@/lib/openai";
+import { STEP_QUESTION_RULE } from "@/lib/format/threeStep";
 import { createLogger } from "@/lib/logger";
 import { SYSTEM_PROMPT } from "@/lib/prompts";
 import type { GenerationMode } from "@/types";
@@ -71,6 +72,7 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
 }
 
 [규칙]
+${STEP_QUESTION_RULE}
 - answer는 위의 I_n, R_n 숫자를 그대로 사용. 다른 값으로 바꾸지 마라.
 - 풀이는 그 숫자에 도달하는 합리적 과정. LaTeX inline \\(...\\) 사용 가능.
 - 회로 도식 생성 금지 (figureVariants 출력 금지). 코드가 처리.

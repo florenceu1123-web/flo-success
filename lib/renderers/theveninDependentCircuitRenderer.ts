@@ -130,7 +130,16 @@ export function renderTheveninDependentCircuit(netlist: CircuitNetlist, d: Detec
   let prevX = X0;
   for (const seg of d.railPath) {
     const x2 = xOf.get(seg.to)!;
-    hRes(s, t, prevX, x2, TOP, seg.comp.id, String(seg.comp.value ?? ""));
+    // ★ 직렬 가지에도 종속전원이 온다 (임용 9번: 9V — 5Ω — ◇2i_x — 1Ω — …).
+    //   shunt 쪽만 DEP_TYPES를 검사하고 여기선 전부 hRes로 그려, **종속전원이 저항 지그재그로**
+    //   표시됐다(사용자 신고 2026-08-04). 다이아몬드는 이 유형의 핵심 기호라 저항으로 그리면
+    //   문제가 통째로 달라 보인다.
+    if (DEP_TYPES.has(seg.comp.type)) {
+      s.push(hDepSourceSym(prevX, x2, TOP, seg.comp.type));
+      t.push(text((prevX + x2) / 2, TOP + 44, String(seg.comp.value ?? ""), { size: 12, weight: 600 }));
+    } else {
+      hRes(s, t, prevX, x2, TOP, seg.comp.id, String(seg.comp.value ?? ""));
+    }
     // 제어 전류 i_x 화살표 — 해당 소자 위에
     if (d.currentMark && d.currentMark.compId === seg.comp.id) {
       const cx = (prevX + x2) / 2;
@@ -161,6 +170,15 @@ export function renderTheveninDependentCircuit(netlist: CircuitNetlist, d: Detec
         t.push(text(x + 32, (TOP + BOT) / 2 + 4, String(sh.comp.value ?? ""), { size: 12, weight: 600, anchor: "start" }));
       } else {
         vRes(s, t, x, TOP, BOT, sh.comp.id, String(sh.comp.value ?? ""));
+      }
+      // ★ 제어 전류 i_x가 세로 가지에 흐르는 경우 (원본 임용 9번이 그렇다: i_x는 미지 저항 R을 흐른다).
+      //   직렬 가지에만 화살표를 그려 세로 가지일 때 통째로 빠져 있었다 — 그러면 학생이
+      //   i_x가 어느 가지인지 알 수 없어 종속전원 값을 해석하지 못한다.
+      if (d.currentMark && d.currentMark.compId === sh.comp.id) {
+        const ay = (TOP + BOT) / 2, ax = x - 30;
+        s.push(`<line x1="${ax}" y1="${ay - 20}" x2="${ax}" y2="${ay + 14}" stroke="${RED}" stroke-width="1.6"/>`);
+        s.push(`<path d="M${ax},${ay + 14} L${ax - 4},${ay + 7} L${ax + 4},${ay + 7} Z" fill="${RED}"/>`);
+        t.push(text(ax - 6, ay - 22, d.currentMark.label, { size: 13, weight: 700, fill: RED, anchor: "end" }));
       }
     });
     s.push(dot(baseX, TOP));
@@ -231,6 +249,24 @@ function depSourceSym(cx: number, topY: number, botY: number, type: string): str
   return `${dia}${inner}` +
     `<line x1="${cx}" y1="${topY}" x2="${cx}" y2="${cy - r}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>` +
     `<line x1="${cx}" y1="${cy + r}" x2="${cx}" y2="${botY}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
+}
+
+/**
+ * 가로(직렬) 종속전원 — 다이아몬드. `depSourceSym`의 가로 버전.
+ *  · 전압원(CCVS/VCVS): 좌 +, 우 − (전류가 좌→우로 흐르며 전압 강하)
+ *  · 전류원(CCCS/VCCS): 안쪽에 오른쪽 화살표
+ */
+function hDepSourceSym(x1: number, x2: number, y: number, type: string): string {
+  const cx = (x1 + x2) / 2, r = 26;
+  const dia = `<path d="M${cx},${y - r} L${cx + r},${y} L${cx},${y + r} L${cx - r},${y} Z" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
+  const inner = type === "CCCS" || type === "VCCS"
+    ? `<line x1="${cx - 13}" y1="${y}" x2="${cx + 9}" y2="${y}" stroke="${STROKE}" stroke-width="1.6"/>` +
+      `<path d="M${cx + 6},${y - 5} L${cx + 15},${y} L${cx + 6},${y + 5} Z" fill="${STROKE}"/>`
+    : `<text x="${cx - 11}" y="${y + 5}" text-anchor="middle" font-size="13" font-weight="700" fill="${RED}">+</text>` +
+      `<text x="${cx + 11}" y="${y + 5}" text-anchor="middle" font-size="15" font-weight="700" fill="${RED}">−</text>`;
+  return `${dia}${inner}` +
+    `<line x1="${x1}" y1="${y}" x2="${cx - r}" y2="${y}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>` +
+    `<line x1="${cx + r}" y1="${y}" x2="${x2}" y2="${y}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
 }
 
 function terminalCircle(x: number, y: number): string {

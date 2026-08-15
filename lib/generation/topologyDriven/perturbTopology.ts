@@ -166,13 +166,21 @@ const NICE_CURRENTS_EXT = [0.1, 0.2, 0.3, 0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3,
 
 function nearestNice(target: number, pool: number[]): number {
   if (target <= 0 || pool.length === 0) return target;
+  // ★ 스케일 인식 snap (2026-08-02 실측 신고) — 풀은 1~250 범위인데 kΩ급 회로(4000·2000·1000Ω)를
+  //   그대로 넣으면 **전부 최대값 250으로 눌려** 모든 저항이 같은 값이 됐다(=문제가 무의미해짐).
+  //   원본 크기에 맞춰 10의 거듭제곱으로 스케일을 맞춘 뒤 snap하고 되돌린다 → 원본 단위(kΩ·mΩ) 보존.
+  const lo = Math.min(...pool), hi = Math.max(...pool);
+  let scale = 1;
+  while (target / scale > hi && scale < 1e12) scale *= 10;
+  while (target / scale < lo && scale > 1e-9) scale /= 10;
+  const t = target / scale;
   let best = pool[0];
-  let bestDist = Math.abs(target - pool[0]);
+  let bestDist = Math.abs(t - pool[0]);
   for (const v of pool) {
-    const d = Math.abs(target - v);
+    const d = Math.abs(t - v);
     if (d < bestDist) { bestDist = d; best = v; }
   }
-  return best;
+  return best * scale;
 }
 
 function perturbNumeric(

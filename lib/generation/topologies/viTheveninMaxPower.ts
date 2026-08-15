@@ -36,14 +36,81 @@ export type ViTheveninMaxPowerGeneration = {
 
 type ParamSet = { V1: number; V2: number; Iup_mA: number; Idown_mA: number; R1_k: number; R2_k: number };
 
-// 사전검증 세트 — 깔끔한 답. 첫 세트 = 원본(3V·1V·5mA·3mA·2k·3k → V_c=8V·I_ab=1.6mA·R_th=5k·P_L=3.2mW).
-const PARAM_SETS: ParamSet[] = [
-  { V1: 3, V2: 1, Iup_mA: 5, Idown_mA: 3, R1_k: 2, R2_k: 3 }, // 원본
-  { V1: 4, V2: 2, Iup_mA: 4, Idown_mA: 1, R1_k: 2, R2_k: 2 },
-  { V1: 2, V2: 2, Iup_mA: 6, Idown_mA: 2, R1_k: 1, R2_k: 3 },
-  { V1: 5, V2: 1, Iup_mA: 3, Idown_mA: 1, R1_k: 2, R2_k: 4 },
-  { V1: 6, V2: 2, Iup_mA: 2, Idown_mA: 1, R1_k: 3, R2_k: 3 },
-];
+/** 원본 튜플(3V·1V·5mA·3mA·2k·3k → V_c=8V·I_ab=1.6mA·R_th=5k·P_L=3.2mW) — 참조·검산 전용, 생성 금지. */
+const ORIGINAL: ParamSet = { V1: 3, V2: 1, Iup_mA: 5, Idown_mA: 3, R1_k: 2, R2_k: 3 };
+
+/** 원본의 도출량 — V_c = (3+1) + (5−3)·2 = 8[V], R_th = 2+3 = 5[kΩ] (→ I_sc=1.6mA·P_L=3.2mW). */
+const ORIGINAL_VC = ORIGINAL.V1 + ORIGINAL.V2 + (ORIGINAL.Iup_mA - ORIGINAL.Idown_mA) * ORIGINAL.R1_k;
+const ORIGINAL_RTH = ORIGINAL.R1_k + ORIGINAL.R2_k;
+
+/** 기약분수의 분모 (a/b, b>0). 값이 깔끔한지(분모가 작은지) 판정할 때 쓴다. */
+function denomOf(num: number, den: number): number {
+  const scale = 1000;
+  let a = Math.round(num * scale), b = Math.round(den * scale);
+  const g = (x: number, y: number): number => (y === 0 ? Math.abs(x) : g(y, x % y));
+  const d = g(a, b) || 1;
+  a /= d; b /= d;
+  return Math.abs(b);
+}
+
+/**
+ * 값 공간 — **규칙 열거 + 필터**(특정 예시 hardcode 금지, [[feedback_generic_code]]).
+ *
+ * 닫힌형(모두 정수 단위: V[V]·I[mA]·R[kΩ] → V=I·R 가 그대로 성립):
+ *   · 개방:  V_c = (V1+V2) + (I_up − I_down)·R1        ← 이상 전류원이 R1에 흘리는 전압강하
+ *   · R_th = R1 + R2                                    ← 전원 무효화(V 단락·I 개방)
+ *   · I_sc = V_c / R_th,  P_max = V_c²/(4·R_th)
+ * 필터: V_c 정수(4~30) · R_th 3~10kΩ · I_sc·P_max의 기약분모 ≤ 5(지저분한 소수 방지) ·
+ *       순 주입전류 ≥ 1mA(전류원이 답에 실제로 기여) · **원본 튜플 제외**.
+ */
+function buildSpace(): ParamSet[] {
+  const out: ParamSet[] = [];
+  for (let V1 = 1; V1 <= 6; V1++) {
+    for (let V2 = 1; V2 <= 6; V2++) {
+      for (let Iup = 2; Iup <= 8; Iup++) {
+        for (let Idown = 1; Idown < Iup; Idown++) {
+          for (let R1_k = 1; R1_k <= 4; R1_k++) {
+            for (let R2_k = 1; R2_k <= 6; R2_k++) {
+              const Inet = Iup - Idown;
+              if (Inet < 1) continue;
+              const Vc = V1 + V2 + Inet * R1_k;
+              if (!Number.isInteger(Vc) || Vc < 4 || Vc > 30) continue;
+              const Rth = R1_k + R2_k;
+              if (Rth < 3 || Rth > 10) continue;
+              if (denomOf(Vc, Rth) > 5) continue;                 // I_sc [mA]
+              if (denomOf(Vc * Vc, 4 * Rth) > 5) continue;        // P_max [mW]
+              const s: ParamSet = { V1, V2, Iup_mA: Iup, Idown_mA: Idown, R1_k, R2_k };
+              if (isOriginal(s)) continue;                        // ★ 원본 튜플은 생성하지 않는다
+              // ★ 소자값만 다르고 **도출량이 원본과 같은** 조합도 제외한다 —
+              //   V_c·R_th가 같으면 I_sc·P_L까지 전부 같아져 사실상 원본과 같은 문항이 된다(실측).
+              if (Vc === ORIGINAL_VC && Rth === ORIGINAL_RTH) continue;
+              out.push(s);
+            }
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function isOriginal(s: ParamSet): boolean {
+  return s.V1 === ORIGINAL.V1 && s.V2 === ORIGINAL.V2 && s.Iup_mA === ORIGINAL.Iup_mA &&
+    s.Idown_mA === ORIGINAL.Idown_mA && s.R1_k === ORIGINAL.R1_k && s.R2_k === ORIGINAL.R2_k;
+}
+
+/** 결정론 해시 — 열거 순서대로 두면 앞쪽이 전부 비슷한 값이라 다양성이 죽는다. */
+function hashOf(s: ParamSet): number {
+  const k = `${s.V1}|${s.V2}|${s.Iup_mA}|${s.Idown_mA}|${s.R1_k}|${s.R2_k}`;
+  let h = 2166136261;
+  for (let i = 0; i < k.length; i++) { h ^= k.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+const ALL_SETS: ParamSet[] = buildSpace().sort((a, b) => hashOf(a) - hashOf(b));
+// ★ 유사/변형이 **같은 문제를 내지 않도록** 풀을 절반씩 나눈다(이전엔 mode를 무시해 두 모드가 완전히 동일했다).
+const SIMILAR_SETS: ParamSet[] = ALL_SETS.filter((_, i) => i % 2 === 0);
+const VARIANT_SETS: ParamSet[] = ALL_SETS.filter((_, i) => i % 2 === 1);
 
 function solveSet(s: ParamSet): ViTheveninMaxPowerGeneration {
   const Vtl = s.V1 + s.V2;                 // 좌측 직렬 전압원 합 (V)
@@ -126,8 +193,14 @@ function buildNetlist(s: ParamSet): CircuitNetlist {
   };
 }
 
-export function generateViTheveninMaxPower(args: { seed?: number }): ViTheveninMaxPowerGeneration {
+export function generateViTheveninMaxPower(
+  args: { seed?: number; mode?: string },
+): ViTheveninMaxPowerGeneration {
   const rand = makeRand(args.seed);
   for (let i = 0; i < 4; i++) rand();
-  return solveSet(pick(PARAM_SETS, rand));
+  const pool = args.mode === "exam_variant" ? VARIANT_SETS : SIMILAR_SETS;
+  return solveSet(pick(pool, rand));
 }
+
+/** 스모크 전용 — 값 공간 점검(원본 미포함·풀 비중첩 단언). */
+export const __viThevSpace = { ALL_SETS, SIMILAR_SETS, VARIANT_SETS, ORIGINAL, isOriginal, solveSet };

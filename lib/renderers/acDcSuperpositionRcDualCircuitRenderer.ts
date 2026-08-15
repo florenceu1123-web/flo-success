@@ -20,6 +20,7 @@ const SVG_W = 700;
 const SVG_H = 470;
 const TOP = 95;
 const BOT = 400;
+const R1D_Y = 38;   // R₁'(직류 전류원과 병렬) 가지 — 상단 rail 위로 우회
 
 const IX = 130;   // i(t) 전류원
 const LXc = 220;  // L
@@ -46,6 +47,12 @@ export function renderAcDcSuperpositionRcDualCircuit(d: D): string {
   // D2 세로 R₅
   p.push(line(D2X, TOP, D2X, 198));
   p.push(line(D2X, 292, D2X, BOT));
+  // ★ R₁' — 원본의 **직류 전원 직렬 저항 R₁**의 쌍대는 직류 전류원과 **병렬**이다.
+  //   (2026-08-05 원본 재확정으로 R₁이 추가되면서 쌍대에도 대응 소자가 필요해졌다.)
+  //   같은 두 마디(D1·D2)를 잇는 가지를 상단 rail **위쪽**으로 우회시켜 그린다.
+  p.push(line(LXc, TOP, LXc, R1D_Y));
+  p.push(line(D2X, TOP, D2X, R1D_Y));
+  p.push(line(LXc, R1D_Y, D2X, R1D_Y));
   // D2→D3 상단 (R₃)
   p.push(line(D2X, TOP, D3X, TOP));   // (지그재그가 가운데 덮음)
   // D3 세로 R₄
@@ -61,6 +68,7 @@ export function renderAcDcSuperpositionRcDualCircuit(d: D): string {
   p.push(zigzagV(D2X, 198, 292));          // R₅
   p.push(zigzagH(D2X, D3X, TOP));          // R₃
   p.push(zigzagV(D3X, 198, 292));          // R₄
+  p.push(zigzagH(LXc, D2X, R1D_Y));        // R₁' (직류 전류원과 병렬)
 
   // ── 노드 dot ──
   p.push(dot(IX, TOP), dot(LXc, TOP), dot(D2X, TOP), dot(D3X, TOP));
@@ -84,6 +92,10 @@ export function renderAcDcSuperpositionRcDualCircuit(d: D): string {
   p.push(text((D2X + D3X) / 2, TOP + 20, d.r3Label, { size: 12 }));
   p.push(text(D3X + 14, 250, "R₄", { size: 13, weight: 700, anchor: "start" }));
   p.push(text(D3X + 14, 268, d.r4Label, { size: 12, anchor: "start" }));
+  if (d.r1Label) {
+    p.push(text((LXc + D2X) / 2, R1D_Y - 12, "R₁′", { size: 13, weight: 700 }));
+    p.push(text(D2X + 14, R1D_Y + 4, d.r1Label, { size: 12, anchor: "start" }));
+  }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${SVG_H}" viewBox="0 0 ${SVG_W} ${SVG_H}">\n${p.join("\n")}\n</svg>`;
 }

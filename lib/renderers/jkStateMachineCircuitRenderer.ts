@@ -37,6 +37,8 @@ export function renderJkStateMachineCircuit(d: D): string {
   const s: string[] = [];
   const t: string[] = [];
 
+  // 원본(임용 6번)은 CP 입력에 버블이 붙은 **하강 에지** 트리거다 — 미지정이면 그쪽으로 본다.
+  const falling = (d.clockEdge ?? "falling") === "falling";
   const qNames = ["Q₀", "Q₁", "Q₂"];
   // ── FF 3개 ──
   FF_X.forEach((x, i) => {
@@ -46,7 +48,7 @@ export function renderJkStateMachineCircuit(d: D): string {
     t.push(text(x + 9, kY + 4, "K", { size: 12, weight: 600, anchor: "start" }));
     t.push(text(x + FF_W - 9, qY + 4, "Q", { size: 12, weight: 600, anchor: "end" }));
     t.push(text(x + FF_W - 9, qbY + 4, "Q̄", { size: 11, weight: 600, anchor: "end", fill: MUTED }));
-    s.push(clkTri(x, clkPinY));
+    s.push(clkTri(x, clkPinY, falling));
     // Q 출력 → 우측 라벨
     const qx = x + FF_W;
     w.push(line(qx, qY, qx + 14, qY));
@@ -74,9 +76,9 @@ export function renderJkStateMachineCircuit(d: D): string {
     arr.push(p);
     groups.set(p.label, arr);
   }
-  const bubble = (x: number, y: number, col: string) =>
-    s.push(`<circle cx="${x - 5}" cy="${y}" r="4" fill="white" stroke="${col}" stroke-width="1.3"/>`);
-
+  // ★ 반전 신호(Q̄ᵢ)는 **FF의 Q̄ 출력 핀에서 그대로 배선**한다(아래 outY). 목적지 J·K에 반전 버블을
+  //   덧그리면 Q̄를 한 번 더 반전해 사실상 Q가 되어 회로가 원본과 달라진다(사용자 신고 2026-08-05:
+  //   "생성된 회로에는 Q0 f/f 입력에 not 게이트가 있어"). 원본의 J·K 입력에는 버블이 없다.
   let laneIdx = 0;
   for (const [label, gpins] of groups) {
     const srcFF = srcFFof(label)!;
@@ -97,7 +99,6 @@ export function renderJkStateMachineCircuit(d: D): string {
       w.push(cline(chX, Math.min(...ys), chX, Math.max(...ys), col)); // 채널 세로(범위)
       for (const p of gpins) {
         w.push(cline(chX, p.y, FF_X[p.ff], p.y, col));      // 핀 탭
-        if (inv) bubble(FF_X[p.ff], p.y, col);
       }
     } else {
       // 상단 레인 트렁크: 소스 출력 위로 → 레인 가로 → 각 FF로 내려 탭.
@@ -117,7 +118,6 @@ export function renderJkStateMachineCircuit(d: D): string {
         w.push(cline(apX, laneY, apX, Math.max(...fpins.map((p) => p.y)), col));
         for (const p of fpins) {
           w.push(cline(apX, p.y, FF_X[ff], p.y, col));
-          if (inv) bubble(FF_X[ff], p.y, col);
         }
       }
     }
@@ -174,7 +174,8 @@ export function renderJkStateMachineCircuit(d: D): string {
     s.push(dot(x - 14, CP_Y));
   });
 
-  t.push(text(W / 2, H - 8, "JK 플립플롭 3개 동기식 카운터 — J·K를 Q 출력에서 직접 배선. Q₀=LSB.", { size: 10, fill: MUTED }));
+  const edgeKo = falling ? "CP 하강 에지 트리거(입력 버블)" : "CP 상승 에지 트리거";
+  t.push(text(W / 2, H - 8, `JK 플립플롭 3개 동기식 카운터 — J·K를 Q·Q̄ 출력에서 직접 배선, ${edgeKo}. Q₀=LSB.`, { size: 10, fill: MUTED }));
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${H}" viewBox="0 0 ${W} ${H}">\n${[...w, ...s, ...t].join("\n")}\n</svg>`;
 }
@@ -209,9 +210,15 @@ function busKeyOf(label: string): "Q0" | "Q1" | "Q2" | null {
 function rect(x: number, y: number, w: number, h: number): string {
   return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
 }
-function clkTri(x: number, cy: number): string {
+/**
+ * 클럭 입력 표기. 삼각형은 에지 트리거, **바깥의 버블은 하강(부논리) 에지**를 뜻한다.
+ * 버블은 본체 바깥(x−5)에 흰색으로 그려 CP 배선 위를 덮는다(그리기 순서상 wire 뒤).
+ */
+function clkTri(x: number, cy: number, falling: boolean): string {
   const h = 6;
-  return `<polygon points="${x},${cy - h} ${x + 9},${cy} ${x},${cy + h}" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
+  const tri = `<polygon points="${x},${cy - h} ${x + 9},${cy} ${x},${cy + h}" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
+  if (!falling) return tri;
+  return `<circle cx="${x - 5}" cy="${cy}" r="4.5" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>${tri}`;
 }
 function line(x1: number, y1: number, x2: number, y2: number): string {
   return cline(x1, y1, x2, y2, STROKE);

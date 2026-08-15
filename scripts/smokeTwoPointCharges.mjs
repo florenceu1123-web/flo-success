@@ -101,7 +101,10 @@ console.log("\n[4] figure·발문 구조");
   ok("유사: 도식 geometry=two_charges_axes", s.diagram?.geometry === "two_charges_axes");
   ok("유사: 발문이 |E|와 V_P", /전계의 크기/.test(s.question) && /전위/.test(s.question));
   ok("변형: 구하는 양 교환(Q_B 역산)", /Q_B/.test(v.question) && /전위/.test(v.question));
-  ok("풀이 4단계 이상", (s.steps?.length ?? 0) >= 4);
+  // ★ 2026-08-12 계약 변경: 객관식 원본은 **정확히 3단계** 단계별 주관식으로 낸다.
+  //   (이전엔 풀이 4단계 이상을 요구했으나, 기하 서술을 [단계 1]에 흡수해 3단계로 통일했다.)
+  ok("풀이가 정확히 3단계", (s.steps?.length ?? 0) === 3);
+  ok("[단계 1]에 기하(변위 벡터·수직) 서술 보존", /수직/.test(s.steps[0]) && /AP/.test(s.steps[0]));
 }
 
 console.log(`\n결과: ${pass} pass / ${fail} fail`);

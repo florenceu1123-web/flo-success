@@ -1,4 +1,5 @@
 import { getOpenAI, DEFAULT_MODEL } from "@/lib/openai";
+import { STEP_QUESTION_RULE } from "@/lib/format/threeStep";
 import { createLogger } from "@/lib/logger";
 import { SYSTEM_PROMPT } from "@/lib/prompts";
 import type { GenerationMode } from "@/types";
@@ -69,6 +70,7 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
 }
 
 [규칙]
+${STEP_QUESTION_RULE}
 - answer는 솔버 값 그대로. 다른 값으로 바꾸지 마라.
 - solution은 Thevenin 도출 → 최대 전력 조건 → P_max 계산 절차 명시. LaTeX inline 가능.
 - 회로 도식 다시 만들지 마라. 코드가 처리.

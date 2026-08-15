@@ -41,27 +41,40 @@ export type CounterDacComparatorGeneration = {
     V_CC: number;
     V_REF: number;
     R_unit_kohm: number;
-    /** "jk_counter"(임용8 — JK 카운터+비교기) | "d_shift_register"(임용10 — D 시프트레지스터+아날로그 DAC) */
-    structure?: "jk_counter" | "d_shift_register";
-    /** d_shift_register 전용 — 논릿값 1 전압(V) 및 V_o DAC step(V). 비교기 없음. */
+    /**
+     * "jk_counter"(임용8 — JK 카운터+비교기)
+     * | "tff_dac_chain"(임용10 — **T-FF 체인**+아날로그 DAC; 원본은 D 시프트레지스터지만
+     *   사용자 지정으로 T-FF로 출제한다)
+     */
+    structure?: "jk_counter" | "tff_dac_chain";
+    /** tff_dac_chain 전용 — 논릿값 1 전압(V) 및 V_o DAC step(V). 비교기 없음. */
     vLogicHigh?: number;
     vStep?: number;
-    /** 시프트레지스터 입력 A·출력 Q 라벨 (텍스트라이터용) */
+    /** 1 LSB(vStep)의 **분수 표기** — 소수로 적으면 전역 분수 변환기가 표기를 뒤섞는다. */
+    vStepTex?: string;
+    /** T-FF 체인 입력 A·출력 Q 라벨 (텍스트라이터용) */
     qLabels?: string[];
     voFormula?: string;
   };
 };
 
 /**
- * 임용 10번 형식: N-bit D 플립플롭 시프트레지스터 + R-2R DAC + OPAMP(아날로그 버퍼).
+ * 임용 10번 형식: N-bit **T 플립플롭 체인** + R-2R DAC + OPAMP(아날로그 버퍼).
  *
- *  원본 구조: 입력 A → D_0 → D_1 → D_2 (클럭 동기 시프트). Q_0·Q_1·Q_2가 R-2R 사다리로
- *  합산되어 OPAMP를 거쳐 아날로그 출력 V_o(여러 레벨). JK 카운터(토글)와 근본적으로 다름 —
- *  상태는 카운터 순환이 아니라 입력 A의 시프트로 결정. V_o는 0/V_CC 비교기 출력이 아니라
- *  Q들의 가중합 아날로그 전압.
+ *  ★★ **사용자 지정(2026-08-04): 원본의 D 플립플롭 → T 플립플롭으로 출제한다.**
+ *    원본 이미지는 `A → D_0 → D_1 → D_2` 시프트레지스터지만, 생성 문제는 **배선은 그대로 두고
+ *    소자만 T-FF로 교체**한다: `T_0 = A`, `T_b = Q_{b-1}` (공통 클럭 동기).
+ *    ⇒ **Q_b(t+1) = Q_b(t) ⊕ T_b(t)** — D는 `Q←입력`이라 한 클럭 지연일 뿐이지만,
+ *      T는 **여기(excitation) 관계**라 학생이 매 클럭 토글을 추적해야 한다(교육 포인트가 깊어진다).
+ *    ※ 원본 **인식**은 여전히 "D 플립플롭·시프트" 키워드로 한다(원본 이미지가 그렇게 적혀 있다).
+ *      형제 `tff_state_design_input`(임용 12번)과 동일한 선례.
  *
- *  학생 단계(원본 패턴):
- *    [단계 1] (나) ㉠ 구간에서 Q_1의 출력 논릿값을 시간 순서대로 (시프트 추적).
+ *  Q_0·Q_1·Q_2가 R-2R 사다리로 합산되어 OPAMP를 거쳐 아날로그 출력 V_o(여러 레벨).
+ *  JK 카운터(`jk_counter`) 구조와 다름 — 상태가 카운터 순환이 아니라 **입력 A와 토글**로 결정되고,
+ *  V_o는 0/V_CC 비교기 출력이 아니라 Q들의 가중합 아날로그 전압.
+ *
+ *  학생 단계(원본 패턴 유지):
+ *    [단계 1] (나) ㉠ 구간에서 Q_1의 출력 논릿값을 시간 순서대로 (T 여기 추적).
  *    [단계 2] Q_0·Q_1·Q_2에 의한 V_o의 식 (DAC 가중합).
  *    [단계 3] (나) ㉡ 지점의 Q_0·Q_1·Q_2 → V_o[V] 수치.
  */
@@ -83,14 +96,25 @@ export function generateShiftRegisterDac(args: {
     for (let b = 0; b < bits; b++) w += qbits[b] * (1 << b); // Q_0=LSB
     return +(w * vStep).toFixed(4);
   };
-  const voFormula = `V_o = (${Array.from({ length: bits }, (_, b) => `${1 << b}·Q_${b}`).reverse().join(" + ")})·${vStep}`;
+  // ★ 1 LSB(vStep)는 V_high/2^bits라 5/8·5/4처럼 분수가 되기 쉽다. **분수 문자열로 고정**한다 —
+  //   소수(1.25)로 두면 route의 전역 분수 변환기가 **단위 없는 것만** 골라 바꿔
+  //   같은 문항 안에 "1.25"와 "5/4"가 뒤섞인다(실측 E2E).
+  const gcd2 = (x: number, y: number): number => (y === 0 ? x : gcd2(y, x % y));
+  const vStepTex = (() => {
+    const den0 = 1 << bits;
+    const g = gcd2(V_high, den0) || 1;
+    const n = V_high / g, d = den0 / g;
+    return d === 1 ? `${n}` : `${n}/${d}`;
+  })();
+  const voFormula = `V_o = (${Array.from({ length: bits }, (_, b) => `${1 << b}·Q_${b}`).reverse().join(" + ")})×(${vStepTex})[V]`;
 
-  // ─── (가-1) logic_network: D-FF 시프트레지스터 (A→D_0→D_1→…) ──────────
+  // ─── (가-1) logic_network: ★T-FF 체인★ (T_0=A, T_b=Q_{b-1}, 공통 클럭) ──────────
+  //   배선은 원본(시프트레지스터)과 동일하고 소자만 T-FF로 교체한다(사용자 지정).
   const gates: LogicGate[] = [];
   for (let b = 0; b < bits; b++) {
     gates.push({
-      id: `D${b}`,
-      type: "DFF",
+      id: `T${b}`,
+      type: "TFF",
       inputs: [b === 0 ? "A" : `Q_${b - 1}`],
       output: `Q_${b}`,
       clockSignal: "CLK",
@@ -162,9 +186,9 @@ export function generateShiftRegisterDac(args: {
   nodeAnnotations.push({ node: "V_o_node", label: "V_o", style: "label_only" });
   const analogNetlist: CircuitNetlist = { components, ground: "GND", nodeAnnotations };
 
-  // ─── 시뮬레이션: 입력 A 시프트 ─────────────────────────────
+  // ─── 시뮬레이션: T-FF 체인 토글 ─────────────────────────────
   const CYCLES = bits === 2 ? 8 : bits === 3 ? 10 : 12;
-  // 입력 A 패턴 — seed 기반 결정론 비트열 (다양한 시프트 유도). bit 16 추출로 LSB 편향 회피.
+  // 입력 A 패턴 — seed 기반 결정론 비트열 (다양한 토글 유도). bit 16 추출로 LSB 편향 회피.
   const aBit = (t: number): number => {
     const h = (((args.seed ?? 0) + 1) * 0x9e3779b1 + t * 0x85ebca77) >>> 0;
     return (h >>> 16) & 1;
@@ -175,14 +199,15 @@ export function generateShiftRegisterDac(args: {
   if (aSum === 0 || aSum === CYCLES) {
     aSeq = Array.from({ length: CYCLES }, (_, t) => ((t + (args.seed ?? 0)) % 3 === 0 ? 1 : t % 2));
   }
-  // Q 상태 추적 (초깃값 0). 매 클럭: Q_{b}=이전 Q_{b-1}, Q_0=A.
+  // Q 상태 추적 (초깃값 0). ★ T-FF 여기: Q_b(t+1) = Q_b(t) ⊕ T_b,  T_0 = A, T_b = Q_{b-1}.
+  //   ★ 동기 회로이므로 **직전 클럭의 Q 값**으로 모든 단을 동시에 갱신한다(순차 대입 금지).
   const qSeqs: number[][] = Array.from({ length: bits }, () => []);
   const voSeq: number[] = [];
   let q = Array<number>(bits).fill(0);
   for (let t = 0; t < CYCLES; t++) {
     const next = Array<number>(bits).fill(0);
-    next[0] = aSeq[t];
-    for (let b = 1; b < bits; b++) next[b] = q[b - 1];
+    next[0] = q[0] ^ aSeq[t];
+    for (let b = 1; b < bits; b++) next[b] = q[b] ^ q[b - 1];
     q = next;
     for (let b = 0; b < bits; b++) qSeqs[b].push(q[b]);
     voSeq.push(dacValue(q));
@@ -240,7 +265,7 @@ export function generateShiftRegisterDac(args: {
     answer: { Vplus_at_marker, Vo_sequence: voSeq },
     values: {
       bits, V_CC: V_high, V_REF: 0, R_unit_kohm: R,
-      structure: "d_shift_register", vLogicHigh: V_high, vStep, qLabels, voFormula,
+      structure: "tff_dac_chain", vLogicHigh: V_high, vStep, vStepTex, qLabels, voFormula,
     },
   };
 }

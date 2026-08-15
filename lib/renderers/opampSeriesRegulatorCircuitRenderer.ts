@@ -71,7 +71,8 @@ export function renderOpampSeriesRegulatorCircuit(d: D): string {
   p.push(line(FBLX, OPMY, FBLX, MY));           // 좌측 세로 (OPAMP 좌측)
   p.push(line(FBLX, MY, RAX, MY));              // OPAMP 아래 가로 → M
   // 하단 rail
-  p.push(line(VDDX, BOT, RLX, BOT));
+  // ★ 무부하면 하단 레일을 분압기(R_b)까지만 — 부하 자리까지 뻗으면 끝이 떠 있는 배선이 된다(규칙 #1·시각검증).
+  p.push(line(VDDX, BOT, d.noLoad ? RAX : RLX, BOT));
 
   // ── 심볼 ──
   p.push(vSource(VDDX, 200, d.vddLabel));      // V_DD
@@ -81,13 +82,16 @@ export function renderOpampSeriesRegulatorCircuit(d: D): string {
   p.push(npnH(QX, TCY));                        // 수평 NPN 직렬 패스
   p.push(resistorV(RAX, TCY, MY));              // R_a
   p.push(resistorV(RAX, MY, BOT));              // R_b
-  p.push(resistorV(RLX, TCY, BOT));             // R_L
+  // ★ noLoad(무부하) — 원본 동작 판정형은 출력 단자가 개방이다. 미지정이면 기존과 동일.
+  if (!d.noLoad) p.push(resistorV(RLX, TCY, BOT));             // R_L
   if (d.raUnknown) p.push(unknownBoxV(RAX, (TCY + MY) / 2));
 
   // ── 노드 dot ──
   p.push(dot(ZX, TCY), dot(ZX, VPY));
-  p.push(dot(RAX, TCY), dot(RLX, TCY), dot(RAX, MY));
-  p.push(dot(ZX, BOT), dot(RAX, BOT), dot(RLX, BOT), dot(VDDX, BOT));
+  p.push(dot(RAX, TCY), dot(RAX, MY));
+  if (!d.noLoad) p.push(dot(RLX, TCY));
+  p.push(dot(ZX, BOT), dot(RAX, BOT), dot(VDDX, BOT));
+  if (!d.noLoad) p.push(dot(RLX, BOT));
 
   // ── 라벨 ──
   // R_s (제너 위 바이어스 저항)
@@ -103,8 +107,10 @@ export function renderOpampSeriesRegulatorCircuit(d: D): string {
   p.push(text(RAX + 15, (MY + BOT) / 2 - 6, "R_b", { size: 12, weight: 600, anchor: "start" }));
   p.push(text(RAX + 15, (MY + BOT) / 2 + 10, d.rbLabel, { size: 11, anchor: "start" }));
   // R_L
-  p.push(text(RLX + 15, (TCY + BOT) / 2 - 6, "R_L", { size: 12, weight: 600, anchor: "start" }));
-  p.push(text(RLX + 15, (TCY + BOT) / 2 + 10, d.rlLabel, { size: 11, anchor: "start" }));
+  if (!d.noLoad) {
+    p.push(text(RLX + 15, (TCY + BOT) / 2 - 6, "R_L", { size: 12, weight: 600, anchor: "start" }));
+    p.push(text(RLX + 15, (TCY + BOT) / 2 + 10, d.rlLabel, { size: 11, anchor: "start" }));
+  }
   // 제너 라벨
   p.push(text(ZX - 16, 328, "V_z", { size: 12, weight: 600, anchor: "end", fill: BLUE }));
   p.push(text(ZX - 16, 344, d.vzLabel, { size: 11, anchor: "end" }));
@@ -122,8 +128,10 @@ export function renderOpampSeriesRegulatorCircuit(d: D): string {
   p.push(arrowD(RAX - 22, TCY + 16));
   p.push(text(RAX - 34, TCY + 32, "I_f", { size: 12, weight: 600, anchor: "end", fill: PURPLE }));
   // I_L (부하 R_L)
-  p.push(arrowD(RLX - 22, TCY + 16));
-  p.push(text(RLX - 34, TCY + 32, "I_L", { size: 12, weight: 600, anchor: "end", fill: RED }));
+  if (!d.noLoad) {
+    p.push(arrowD(RLX - 22, TCY + 16));
+    p.push(text(RLX - 34, TCY + 32, "I_L", { size: 12, weight: 600, anchor: "end", fill: RED }));
+  }
 
   // 접지
   p.push(gndSymbol(400, BOT));
@@ -148,8 +156,10 @@ function vSource(cx: number, cy: number, label: string): string {
 }
 function zener(cx: number, cy: number, _label: string): string {
   // 제너 다이오드 — 삼각형(cathode 위) + 꺾인 bar. cathode(cy-14) → anode(cy+14).
+  // ★ 꼭짓점은 **위(cy-h)** — bar(캐소드)가 붙는 쪽이 꼭짓점이다(zenerBjtRegulator와 같은 오류를
+  //   공유하고 있었다, 2026-08-04). 기준 전압원이므로 캐소드가 위(R_s 쪽)여야 항복 동작이 맞다.
   const h = 14;
-  const tri = `<polygon points="${cx},${cy + h} ${cx - 10},${cy - h} ${cx + 10},${cy - h}" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
+  const tri = `<polygon points="${cx},${cy - h} ${cx - 10},${cy + h} ${cx + 10},${cy + h}" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
   const bar = `<line x1="${cx - 11}" y1="${cy - h}" x2="${cx + 11}" y2="${cy - h}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>` +
     `<line x1="${cx - 11}" y1="${cy - h}" x2="${cx - 15}" y2="${cy - h - 5}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>` +
     `<line x1="${cx + 11}" y1="${cy - h}" x2="${cx + 15}" y2="${cy - h + 5}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;

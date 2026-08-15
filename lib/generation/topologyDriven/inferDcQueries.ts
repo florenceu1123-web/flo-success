@@ -21,7 +21,10 @@ export function inferDcQueries(analysis: AnalysisResult): DcQuery[] {
     analysis.interpretation ?? "",
     (analysis.relatedConcepts ?? []).join(" "),
     condText,
-  ].join(" ");
+  ].join(" ")
+    // ★ Vision이 유니코드 첨자(I₁·V₂)를 쓰는 회차가 있다(실측) → ASCII로 정규화한 뒤 매칭한다.
+    //   정규화하지 않으면 라벨이 "I"로 뭉개져 두 질문("I₁"·"I₂")이 구분되지 않는다.
+    .replace(/[₀-₉]/g, (ch) => String("₀₁₂₃₄₅₆₇₈₉".indexOf(ch)));
 
   const queries: DcQuery[] = [];
 
@@ -72,6 +75,29 @@ export function inferDcQueries(analysis: AnalysisResult): DcQuery[] {
     } else if (rPowerGeneric) {
       // 대상 미지정 — pipeline이 기본 대상(전원 직렬 저항/첫 R)으로 fallback.
       queries.push({ kind: "resistorPower", resistorId: "__rdefault__", label: "P" });
+    }
+  }
+
+  // 2c) ★ 특정 저항에 흐르는 전류 — "저항 4[kΩ]에 흐르는 전류 I₁" (임용 3번 회로이론류).
+  //   universal_dc가 원래 node 전압·전력·역산 R만 지원해 이 형식이 **query 0개 → 빈 문제**로
+  //   생성되던 것을 흡수한다([[feedback_universal_path]] — archetype 추가 대신 universal 보강).
+  //   대상 저항은 값(N Ω/kΩ)으로 지목 → "__rvalue:N" placeholder (resistorPower와 동일 규약).
+  //   ★ 단위는 kΩ·MΩ도 인정하되 **값 자체(4·3)로 매칭**한다 — netlist가 같은 단위계를 쓰기 때문.
+  {
+    const seenR = new Set<string>();
+    const re = /(?:저항\s*)?(\d+(?:\.\d+)?)\s*\[?\s*(?:k|M)?\s*(?:Ω|옴|ohm)\s*\]?\s*(?:저항)?\s*(?:에|을|를|에서)?\s*(?:흐르는|통과하는|지나는)\s*전류\s*(?:는\s*)?([IiＩ][_]?\s*[0-9a-zA-Z]{0,2})?/gi;
+    for (const m of text.matchAll(re)) {
+      const val = m[1];
+      if (seenR.has(val)) continue;
+      seenR.add(val);
+      // "I1"→"I_1", "I_2"→그대로, 맨 "I"→"I", 없으면 저항값으로 구분("I(4)").
+      const raw = (m[2] ?? "").replace(/\s+/g, "");
+      const label = !raw
+        ? `I(${val})`
+        : /^[IiＩ]$/.test(raw)
+          ? "I"
+          : raw.includes("_") ? raw : raw.replace(/^([IiＩ])/, "$1_");
+      queries.push({ kind: "resistorCurrent", resistorId: `__rvalue:${val}`, label });
     }
   }
 

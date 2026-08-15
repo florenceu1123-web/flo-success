@@ -443,6 +443,28 @@ route의 `detectXxx` 안전망은 "generic 경로로 떨어진 경우 구제"가
 - ✅ **각도는 예외** — `158.199°`는 그대로(페이저 위상은 소수 표기가 관례).
 - ✅ 본문·조건은 **건드리지 않는다** — 주어진 소자 값(0.7V·0.2µF)은 소수 표기가 관례다.
 - 검증: `scripts/smokeFractionText.mjs` **16/16**.
+- ★★ **생성기가 값을 반올림해서 넘기면 이 변환기가 틀린 분수를 "복원"한다** (2026-08-04 실측):
+  `extractTheveninNetlist`가 `round3`로 P_max를 **0.289**로 만들어 넘겼더니 2단계(근사 복원)가
+  **9/31**(≈0.29032)을 골랐다 — 실제 값은 **81/280**(≈0.28929)이고 오차 1.0e-3이 허용치 1.5e-3 안이라
+  조용히 통과했다(정답이 틀린 채로 사용자 화면까지 갔다).
+  ⇒ **생성기는 반올림하지 말고 정확한 실수를 그대로 둔다** — 그러면 1단계(정확, 분모 ≤ 400)가 맞게 찾는다.
+  표시용으로 미리 분수를 확정할 땐 `decimalToFraction(x, 400, **0**)`처럼 **근사 단계를 끈다**
+  (approxDen=0). 근사 복원은 "이미 반올림된 값"에만 의미가 있고, 정확한 값에 쓰면 값을 망친다.
+
+## 1-4-5. **미지 소자를 기호로 들고 있는 유형**은 인벤토리 기호 값이 최후의 판별선 (2026-08-04 실측)
+사용자 신고("원본과 많이 다르다 / 두 번째 그림인 그래프도 없다"): 임용 9번(종속전원 테브난 + V-I 그래프)에서
+로그가 `withGraph:false, hasUnknownR:false` — **(나) 그래프가 통째로 빠지고, [단계 1]에서 학생이 구해야 할
+미지 저항 R에 값(3Ω)이 그대로 노출**됐다. 그림만 봐도 답이 보이는 문항이 나간 것이다.
+- 원인: `originalHasViGraph`가 **낱말**(그래프·(나)·I_sc·절편)에만 걸려 있었는데, Vision이 그 회차에
+  하나도 쓰지 않았다. 같은 원본의 다른 회차 요약엔 "그래프"가 멀쩡히 있었다(비결정성).
+- ✅ 구조 신호 추가: **인벤토리에 값이 기호인 저항**(`{type:"R", value:"R"}`)이 있으면 이 형식이다.
+  그 저항값을 (나) 그래프의 절편으로 역산하는 것이 문항의 뼈대라, 표현이 어떻게 흔들려도 남는다.
+  ※ 전원(V·I) 값은 제외한다 — 페이저 표기가 기호처럼 보인다.
+- ★ 일반화: `ac_thevenin_design_ab`(a·b)와 **완전히 같은 교훈**이다 — 미지 소자를 기호로 들고 있는 유형은
+  Vision이 요구 문장을 흘려도 **인벤토리의 기호 값**만은 남는다. 낱말 조건 옆에 항상 이 신호를 함께 둘 것.
+- 검증: `scripts/smokeTheveninViGraphSignal.mjs` **10/10**(신고 회차 재현 4 + 낱말 경로 무회귀 2 + 음성 4) /
+  `smokeOriginalRouting` 54/54 / **신고 회차 재현 E2E**: (나) 그래프 복귀 · R이 "R"로 표기 · i_x 화살표 표시 ·
+  정답 손검산 일치(V_th=15/4·R_th=11/2·I_sc=15/22·P_max=225/352).
 
 ## 1-4-4. 개념형 가드는 **도출·설계 구조 신호에 양보**한다 (2026-07-29, 실측 2건)
 "법칙/원리" 낱말 때문에 계산·설계 문항이 개념 명칭형(`unsupported` → 텍스트 경로)으로 잡혀
@@ -543,6 +565,100 @@ analyze+generate 1회에 Vision·GPT가 여러 번 호출된다. 반복 검증�
 # 프로젝트 전반 절대 규칙
 0. **구조·원리 유사성** — 생성하는 모든 문제는 원본의 구조와 원리를 반드시 유지한다. 같은 학습 목표를 시험. 모드는 변형 강도만 조절.
 0. **규칙 기반 생성 (예시 기반 금지)** — 박혀 있는 "문제 예시"를 베끼지 말 것. 출제 규칙(KVL, 등가변환, 노드해석 등)을 원본에 적용해서 새로 만든다. 양식·포맷의 "적용 예시"는 참고 가능.
+0. ★★ **객관식 원본 → 3단계 단계별 주관식** (사용자 지정 2026-08-12) — 아래 전용 섹션 참조.
+
+# 🚨 절대 원칙 — 객관식 원본은 **3단계 단계별 주관식**으로 출제 (2026-08-12 사용자 지정)
+
+원본이 보기 ①~⑤ 중 하나를 고르는 **객관식**이면, 생성물은 **예외 없이**
+〈해석 절차〉 **[단계 1] → [단계 2] → [단계 3]** 의 단계별 주관식(서술형)으로 낸다.
+구조·원리·학습 목표는 원본 그대로 유지하고(절대규칙 0) **형식만** 바꾼다 — 답 고르기 → 과정 서술.
+
+## 표준 3단계 분해
+```
+[단계 1] 적용할 법칙·식을 기호로 세운다           (예: E = kQ/r², C = ε₀ε_rA/d, Z_TH = …)
+[단계 2] 중간량을 구한다                          (단위 환산·중간 물리량·중간 결과)
+[단계 3] [단계 1]의 식에 대입해 최종 값을 단위와 함께 구한다
+```
+원본이 이미 여러 값을 순서대로 묻는다면 **그 순서를 단계로 쪼갠다**(억지로 새 요구를 만들지 않는다).
+
+## 구현 (계약을 한 곳에서 정의 — 유형마다 문구를 새로 쓰면 반드시 어긋난다)
+- `lib/format/threeStep.ts` — `buildStepQuestion`/`buildStepAnswer`(조립), `isThreeStepText`/`countStepMarkers`(검사),
+  `hasChoiceList`(생성물 **엄격** 판정), `looksLikeChoicePrompt`(원본 **민감** 판정), `MULTIPLE_CHOICE_TO_THREE_STEP_RULE`(GPT 프롬프트 문구).
+- `lib/analysis/multipleChoice.ts` — `detectMultipleChoiceOriginal(analysis)`. 세 갈래 신호(원문자 마커 2개+·선택 요구 문구·형식 언급)
+  중 하나만 맞아도 객관식으로 본다(Vision 요약이 흔들려도 잡히도록 — CLAUDE.md 규칙 2).
+- **결정론 경로(EM 레지스트리 등)**: 생성기가 코드로 3단계를 보장한다. `threeStepBlock({ask,ans,sol}×3)` 헬퍼로 조립.
+- **GPT 경로**(system prompt·c_language·communications·pedagogy): 프롬프트에 계약 주입.
+- **검증기**(`validateProblem`): `multiple_choice_output`(생성물이 다시 객관식) ·
+  `missing_three_step_question`(객관식 원본인데 발문이 3단계 아님)을 **보고**한다(차단 아님 — 조용한 실패 방지).
+
+## ★ 판정 강도를 용도별로 다르게 둔다 (실측 오탐)
+- **생성물 검사는 엄격하게**: "…변화로 **옳은 것을** 〈해석 절차〉에 따라 구하시오"는 **서술형**이다.
+  낱말 "옳은 것"만으로 잡았더니 `active_lowpass_filter`가 위반으로 찍혔다 → 고르는 행위(고르시오·고른 것은·보기 중)
+  또는 **물음표로 끝나는** 선택 발문, 또는 원문자 3개 이상만 위반으로 본다.
+  (그 파이프라인의 남은 객관식 어투도 함께 서술형으로 고쳤다.)
+- **원본 판정은 민감하게**: 놓치면 계약이 아예 발동하지 않으므로 낱말만으로도 인정한다.
+
+## ★★ 후속 (2026-08-12, 같은 날 2차 신고) — **발문만 단일 물음**인 generic 경로
+사용자 신고: *"해설은 단계별로 되어있는데, 문제는 단계별로 안되어 있어 / 근데 질문은 Vdc값과 Vrms값 두개만 물어봐"*
+(주기 신호 v(t)=3sin²(…)의 직류값·실효값 문항, `circuitType=unsupported` → **generic GPT 경로**).
+- **원인은 프롬프트 예시였다**: 각 generic 텍스트 라이터(`lib/generation/topologies/*TextWriter.ts`)의
+  `[출력 JSON]` 예시가 `"question": "…를 구하시오 (한 문장)"`이라 **가까이 있는 예시가 SYSTEM_PROMPT의
+  3단계 규칙을 이겼다**. 해설은 단계별로 쓰면서 발문만 한 줄인 문항이 그대로 나갔다.
+- ✅ 조치 3겹:
+  ① `STEP_QUESTION_RULE`(`lib/format/threeStep.ts`)을 **16개 라이터의 `[규칙]` 블록 첫 줄**에 주입 —
+    예시 **뒤에** 오는 규칙이 예시를 덮어쓴다. "묻는 양이 1~2개여도 [단계 1]에 정의식 세우기를 넣어 3단계로".
+  ② 검증기 `question_not_step_wise` — 정답·풀이가 [단계 N]인데 발문에 없으면 위반. **critical**로 올려
+    GPT 경로가 재생성하게 한다(`_core`의 CRITICAL_RULES).
+  ③ SYSTEM_PROMPT에 [발문↔정답 단계 일관성] 절 추가(본문 끝 문장과 발문 중복 금지 포함 — 실측 화면에 중복이 있었다).
+- ❌ **역방향(발문 3단계 + 정답 한 줄)은 규칙으로 만들지 않는다**: `rlcStep`처럼 솔버가 정답을
+  한 줄로 확정(`enforcedAnswer`)하는 경로가 많아 정상 동작이 위반으로 찍힌다(실측 smokeAll **29/40**으로 하락).
+  프롬프트로만 권한다. ★ 교훈: **텍스트 규칙을 critical로 올릴 땐 그 텍스트를 GPT가 실제로 바꿀 수 있는지**
+  먼저 확인할 것 — 코드가 확정하는 필드에 critical을 걸면 재시도만 3회 소모하고 그대로 실패한다.
+- 검증: `smokeAll` **40/40**(주입 전 33·역방향 규칙 시절 29) · 재현 확인(rlc_step·thevenin 발문이 3단계로 전환).
+
+## 주기 신호 → 직류값 V_dc·실효값 V_rms (임용 36번 회로이론 — `periodic_signal_dc_rms`) 전용 archetype
+
+- 원본: `v(t) = 2cos²(1000πt + π/2) [V]`의 **V_dc와 V_rms를 고르는 객관식**(정답 ① V_dc=1, V_rms=√(3/2)).
+  ★★ **회로도 그림도 없다** — 수식 한 줄이 전부다.
+- ★ 물리(닫힌형, GPT 없음): cos²θ=(1+cos2θ)/2 → `v(t) = m + m·cos(2ωt+2φ)`, m=A/2.
+  **V_dc = m**, `mean(v²) = m² + ½m² = (3/2)m²` → **V_rms = m√(3/2)**. 답은 **ω·φ에 무관**하다(원본이 φ=π/2를 준 이유).
+- ★★ **generic 경로 두 개가 번갈아 가로챘다**(사용자 신고 2026-08-12):
+  ① 인벤토리가 비니 `unsupported` → **개념 명칭형**이 가져가 *"㉠, ㉡에 해당하는 원리의 이름을 쓰시오"* 생성,
+  ② 회로 경로로 가면 원본에 **없는 R₁·R₂·V₁ netlist**를 지어내 "직류값·실효값"만 겨우 남은 문항이 됐다.
+  ⇒ 회로 솔버로 흡수 불가한 **수식 도메인**이라 전용 archetype이 정당하다([[feedback_universal_path]]의 예외,
+  `logic_condition_sop`(그림 없는 디지털) 선례). 분류기 **0-PRE는 개념 명칭형 가드보다도 앞**,
+  route dispatch도 **개념 명칭형 분기 앞**에 둔다.
+- 모드: **exam_similar**=원본 형태(A·cos²/sin², 원본이 sin²이면 `trigFnFromAnalysis`로 표기 보존) /
+  **exam_variant**=**두 가족을 번갈아** 낸다(사용자 지정 2026-08-12 "sin² 함수로도 만들어서 내줘"):
+  · index 짝수 → **삼각함수 교환** `A·sin²(ωt+φ)`(원본이 sin²이면 cos²) — 항등식이
+    `sin²θ=(1−cos2θ)/2`로 바뀌어 [단계 1]의 부호가 달라진다. 값 풀은 유사와 겹치지 않게 A∈{4,6,8,10}.
+  · index 홀수 → 직류 오프셋 정현파 `B + A·cos(ωt+φ)` → V_dc=B, V_rms=√(B²+A²/2).
+  ★ 가족 선택에 **seed를 섞지 마라**: `generateInParallel`이 `seed = base + i·7919`를 주는데 7919+1이 짝수라
+    `(i+seed)` 패리티가 i에 무관해져 **한 배치가 통째로 한 가족**으로 나왔다(실측 count=3 → 3개 다 오프셋).
+    가족은 **index만**으로 정한다.
+- ★ 값은 규칙 열거+필터: 유사는 **A 짝수**(V_dc 정수), 변형은 **B²+A²/2가 정수**이고 근호가 깔끔한 것만.
+  **원본 튜플(A=2, ω=1000π, φ=π/2) 제외**.
+- ★ 표기 gotcha 2건(둘 다 실측): ① 위상 2배를 **약분**할 것(π/6 → `2π/6`으로 찍혔다),
+  ② LaTeX 조각은 반드시 `\( \)` 안에 — 밖에 두니 `\,[\mathrm{V}]`가 화면에 원문으로 나왔다.
+  √(3/2)는 소수로 쓰지 않는다(전역 분수 변환기가 뭉갠다 — 1-4-3).
+- figure 없음: route에서 `requiredFigureRoles=[]`로 해제(개념 명칭형과 같은 처리). validator는 figs=0이면 missing_topology 미발화.
+- 파일: `lib/generation/topologies/periodicSignalDcRms.ts`(생성기 + 공용 매처)·
+  `lib/pipeline/runPeriodicSignalDcRmsPipeline.ts`(3단계 + `detectPeriodicSignalDcRms`).
+  types·classifier(0-PRE)·route(figure 면제 + dispatch)·`smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 / `scripts/smokePeriodicSignalDcRms.mjs` **178/178**(라우팅 4종+3과목 + 형제 양보 6종 +
+  **생성물 48개를 수치 적분으로 독립 재검산** + 원본 값 재현·원본 튜플 미생성 + 위상 약분·LaTeX 노출 0 +
+  3단계·그림 없음) / `smokeOriginalRouting` **59/59** / `smokeConceptNamingStructural` 18/18 무회귀 /
+  **원본 이미지 E2E 양모드 issues=0**(유사 V_dc=1·V_rms=√(3/2), 변형 V_dc=2·V_rms=2√3 — 수치적분 일치).
+
+## 적용 결과 (2026-08-12)
+- EM 레지스트리 **40항목 전부** 3단계로 통일 — 그 전에는 21항목이 단일 발문("…를 구하시오.")이었다.
+  임용 전자기학 기출은 대부분 객관식이라 이 도메인에 몰려 있었다.
+- 회로·디지털 전용 archetype은 이미 3단계였다(logic_condition_sop·active_lowpass_filter·function_generator·
+  zener_bjt_regulator·opamp_series_regulator·bjt_characteristic_curve 등 확인).
+- 검증: `scripts/smokeThreeStepMultipleChoice.mjs` **113/113**
+  (EM 40항목×18조합=720건 3단계·보기 0 + 헬퍼 경계 + 감지기 양·음성 + 검증기 발화/미발화 + 임용 24번 물리 재검산) /
+  `smokeOriginalRouting` 58/58 · EM 형제 스모크 전부 무회귀 · `smokeAll` 40/40 · tsc 0.
+- ※ `smokeTwoPointCharges`의 "풀이 4단계 이상" 단언은 계약에 맞춰 **정확히 3단계**로 갱신했다.
 
 # 🚨 회로 생성기 Core Rule (모든 회로 공통, 위반 시 reject)
 
@@ -662,6 +778,32 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
   2. (나)의 특정 시점 t에서 비교기 입력 단자 중앙(+) 전압
   3. (가)의 V_o 출력 파형 도시
 
+## tff_dac_chain (임용 10번 — FF 체인 + R-2R DAC + OPAMP) — ★ **D 플립플롭 → T 플립플롭** (2026-08-04 사용자 지정)
+- 원본: 입력 A가 **D 플립플롭 3개(D_0~D_2)** 를 거쳐 시프트되고, Q_0·Q_1·Q_2가 R-2R 저항망 + 연산증폭기로
+  아날로그 V_o가 된다. 〈해석 절차〉 [1] ㉠ 구간의 Q_1 논릿값(시간순) [2] Q들에 의한 V_o 식 [3] ㉡ 지점의 V_o.
+- ★★ **사용자 지정: 배선은 그대로 두고 소자만 T-FF로 교체해 출제한다** — `T_0 = A`, `T_b = Q_{b-1}`, 공통 클럭.
+  · D-FF는 `Q ← 입력`이라 **한 클럭 지연**일 뿐이지만, T-FF는 **여기(excitation)** 라
+    **Q_b(t+1) = Q_b(t) ⊕ T_b(t)** 로 학생이 매 클럭 토글을 추적해야 한다(교육 포인트가 깊어진다).
+  · 원본 **인식**은 여전히 `D 플립플롭·시프트` 키워드로 한다(원본 이미지가 D-FF다). 생성물만 T-FF.
+    형제 `tff_state_design_input`(임용 12번)과 같은 선례.
+- ★ **동기 회로다 — 갱신에 반드시 직전 클럭의 Q를 쓴다**: `next[0]=q[0]^A; next[b]=q[b]^q[b-1]`.
+  한 단씩 순차 대입하면(이미 갱신된 값을 다음 단에 쓰면) 리플 회로가 되어 답이 달라진다.
+- ★ 구조 키를 `d_shift_register` → **`tff_dac_chain`** 으로 개명했다(내부 4곳). 이름이 동작과 어긋나면
+  다음 사람이 시프트 동작으로 착각한다 — 이 저장소에서 반복된 사고.
+- ★ **표기 gotcha**: 1 LSB = V_high/2^bits라 5/8·5/4 같은 분수가 되는데, 소수(1.25)로 적으면
+  route의 전역 분수 변환기(1-4-3)가 **단위 없는 것만** 골라 바꿔 같은 문항에 `1.25`와 `5/4`가 뒤섞인다(실측).
+  → `vStepTex`(기약분수 문자열)를 generation.values에 실어 **모든 표기를 분수로 통일**한다.
+  (`8.75[V]`처럼 단위가 붙은 값은 변환기가 건드리지 않으므로 그대로 둔다.)
+- 파일: `lib/generation/topologies/counterDacComparator.ts`(`generateShiftRegisterDac` — TFF 게이트 + 토글 시뮬)·
+  `shiftRegisterDacTextWriter.ts`(T-FF 여기 서술 + ㉠ 구간 Q_1 열·㉡ 논릿값을 **정답 파형에서 직접 추출**)·
+  `runCounterDacComparatorPipeline.ts`(figure 라벨). 렌더러는 **기존 것 재사용** — `logicNetworkRenderer`가
+  `TFF`를 이미 지원해 T 핀으로 그린다.
+- 검증: tsc 0 · eslint 0 / `scripts/smokeTffDacChain.mjs` **17/17**(게이트 구조 8 +
+  **A 입력열로 T-FF 체인을 독립 시뮬레이션해 Q·V_o 재검산**(24시드×2모드) + ★D-FF 시프트와 다름★ 단언 +
+  D-FF/시프트 표기 잔존 0 + 정답↔파형 일치(Q_1 열·㉡ 논릿값·V_o) + 소수 표기 0 + JK 형제 무영향) /
+  `smokeOriginalRouting` 53/53 · `smokeTff3AutonomousCounter` 52/52 무회귀 /
+  **원본 이미지 E2E issues=0**(Q_1 : 0→0→1→0→0→1→1, ㉡ Q=111 → V_o=8.75V — 손검산 일치) / Chrome 시각검증.
+
 # 회로 유형별 생성 규칙 (Circuit-Type Rules)
 
 ## RL/RC 스위칭 과도응답 (예: 임용 2번 — V_s+SW+R+L 직렬, v_L(t) 측정)
@@ -779,19 +921,311 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 ## AC+DC 중첩 RC 회로, 스위치 없음 (임용 12번 회로이론 — `acDcSuperpositionRc`) 전용 archetype
 - 원본: 교류 전원 v(t)=A√2·cos(ωt) + 직류 전원 V_dc가 포함된 **RC 회로**(스위치 없음)를 **중첩의 원리**로 해석. 단자 a·b, i_ab(a→b)·I_DC 측정.
 - ★ 위 acDcSuperposition(스위치+RL 단일루프)과 **구조가 다름** — 흡수 불가. generic universal_ac 추출은 두 전원 병합·DC 소실 → 전용 고정 토폴로지 archetype.
-- **고정 토폴로지** (사용자 원본 이미지 확정, 4 노드 a·b·c·g): `g─v(t)─C─a` / `a─[R₃∥R₄]─c` (★ **a–c 사이 R₃∥R₄ 병렬**) / `c─R₅─g` (우측 세로) / `a─20V─b─(도선)─g` (중앙, b 바닥 접지선 직결). i_ab=a→b, I_DC=b.
-- **닫힌형 해** (Rp=R₃∥R₄): [DC] C 개방→직렬 루프 V_dc·Rp·R₅ → I_DC=V_dc/(Rp+R₅) (=i_ab(DC)), I_R₄(DC)=I_DC·R₃/(R₃+R₄). [AC] ★ **20V 단락이 점 a를 접지에 클램프**(이상 전압원=AC 단락) → R₃∥R₄ 양단 0 → **I_R₄(AC)=0** (교육 포인트). 모든 교류는 20V 가지로: i_ab(AC)=V_peak/|Z_C|=V_peak·ωC. [전체] R₄ 최대=I_R₄(DC)+0.
+- **고정 토폴로지** (★ 2026-08-05 원본 이미지를 **확대해 재확정** — [[feedback_verify_wiring_by_zoom]]):
+  `g─v(t)─C─a` / `a─[R₂∥R₃]─c`(상단 병렬쌍 2kΩ∥2kΩ) / `c─R₄─g`(우측 세로 1kΩ, **문항이 묻는 저항**) /
+  `a─20V─**R₁(2kΩ)**─b─g`(중앙: 직류 전원 **아래 직렬 저항**). i_ac = C→a 유입 전류, I_DC = b 지점.
+- ★★ **이전 기록·구현에는 R₁이 통째로 빠져 있었다** (사용자 신고 2026-08-05 "직류 전압원 아래 저항만 하나
+  직렬로 추가하면 원본과 같을 것 같아"). R₁이 없으면 교류에서 이상 전압원이 **점 a를 접지에 그대로 클램프**해
+  `I_R₄(AC)=0`이 되고 [단계 1]의 둘째 물음이 무의미해진다. 또 문항이 묻는 **R₄는 병렬쌍의 한쪽이 아니라
+  우측 세로 저항**이다(원본 라벨). 두 오류가 함께 있어 생성물의 회로·정답이 모두 원본과 달랐다.
+- **닫힌형 해** (Rp=R₂∥R₃, S=Rp+R₄, Z_R=R₁∥S):
+  [DC] C 개방 → **단일 직렬 루프** V_dc·R₁·Rp·R₄ → **I_DC=V_dc/(R₁+Rp+R₄)**, R₄가 직렬이므로 **I_R₄(DC)=I_DC**.
+  [AC] 20V 단락 → a에서 본 저항 Z_R → **i_ac=V_peak/√(X_C²+Z_R²)**, 전류분배 **I_R₄(AC)=i_ac·R₁/(R₁+S)**.
+  [전체] R₄ 최대 = I_R₄(DC)+I_R₄(AC).
+  원본 검산: R₁=2k·Rp=1k·R₄=1k·X_C=1k → **I_DC=5mA · i_ac=10mA · I_R₄(AC)=5mA · 전체 10mA**.
+- ★ 값 설계 규칙: **R₁ = S(=Rp+R₄)** 이고 **X_C = Z_R = S/2** 로 두면 네 답이 전부 정수 mA로 떨어진다.
+- ★ 표기 gotcha: 풀이에 V_peak를 십진수로 적으면 전역 분수 변환기(1-4-3)가 `8.485 → 1697/200`으로 뭉갠다(실측)
+  → **`6√2` 형태로** 적는다. 렌더러의 i_ac 화살표도 원본처럼 **가로 방향**(C→a)이어야 한다(세로로 그리면 DC 가지 전류로 읽힌다).
+- 검증: `scripts/smokeAcDcSuperpositionRcTopology.mjs` **12/12**(R₁ 존재·48개 독립 재검산·**I_R₄(AC)≠0**·
+  값 0.5mA 배수·원본 값 재현·렌더 구조(저항 4개·R₁/R₂/R₃/R₄ 이름·옛 R₅ 제거)) / `smokeOriginalRouting` 56/56 /
+  tsc 0 / **원본 이미지 E2E** issues 없음 + 헤드리스 Chrome 시각검증(원본 배치 재현).
+- ⚠️ **미완**: 변형(쌍대 RL) 경로 `generateAcDcSuperpositionRcDual`·`acDcSuperpositionRcDualCircuitRenderer`는
+  **아직 R₁ 이전 토폴로지의 쌍대**다(R₁의 쌍대인 병렬 저항이 빠져 있다). 유사 경로와 짝을 맞추려면 함께 고쳐야 한다.
 - ★ **생성기**: 사전검증 PARAM_SETS(첫 세트=원본값 10√2·20V·0.2µF·2k∥2k·1k). DC 정수 mA + i_ab(AC)=정수·√2 mA. (`generateAcDcSuperpositionRc`, GPT 없음.)
 - ★ **기출변형유형 = 쌍대(dual) 회로** (`generateAcDcSuperpositionRcDual`, diagramType `ac_dc_superposition_rc_dual_circuit`): V↔I, R↔1/R, C↔L, 직렬↔병렬 (스케일 R₀=1kΩ). 전류원 i(t)∥L + 직류 전류원 + 직렬 R₃+R₄ + 병렬 R₅, **전압 측정**(v_ab·V_DC·V_R₄). 해석도 쌍대: [DC] L단락, [AC] 직류 전류원 개방→V_R₄(AC)=0. 답은 원본의 mA→V 거울. `runUniversalAcPipeline`에서 `mode==="exam_variant"`면 dual 경로.
 - 분류: classifier 0-PRE-AC-DC-SUPER-RC (switch 분기보다 먼저) — I=0 + C>0 + AC신호(텍스트/inv) + **DC 전압원(hasDcVSource) + 스위치 없음** → `universal_ac` + `params.acDcSuperpositionRc`. ★ V≥2 의존 금지(Vision이 AC 소스 누락해 V=1인 경우 잦음 — DC는 inventory, AC는 텍스트로 교차 감지). route는 topologySignature 불필요 + isAcDcSuperposition 가드 포함(정상상태).
 - 렌더러 `acDcSuperpositionRcCircuitRenderer.ts`(유사)·`acDcSuperpositionRcDualCircuitRenderer.ts`(변형), index.tsx + validateProblem `CIRCUIT_FIGURE_TYPES` 둘 다 등록. 저항·인덕터 지그재그/코일.
 
+## 점선 박스 2개(전압원망 a-b + 전류원망 c-d) 병렬 + R_L 최대평균전력 (임용 10번 회로이론 — `ac_thevenin_two_box`) 전용 archetype
+- 원본: **점선 박스 2개**가 각각 두 단자를 내놓고(위=a·b, 아래=c·d), **a–c·b–d로 접속**되어 두 회로망이
+  **병렬**로 순저항 부하 R_L을 구동. 〈해석 절차〉 [1] 단자 a-b에서 **전압원망**을 본 Z, [2] 단자 c-d에서
+  **전류원망**을 본 V_th(페이저), [3] R_L과 P_max.
+- 고정 토폴로지: 위 `V_s∠0° — R₁ — 마디 m — jX_L1 — a`, `m ↓ −jX_C1 ↓ 접지(b)` /
+  아래 `I_s∠0° ↑ 마디 n`, `n ↓ (R₂ ∥ jX_L2) ↓ 접지(d)`, `n — −jX_C2 — c`.
+- ★ 물리(닫힌형, GPT 없음): Z₁ = jX_L1 + (R₁∥−jX_C1), V₁ = V_s·(−jX_C1)/(R₁−jX_C1) /
+  Z₂ = −jX_C2 + (R₂∥jX_L2), V₂ = I_s·(R₂∥jX_L2). 병렬이므로 **Z_th = Z₁∥Z₂**,
+  **V_th = (V₁/Z₁ + V₂/Z₂)·Z_th**. R_L = |Z_th|, P_max = |V_th|²·R_L/((R_th+R_L)²+X_th²).
+  원본 검산(1V·100·100·j50 / 0.01A·100·j100·−j50): Z₁=Z₂=50Ω, V₁=0.5−j0.5, V₂=0.5+j0.5
+  → **Z_th=25Ω · V_th=0.5∠0°V · R_L=25Ω · P_max=2.5mW**.
+- ★★ **결합 방식을 원본 이미지 확대로 확정했다** — 처음엔 단자 나열만 보고 **직렬(b–c 접속)**로 읽었으나,
+  우측 배선을 6배 확대해 보니 **a에서 나온 도선이 R_L 위쪽과 c로, R_L 아래쪽이 b·d로** 간다(병렬).
+  두 해석은 R_L이 100Ω↔25Ω로 갈린다(P_max는 우연히 둘 다 2.5mW라 답만 봐선 구별이 안 된다).
+  ⇒ **결합 방식이 답을 가르는 회로는 텍스트 요약이 아니라 원본 픽셀을 확대해 확인할 것.**
+- ★ 형제 `theveninMaxPower`(universal_ac params)는 **같은 임용 10번을 단자쌍 하나로 모델링**한 옛 archetype이다.
+  실측에서 그 경로가 이 원본을 가로채 (a) 점선 박스·c-d 단자가 사라진 회로, (b) 풀이의
+  **틀린 Z_th 계산**("(9+j12)∥(−j12)=16−j12")을 냈다 → 이 archetype으로 **흡수**한다(옛 파일은 보존).
+- ★ **라우팅 2겹** (Vision이 단자 라벨을 흘리는 회차가 잦다 — 실측 2/2에서 a-b·c-d가 요약에서 사라졌다):
+  (1) 분류기 0-PRE-AC-THEVENIN-TWO-BOX(V≥1+I≥1+리액티브+**a-b와 c-d 둘 다 언급**+테브난/최대전력) —
+  기존 theveninMaxPower 블록 **앞**. (2) 라벨이 흘린 회차는 그 블록이 `universal_ac + params.theveninMaxPower`로
+  잡으므로, route에서 **그 시그니처(같은 원본 전용)를 이 archetype으로 흡수**한다.
+- 모드: **exam_similar**=[1] a-b의 Z · [2] c-d의 V_th(원본) / **exam_variant**=**구하는 대상 교환**
+  ([1] c-d의 Z · [2] a-b의 V_th). 회로·절차는 동일, 값 풀은 절반씩 분할.
+- ★ 값은 규칙 열거+필터: R=X_C(위)·R=X_L(아래)·직렬 리액턴스=R/2로 두면 각 박스 Z가 순저항 R/2가 되고,
+  **I_s = V_s/R₁** 이면 V_th가 실수가 된다(원본 0.01=1/100 ✓). 필터: R_L 정수 · P_max 정수[mW]. 원본 튜플 제외(풀 21).
+- ★ 표기 gotcha: 위상이 ±45°라 **|V|가 k√2(무리수)** 다. 소수로 두면 route의 전역 분수 변환기가
+  **1.061 → 35/33** 으로 뭉갠다(실측) → `phText`가 k√2로 인수분해해 적는다(1√2는 √2로).
+- 파일: `lib/generation/topologies/acTheveninTwoBox.ts`·`lib/pipeline/runAcTheveninTwoBoxPipeline.ts`(+`detectAcTheveninTwoBox`)·
+  `lib/renderers/acTheveninTwoBoxCircuitRenderer.ts`(점선 박스 2개 + 단자 a·b·c·d + a–c/b–d 레인 분리 + R_L + 접지).
+  circuitType `ac_thevenin_two_box`, diagramType `ac_thevenin_two_box_circuit`. types·circuitType·renderers/index·
+  validateProblem·classifier(0-PRE)·route(semantic+dispatch+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 / `scripts/smokeAcTheveninTwoBox.mjs` **37/37**(실측 요약 3종 + 형제 양보 5종 + 분류기 2 +
+  원본 물리 8 + 생성물 24개 독립 재검산 + 렌더 구조) / `smokeOriginalRouting` **38/38** /
+  형제 무회귀(acTheveninDependent 24/24·acTheveninOriginal 24/24) / **원본 이미지 E2E 양모드 issues=0**
+  (유사 Z=20·V_th=3√2∠45°·R_L=12·120mW, 변형 Z=50·V_th=2√2∠−45°·R_L=25·40mW — 모두 수기검산 일치) / 렌더 시각검증.
+
 ## 2전원 테브난 최대전력 (임용 10번 — AC 전압원 + 전류원 + RLC + R_L 최대평균전력)
+- ※ **2026-08-02부터 이 시그니처는 위 `ac_thevenin_two_box`로 흡수된다** (같은 원본을 단자쌍 하나로
+  모델링한 옛 archetype — 점선 박스·c-d 단자를 잃고 풀이의 Z_th도 틀렸다). 파일·렌더러는 보존만 한다.
 - 전압원 V(∠0°) + 전류원 I(∠0°) + RLC + 부하 R_L. [단계1] Z_th(a-b), [단계2] V_th(중첩), [단계3] R_L=|Z_th|·P_max.
 - ★ generic universal_ac 토폴로지 추출은 두 전원망의 **공통 부하 단자 연결을 잃어** figure·물리 모두 깨짐 → **고정 토폴로지 archetype** 필수.
 - 파일: `lib/generation/topologies/acTheveninMaxPower.ts` (generator — **복소 MNA solver로 Z_th·V_th 계산**, ω=1·L=X·C=1/X 규약, PARAM_SETS는 정수 R_L 사전검증), `acTheveninMaxPowerTextWriter.ts`, `lib/renderers/acTheveninMaxPowerCircuitRenderer.ts` (전용 fixed-slot: 상단 V망 / 하단 I망 / 우측 R_L, 단자 a-b).
 - classifier `classifyCircuitType` 0-PRE-AC-THEVENIN-MAXPOWER: V≥1 + I≥1 + 리액티브 + (테브난 OR 최대전력) → `universal_ac` + `params.theveninMaxPower`. pipeline `runUniversalAcPipeline`에서 분기, route는 topologySignature 불필요(결정론 generator).
 - 토폴로지: V망 e—R_top—m—L_s—a, C_v: m↓GND / I망 I1↑p, R_i: p→a, C_i: p↓GND / 부하 R_L: a↓GND(b). 두 전원망 병렬@a-GND.
+
+## 외부 입력 X를 갖는 2-bit 상태기계 → **T 플립플롭** 2개 + 게이트 설계 (임용 12번 디지털논리 — `tff_state_design_input`) 전용 archetype
+- 원본: (가) 상태 변수 Q_A Q_B + **입력 X** 상태도 / (나) 상태표(현재상태·X·다음상태·FF 입력, ㉠ 빈칸) / (다) 카르노맵 2개 / (라) FF 2개 + 게이트 ㉡ 구현. 〈설계 절차〉 [1] ㉠ [2] 불함수(최소항의 합) [3] ㉡을 **2 AND + 1 OR**로 도시.
+- ★ **사용자 지정(2026-08-02): 원본의 D 플립플롭 → T 플립플롭으로 출제**. D는 `D=다음상태`지만 **T는 여기표 `T = Q(t) ⊕ Q(t+1)`** 라 단계가 하나 더 깊다(교육 포인트).
+- ★ 형제 `dff_state_design`(임용 9번)과의 판별선 = **외부 입력 X**. 저쪽은 입력 없는 **자율** 상태도(2변수 카르노맵), 이쪽은 **3변수(Q_A,Q_B,X)** 라 상태표 8행·카르노맵 4×2 → 재현 불가.
+- ★ 값(상태기계)은 예시 hardcode가 아니라 **규칙 열거**: T_A·T_B를 3변수 함수 공간에서 열거하고 **최소 SOP 항 수·리터럴 수로 필터**(T_A는 정확히 2항×2리터럴 → [단계 3]의 "2 AND + 1 OR"가 항상 성립) 뒤 **next = Q ⊕ T** 로 상태도를 역산한다. 상수·정지 상태·X 무의존 기계는 배제(풀 3000).
+- 파일: `lib/generation/topologies/tffStateDesignInput.ts`·`lib/pipeline/runTffStateDesignInputPipeline.ts`(3단계 + `detectTffStateDesignInput`). figure 5개는 **전부 기존 렌더러 재사용** — concept_diagram(상태도)·truth_table(상태표)·kmap×2·`dff_state_design_circuit`.
+  ★ 형제 렌더러는 **가산적으로만 일반화**했다: `gateAInputs`/`gateBInputs`(원래 타입에 있었지만 미사용)를 실제로 쓰고 `externalInput?`(X 트렁크)를 추가 — 기본값이면 기존 D-FF 그림과 **완전히 동일**(스모크로 단언).
+- ★★ **남은 한계(정직한 보고)**: 실측 E2E에서 **Vision이 "입력 X"를 요약에서 2회 연속 누락**해(inventory도 OPAMP만 뱉음) 자율 형제로 라우팅됐다. 분류기·감지기는 **X가 언급된 회차에서만** 잡는다(정적 스모크 3/3). 프롬프트 보강도 시도했으나 **회로 프롬프트가 이미 TPM 한도(30k/분)에 붙어 있어**(실측 `Requested 30013`) 4줄 추가만으로 429가 났다 → 같은 블록을 압축해 1줄로 흡수(1856→1000자). ★ 구조적 해결책은 **과목별 프롬프트 분리**(digital에 아날로그 archetype 규칙을 보내지 않기)이며 아직 미착수.
+- ★ **렌더 gotcha 2건 (사용자 신고 2026-08-02)**:
+  ① **(가) 상태도 라벨 겹침** — `conceptDiagramRenderer`는 양방향 쌍(a→b·b→a)을 **같은 직선의 같은 중점**에 라벨을 찍어 정확히 포개졌고, 원형 배치 **최상단 노드의 self-loop 라벨은 캔버스 위로 잘려** 안 보였다. 수정 = (a) 양방향은 2차 베지어로 **반대 방향으로 휘게**(부호는 id 사전순 — 결정론), (b) 라벨은 중점 주변 **후보 30곳**에서 노드·기존 라벨과 충돌하지 않는 자리를 고름, (c) **캔버스 경계 검사**(밖이면 후보 탈락, 전부 실패 시 clamp), (d) 원형 반지름 −18·중심 +12로 self-loop 여유 확보.
+  ② **(라) 회로 배선이 삐져나감** — 입력 트렁크(세로선) 길이가 **2입력 시절 상수**로 박혀 있어 3입력에서 위아래로 튀어나오고 세 번째 탭에는 닿지 않았다. 수정 = 게이트 입력 탭 좌표를 모아 **트렁크 span을 역산**(`spanOf`), X 인입 stub도 **첫 X 탭 높이**로.
+  ★ 회귀 방지: 스모크에 (가) **겹침·누락·캔버스 이탈 0**(20 케이스)과 (라) **떠 있는 배선 끝 0**(세로선 양 끝이 반드시 가로선 위, 12 케이스 + 형제 기본)을 단언. 형제 concept_diagram 사용처(자율 상태도·SR-MUX·블록도) 무회귀 확인.
+- 검증: tsc 0 / `scripts/smokeTffStateDesignInput.mjs` **26/26**(라우팅 3종 + 형제 미탈취 4종(자율 D-FF·시퀀스검출기·JK 여기표·SR+MUX) + T 여기표·카르노맵·상태도 일관성 24개 재검산 + 렌더 7(T-FF 표기·X 트렁크·라벨 겹침 0·**형제 기본 렌더 무회귀**)) / `smokeOriginalRouting` **37/37** / 디지털 형제 스모크 무회귀(dffStateDesignRouting 6/6·Stale 3/3·jkExcitation 28/28·muxImpl 7/7·ffMixed 7/7).
+
+## JK-FF 2개 **Mealy 상태도** → 상태표 빈칸 → 출력 y·J_A/J_B 최소식 (임용 9번 디지털 — `jk_mealy_state_design`) 전용 archetype
+- 원본: (가) 출력 A·B를 갖는 JK-FF 2개로 구성된 순서논리회로의 **상태도**(간선 라벨 `x/y`, 원 안은 AB),
+  (나) 그 **상태표**의 한 행이 ㉠~㉥ 빈칸. 〈해석 절차〉 [1] ㉠~㉥ [2] 출력 y의 논리식 [3] **J_A·J_B 최소식**.
+- ★ 원본 상태기계: **x=0이면 00→11→10→01→00 4-사이클(y=0)**, **x=1이면 자기 루프**(상태 유지)이고
+  그때 **y=1 ⇔ 상태 ∈ {00, 11}**(즉 A=B). 확대 확인 결과 자기 루프 라벨은 00·11이 `1/1`, 01·10이 `1/0`.
+- ★ 물리(규칙 도출, GPT 없음): JK 여기표 Q→Q⁺가 0→0:(J,K)=(0,X) / 0→1:(1,X) / 1→0:(X,1) / 1→1:(X,0).
+  즉 **J는 그 FF 출력이 0인 행에서만, K는 1인 행에서만** 정의되고 나머지는 **무관항**이다.
+  그 무관항을 살려 3변수(A,B,x) 카르노맵으로 최소화한다.
+  원본 검산: **㉠~㉥ = 0 1 1 0 0 0**, **y = A'B'x + ABx**(= x·(A⊕B)′), **J_A = B'x'**, **J_B = x'**.
+  (무관항을 안 쓰면 J_B가 B'x'로 남아 최소가 아니다 — 이게 이 문제의 채점 포인트다.)
+- ★ 형제와 다르다: `jk_excitation_sop_pos`(여기표만·상태도 없음·SOP→POS)·`dff_state_design`(D-FF 자율·입력 없음)·
+  `tff_state_design_input`(T-FF)·`sequence_detector`·`jk_sync_counter`(3-FF+파형) 어느 것도 **상태도 + Mealy 출력 y**
+  조합을 갖지 않는다 → 그게 판별선이다.
+- ★ 분류 **0-PRE(subject 무관)**: `상태도/상태표 + J-K 입력 기호(J_A·K_A…) + Mealy 출력(출력 y·x/y)`.
+  양보: T-FF·시퀀스 검출기·카운터/파형. 넓은 `fsm` 분기보다 **위**(1-5 규칙). route의 `DIGITAL_CIRCUIT_TYPES`에도 등록.
+- 모드: **exam_similar**=[3] **J_A·J_B**(원본) / **exam_variant**=**구하는 양 교환**([3] **K_A·K_B**).
+- ★ 값(상태기계)은 예시 하드코딩이 아니라 **규칙 열거**: x=0의 4-사이클 순열(6) × y=1 상태쌍(6) × 빈칸 행(4)을
+  전수 열거하고 **J·K 네 식이 모두 2항 이하·리터럴 2개 이하**, J_A≠J_B, y가 상수 아님으로 필터(풀 143). 원본 튜플 제외.
+- figure: (가) `concept_diagram`(상태도) + (나) `truth_table`(상태표, 빈칸 행은 ㉠~㉥).
+  ★ **구현 회로 figure는 원본에 없다** — `lib/rules/digital.ts`에 전용 분기를 넣어 `implementation_circuit` 요구를
+  면제해야 한다(안 하면 `missing_figure_variant`가 뜬다, 실측).
+- ★ 렌더 gotcha: 상태도 노드를 **순환 순서로** 내보낼 것. 상태 인덱스 순서로 내보내면 간선이 원의 중앙을
+  가로질러 라벨이 뭉친다 — 순환 순서면 모든 전이가 이웃 간 호가 되어 원본처럼 마름모로 깔끔하게 그려진다.
+- 파일: `lib/generation/topologies/jkMealyStateDesign.ts`(무관항 포함 `minimizeSop` 재사용)·
+  `lib/pipeline/runJkMealyStateDesignPipeline.ts`(+`detectJkMealyStateDesign`, `X'`→`X̄` 표기 변환).
+  circuitType `jk_mealy_state_design`. 렌더러는 **기존 것 재사용**(concept_diagram·truth_table).
+  types·classifier(0-PRE)·route(안전망+semantic+dispatch+DIGITAL 집합)·rules/digital·`smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 / `scripts/smokeJkMealyStateDesign.mjs` **23/23**(감지 3종 + 형제 양보 5종 + 분류기 2과목 +
+  형제 감지기 회귀 2 + 원본 동작 7 + 생성물 24개 재검산(빈칸·y·J/K를 **진리표로 평가**해 검증)) /
+  `smokeOriginalRouting` **43/43** / 디지털 형제 무회귀(jkExcitation 28/28·tffStateDesignInput 26/26·
+  dffStateDesignRouting 6/6·ffMixed 7/7·muxImpl 7/7) / **원본 이미지 E2E 양모드 issues=0**(분류 reasoning까지 정확).
+
+## BJT 직류 바이어스 + **베이스망 테브난 등가** → I_B·V_B → R_C (임용 10번 전자회로 — `bjt_thevenin_bias`) 전용 archetype
+- 원본: (가) BJT 증폭기 직류 바이어스 회로, (나) **(가)의 점선 부분을 테브난 등가로 바꾼 회로**.
+  〈해석 절차〉 [1] R_T[kΩ] (V_T는 테브난 등가 전압) [2] I_B[µA]·V_B[V] [3] V_CE = 3.8V가 되는 R_C[kΩ].
+- ★ 고정 토폴로지(원본 확대 확인): 트랜지스터는 **NPN이고 베이스가 아래**(이미터 왼쪽 rail·컬렉터 오른쪽 rail).
+  · 이미터측 `이미터 — R_E — (−)V_EE(+) — 접지` → **음전원 바이어스** V_E = −V_EE + I_E·R_E
+  · 베이스측 점선망 `[R₁+V₁] ∥ [R₂+V₂]` (V₁ 음·V₂ 양) → (나)에서 R_T+V_T
+  · 컬렉터측 `컬렉터 — (R_p ∥ R_C) — 마디 M — (R_M ∥ 전류원 I_S↑) — 접지`
+- ★ 물리(닫힌형). **원본 단서 "β_DC + 1은 β_DC로 계산한다"** → I_E = I_C = β·I_B.
+  [1] R_T = R₁∥R₂, V_T = (V₁/R₁ + V₂/R₂)·R_T
+  [2] **I_B = (V_T + V_EE − V_BE)/(R_T + β·R_E)**, V_B = V_T − I_B·R_T
+  [3] V_E = −V_EE + I_C·R_E, V_C = V_E + V_CE, 마디 M의 KCL **V_M = R_M(I_S − I_C)**,
+      (R_p ∥ R_C) = (V_M − V_C)/I_C → **R_C = R_p·R_par/(R_p − R_par)**
+  원본 검산: R_T=1kΩ·V_T=1V → **I_B = 8.3/83 = 100µA**, V_B=0.9V, V_E=0.2V, I_C=10mA,
+  V_M=0.1(100−10)=9V, R_par=0.5kΩ → **R_C = 1kΩ**. (β+1을 β로 안 쓰면 99µA로 지저분해진다.)
+- ★ **오분류(수정됨)**: generic `bjt_bias`(임용 7번 — **저항률 ρ로 저항 구하기**)가 잡아 전혀 다른 문제가
+  생성됐다. 이 유형은 (가)→(나) 테브난 변환·음전원 이미터·전류원 컬렉터망이 핵심이라 재현 불가.
+- ★★ **낱말이 아니라 구조로 잡아라** (실측 2/2): Vision이 **"테브난"·"점선"을 요약에서 통째로 누락**하고
+  "저항 값을 구하는 문제"로만 서술했다. 그 회차에서 낱말 조건은 전부 미발화 →
+  **구조 신호 추가**: 인벤토리에 **전류원(I≥1)** 또는 **전압원 3개 이상**(베이스망 2 + 이미터 음전원).
+  형제 bjt_bias는 V_CC 하나뿐이고 전류원이 없다. 보강 후 라우팅 **3/3**.
+- 모드: **exam_similar**=[3] V_CE 목표 → R_C(원본) / **exam_variant**=**구하는 양 교환**([3] R_C 주어짐 → V_CE).
+- ★ 값은 규칙 열거+필터: V_T 0.5 배수 · **I_B 정수[µA]**(20~300) · V_B 0.1 배수 · I_C < I_S ·
+  R_par < R_p · **R_C 0.5[kΩ] 배수(0.5~10)**. 원본 튜플 제외.
+  ※ gotcha: `R_C ≥ 0.5` 하한이 없으면 R_C가 0.0003 같은 값이 통과해 표시 반올림으로 **"0kΩ"**가 된다(스모크가 잡음).
+- 파일: `lib/generation/topologies/bjtTheveninBias.ts`·`lib/pipeline/runBjtTheveninBiasPipeline.ts`
+  (+`detectBjtTheveninBias`)·`lib/renderers/bjtTheveninBiasCircuitRenderer.ts`(payload의 `variant`로 (가)/(나) 둘 다 렌더).
+  circuitType `bjt_thevenin_bias`, diagramType `bjt_thevenin_bias_circuit`. types·circuitType·renderers/index·
+  validateProblem·classifier(0-PRE)·route(안전망+semantic(등가·multi on)+dispatch+topology 우회)·
+  `smokeOriginalRouting`(+1줄) 등록.
+- ★ 렌더 gotcha: 접지 기호를 하단 rail 중앙에 두면 **점선 박스 위에 겹친다** → 박스 바깥(베이스망과 컬렉터망 사이)에 둘 것.
+- 검증: tsc 0 / `scripts/smokeBjtTheveninBias.mjs` **37/37**(실측 요약 포함 감지 4종 + 형제 양보 5종 +
+  분류기 3 + **원본 물리 8**(R_T·V_T·I_B·V_B·V_E·I_C·V_M·R_C 전부 직접 검산과 일치) + 생성물 24개 독립 재검산 +
+  렌더 (가)/(나) 12) / `smokeOriginalRouting` **42/42** / **원본 이미지 E2E 라우팅 3/3**·양모드 issues=0.
+
+## BJT 이상적 스위치 → 진리표 + **동일 동작 논리게이트** (임용 2번 — `bjt_switch_logic_gate`) 전용 archetype
+- 원본: (가) BJT 응용 회로 — **+5V — PNP 이미터 / 컬렉터 → 출력 Y → R_C → 접지**, 베이스는 R_B를 거쳐 입력 X.
+  (나) 진리표 `X=H → Y=㉠`, `X=L → Y=㉡`. 요구 = ㉠·㉡을 구하고 **동일 동작 논리게이트를 그리시오**.
+- ★★ **화살표 방향이 답을 가른다** (원본 6배 확대로 확정, [[feedback_verify_wiring_by_zoom]]):
+  화살표가 **베이스를 향하고** 그 리드가 +5V로 간다 → **PNP·이미터가 위**(하이사이드 스위치).
+  · X=H → V_EB=0 → **차단** → Y=0V(**L**) · X=L → V_EB=V_CC → **도통(포화)** → Y≈V_CC(**H**)
+  ⇒ **㉠=L, ㉡=H, 등가 게이트 = 인버터(NOT)**. NPN으로 잘못 읽으면 이미터 팔로워가 되어 **버퍼**라는
+  정반대 답이 나온다 — 트랜지스터 기호는 반드시 확대해서 확인할 것.
+- 구성(config)별 고정 토폴로지 — 논리는 **이상적 스위치 규칙으로 도출**한다(예시 하드코딩 아님):
+  · `pnp_high_side`(원본) → **NOT** · `npn_low_side`(R_C 풀업 + 이미터 접지) → **NOT**
+  · `npn_series2`(직렬 2개) → **NAND** · `npn_parallel2`(병렬 2개) → **NOR**
+- 모드: **exam_similar**=원본 구성(PNP 하이사이드) 유지, **전원 전압·저항값만 변경**(원본 5V는 제외) /
+  **exam_variant**=**소자·구성 교환**(NPN 로우사이드 / 직렬 2개 → NAND / 병렬 2개 → NOR).
+- ★ **분류는 0-PRE(subject 무관) 최상단**: 회로는 아날로그(BJT)인데 요구는 디지털이라 Vision이 과목을
+  electronics·digital_logic·mixed_signal 어디로도 잡는다. 처음엔 **PRE-SUBJECT OPAMP 구역 안**에 넣었더니
+  digital_logic에서 **kmap_sop**, mixed_signal에서 **unsupported**로 샜다(스모크가 즉시 잡음) →
+  진짜 subject 무관 구역으로 이동. 추가로 route의 `DIGITAL_CIRCUIT_TYPES`에 등록(디지털 과목 선택 시
+  universal_digital로 덮이는 것 방지) + 복합형 선택 시 electronics 보정.
+  시그니처: `BJT + (논리게이트 요구 OR 진리표+스위칭)`, 양보: 바이어스·동작점·소신호·특성곡선·제너/레귤레이터.
+- figure: (가) `bjt_switch_logic_circuit`(전용 fixed-slot, 4개 구성 지원) + (나) `truth_table`(빈칸 ㉠㉡[㉢㉣]).
+  **정답 게이트는 `solutionFigures`** 의 `logic_network`(NOT/NAND/NOR 1개)로만 — 본문에 두면 답이 노출된다.
+- ★ 렌더 gotcha: 화살촉은 **이미터 리드에만** 그린다(PNP=베이스 방향, NPN=바깥 방향). 이걸 대충 그리면
+  문제 자체가 틀린다.
+- ★ 검증 gotcha: 풀이에 **전압 값(H=V_CC)** 을 안 적으면 `solution_inconsistent_with_answer`가 뜬다(실측) →
+  단계별 상태 서술에 `Y = H(12[V])`처럼 수치를 함께 적는다.
+- 파일: `lib/generation/topologies/bjtSwitchLogicGate.ts`·`lib/pipeline/runBjtSwitchLogicGatePipeline.ts`
+  (+`detectBjtSwitchLogicGate`)·`lib/renderers/bjtSwitchLogicCircuitRenderer.ts`. circuitType `bjt_switch_logic_gate`,
+  diagramType `bjt_switch_logic_circuit`. types·circuitType·renderers/index·validateProblem·classifier(0-PRE)·
+  route(안전망+semantic+dispatch+DIGITAL 집합+subject 보정+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 / `scripts/smokeBjtSwitchLogicGate.mjs` **36/36**(감지 3종 + 형제 양보 5종 + **3과목 분류 3** +
+  원본 동작 5 + 생성물 24개 논리 재검산 + 렌더 4구성 16(라벨 겹침 0)) / `smokeOriginalRouting` **41/41** /
+  **원본 이미지 E2E 양모드 issues=0**(유사 PNP 인버터 ㉠=L·㉡=H, 변형 NPN 로우사이드 — 수기검산 일치).
+
+## 비교기 2개 + **다이오드 결합** + 풀다운 → 구간별 V_out·다이오드 ON/OFF (임용 3번 전자회로 — `comparator_diode_or`) 전용 archetype
+
+- 원본: (가) 연산 증폭기 응용 회로 — **위 OPAMP는 (−)에 +5[V]·(+)에 V_in**, **아래 OPAMP는 (−)에 V_in·(+)에 +2[V]**.
+  두 출력이 각각 **다이오드 D₁·D₂(애노드가 OPAMP 쪽)** 를 거쳐 공통 마디 V_out에 묶이고, 그 마디에 **10[kΩ] 풀다운**.
+  (나) 입력 파형 — 구간 ㉠에서 6[V], 구간 ㉡에서 1[V]. **㉠의 V_out과 ㉡의 D₁·D₂ 상태**를 순서대로.
+- ★★ **배선을 원본 5배 확대로 확정했다** ([[feedback_verify_wiring_by_zoom]]): V_in이 (+)에 물리는지 (−)에
+  물리는지가 답을 가르고, 다이오드 화살표 방향도 마찬가지다. 잘못 읽으면 정반대 답이 나온다.
+- ★ 물리(규칙, GPT 없음): 이상적 다이오드는 순방향 단락·역방향 개방이므로 **결선이 곧 최대/최소 선택**이다.
+  · 애노드가 비교기 쪽 + 풀다운 → **V_out = max(o₁, o₂, 0)** ⇒ 창(window) **밖** 검출
+  · o₁ = +V_sat ⟺ V_in > V_H, o₂ = +V_sat ⟺ V_in < V_L
+  · 다이오드 k는 **o_k가 마디 전위를 결정할 때만** ON(그때만 저항으로 전류가 흐른다).
+  원본 검산: ㉠(6V) → o=(+12,−12) → **V_out = 12[V]**, D₁ ON / ㉡(1V) → o=(−12,+12) → **D₁ = OFF, D₂ = ON**.
+  ★ 교육 포인트는 **2 < V_in < 5에서 두 다이오드가 모두 OFF가 되어 풀다운이 V_out = 0을 확정**한다는 것이다.
+- ★★ **오분류(수정됨)**: 실측 E2E에서 Vision 분석은 정확했는데(topic="연산 증폭기 응용 회로 분석",
+  inventory=[OPAMP×2, D×2, R:10kΩ, V:+5V, V:+2V]) 분류기가 **㉠㉡ 마커 + ON/OFF**만 보고
+  `bjt_characteristic_curve`(BJT 출력특성곡선)로 가로채 **BJT 포화/차단 영역 문제**를 생성했다.
+  형제 어느 것도 재현 못 한다 — `diode_clamper`는 OPAMP가 없고, `flash_adc_2bit`는 저항 사다리·인코더가 있으며,
+  OPAMP 형제(가산기·필터·발진기·레귤레이터)는 다이오드가 없다. ⇒ 전용 archetype + **0-PRE(과목 무관)**.
+- ★ 판별선은 **구조**다(낱말이 아니라, CLAUDE.md 규칙 2): `연산증폭기(비교기) + 다이오드 2개 + (출력 전압 | ON/OFF 요구)`.
+  양보 가드: 클램퍼·리미터·정류, 플래시 ADC·인코더, 발진기·삼각파, 제너·정전압, 이득·바이어스·전달함수.
+- 모드: **exam_similar**=원본 구성(OR 결합 + 풀다운, 창 밖 검출) — 기준·포화 전압·구간 입력만 변경 /
+  **exam_variant**=**소자 배치 교환**(다이오드 방향 반전 + **풀업**) → `V_out = min(o₁, o₂, V_CC)`, 창 **안** 검출.
+- ★ 값은 규칙 열거+필터: V_L+2 ≤ V_H · 구간 입력이 기준 전압과 같은 **경계값 배제**(이상적 비교기에서 미정의) ·
+  **두 구간의 다이오드 상태 패턴이 서로 달라야** 한다(같으면 물어볼 것이 없다). **원본 튜플 제외**.
+- 파일: `lib/generation/topologies/comparatorDiodeOr.ts`·`lib/pipeline/runComparatorDiodeOrPipeline.ts`
+  (+`detectComparatorDiodeOr`)·`lib/renderers/comparatorDiodeOrCircuitRenderer.ts`(전용 fixed-slot: 좌측 V_in 트렁크 →
+  비교기 2개(핀 기호는 삼각형 안쪽) → 다이오드 → 공통 레일 + 풀다운/풀업). circuitType `comparator_diode_or`,
+  diagramType `comparator_diode_or_circuit`. (나)는 **기존 waveform 렌더러 재사용**(㉠·㉡ 마커).
+  types·circuitType·renderers/index·validateProblem·classifier(0-PRE)·route(안전망+subject 보정+semantic+dispatch+
+  topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- ★ 파형 gotcha: 구간 전환을 **같은 t에 두 샘플**로 찍으면 `waveform_time_not_monotonic`이 난다 →
+  ε(0.02) 오프셋으로 near-vertical 처리(기존 archetype과 동일).
+- 검증: tsc 0 · eslint 0 error / `scripts/smokeComparatorDiodeOr.mjs` **29/29**(실측 오분류 회차 재현 4종 +
+  형제 양보 6종(클램퍼·플래시ADC·함수발생기·제너·가산기 이득·**BJT 특성곡선**) + 4과목 분류 + 원본 물리 7 +
+  생성물 24개 독립 재검산 + 파형 단조성 + 렌더 라벨 겹침 0) / `smokeOriginalRouting` **51/51** /
+  형제 무회귀(bjtSwitchLogicGate 36/36·bjtTheveninBias 37/37·opampSummerTFeedback 33/33·opampTwoStageRx 21/21·
+  diodeClamper 24/24·zenerShuntRegulator 18/18) / **원본 이미지 E2E 라우팅 3/3** · 양모드 정답 수기검산 일치
+  (유사 V_sat10·V_H6·V_L1 → ㉠ V_out=10·㉡ D₁=OFF·D₂=ON, 변형 풀업 → ㉠ V_out=−10·㉡ 둘 다 OFF) / Chrome 시각검증.
+
+## 반전 가산기(미지 R₁) + **T형 궤환 반전증폭기** + 부하 전류 I_L (임용 7번 전자회로 — `opamp_summer_tfeedback`) 전용 archetype
+- 원본(확대 확인): 1단 `V_a—R_a—마디 S`, `V_b—R₁—S`, `S—R_f—V₁`(궤환), (+)접지 → **반전 가산기**.
+  2단 `V₁—R_in—마디 M(=(−))`, 궤환이 **T형**: `M—R_ta—T`, `T—R_tb—접지`, `T—R_tc—단자 a(V_o)`, (+)접지.
+  단자 a에 부하 R_L(전류 I_L). 〈해석 절차〉 [1] V₁ = −4V가 되는 **R₁** [2] V_o의 **식과 값** [3] R_L=5kΩ일 때 **I_L**.
+- ★ 물리(닫힌형, GPT 없음):
+  [1] V₁ = −R_f(V_a/R_a + V_b/R₁) → **R₁ = V_b/(−V₁/R_f − V_a/R_a)**
+  [2] T형 궤환의 **등가 궤환저항 = R_ta + R_tc + R_ta·R_tc/R_tb** → **V_o = −(그 값)/R_in · V₁**
+      (유도: 가상접지라 I = V₁/R_in이 그대로 R_ta로 흘러 V_T = −I·R_ta, 마디 T의 KCL
+       I = V_T/R_tb + (V_T−V_o)/R_tc 를 풀면 나온다. **T형은 큰 궤환저항을 작은 저항들로 구현**하는 회로.)
+  [3] **I_L = V_o/R_L [mA]** (V[V] ÷ R[kΩ] = I[mA])
+  원본 검산: R₁ = 2/(4/2−1/1) = **2[kΩ]**, 등가 궤환 = 2+4+4 = 10[kΩ] → V_o = −(10/4)(−4) = **10[V]**, **I_L = 2[mA]**.
+- ★ **오분류(수정됨)**: 실측에서 generic `opamp_cascade_voltage_divider`가 잡아 **"전역 되먹임 전달함수
+  V_o/V_i" 문제**로 통째 변질됐다(T형 궤환망·미지 R₁·부하 전류가 모두 소실, issues=0으로 조용히 통과).
+  형제 어느 것도 재현 못 함 — `opamp_two_stage_rx`=비반전 분압 R_X, `opamp_three_stage_sum`=3단 R_f 가산,
+  `opamp_two_stage`=V_P given. **부하 전류 I_L을 묻는 OPAMP 유형은 이것뿐**이다.
+- ★ **분류 0-PRE(subject 무관)**: `OPAMP 맥락 + 부하 전류(텍스트 I_L·부하 전류 또는 인벤토리 R_L) +
+  (OPAMP 2개 OR 중간 출력 V₁ OR 미지 저항) + 전달함수 아님` → opamp_summer_tfeedback. cascade·generic **앞**.
+  양보: 발진기·필터(대역폭)·제너/정전압 레귤레이터·개방루프 이득/블록도.
+- ★★ **중간 출력 V₁에 의존하지 마라** (실측 4회 측정): Vision이 **V_1을 한 번도 안 쓰고**
+  "각 노드의 전압을 분석하고 부하에 흐르는 전류를 구한다"로만 요약한 회차가 2/4였다. 그 회차에서
+  V₁을 필수로 걸었더니 형제 `opamp_three_stage_sum`이 가로챘다. → 2단 신호를 **OPAMP 개수·미지 저항**으로 확장.
+  보강 후 분류 **4/4** 적중.
+- 모드: **exam_similar**=[1] R₁ · [3] R_L 주어짐 → I_L(원본) / **exam_variant**=**구하는 양 교환**
+  ([1] 1단 궤환저항 R_f · [3] 목표 I_L → R_L). 회로·절차 동일, 값 풀은 절반씩 분할.
+- ★ 값은 규칙 열거+필터: R₁·R_f 0.5[kΩ] 배수, 등가 궤환저항 정수, 이득 1.5~8, **V_o 정수**(≤24),
+  **I_L 0.5[mA] 배수**. 원본 튜플 제외.
+- 파일: `lib/generation/topologies/opampSummerTFeedback.ts`·`lib/pipeline/runOpampSummerTFeedbackPipeline.ts`
+  (+`detectOpampSummerTFeedback`)·`lib/renderers/opampSummerTFeedbackCircuitRenderer.ts`(1단 가산기 + 2단 T형 궤환 +
+  단자 a·R_L·I_L 화살표). circuitType `opamp_summer_tfeedback`, diagramType `opamp_summer_tfeedback_circuit`.
+  types·circuitType·renderers/index·validateProblem·classifier(0-PRE)·route(안전망+semantic+dispatch+topology 우회)·
+  `smokeOriginalRouting`(+1줄) 등록.
+- ★ 렌더 gotcha: **R_tb(T→접지)의 접지 기호가 2단 출력 배선과 겹친다** — T 궤환 rail을 충분히 위로 올려야 한다(실측).
+- 검증: tsc 0 / `scripts/smokeOpampSummerTFeedback.mjs` **33/33**(실측 요약 2회차 포함 감지 4종 + 형제 양보 5종 +
+  분류기 3 + 원본 물리 5 + 생성물 24개 독립 재검산 + 렌더 12(라벨 겹침 0)) / `smokeOriginalRouting` **40/40** /
+  OPAMP 형제 무회귀(twoStageRx 21/21·finiteGainOffset 28/28·loopGainStability 40/40) /
+  **분류 재현 4/4** + **원본 이미지 E2E 양모드 issues=0**(유사 R₁=6kΩ·V_o=9V·I_L=9mA, 변형 R_f=2kΩ·V_o=20V·R_L=2kΩ — 수기검산 일치).
+
+## 2단 OPAMP + 비반전측 분압 저항 R_X 설계 → V_o (임용 2번 전자회로 — `opamp_two_stage_rx`) 전용 archetype
+- 원본: 1단 U₁ — `V₁(4V)—2k—(−)`, `2k 피드백(V_X→−)`, `V₂(6V)—4k—(+)`, `(+)—R_X—GND` → V_X. 2단 U₂ — `V_X—2k—(+)`, `(+)—2k—GND`, `GND—2k—(−)`, `4k 피드백(V_o→−)`, 부하 10k. **"V_X=2[V]가 되기 위한 R_X와 V_o"** → 손검산 **R_X=4kΩ·V_o=3V**.
+- ★ **사용자 지정(2026-08-02): 1단 (+) 입력을 1개 → 3개로 확장**. 그래서 (+) 마디가 3입력 합성이 된다:
+  **Σ(V_i−V₊)/R_i = V₊/R_X → V₊ = (ΣV_i/R_i)/(1/R_X + Σ1/R_i)**, 역으로 **R_X = 1/[(ΣV_i/R_i)/V₊ − Σ1/R_i]**.
+  나머지 물리는 동일 — 1단 (−) KCL로 **V_X = V₊(1+R_b/R_a) − V₁·R_b/R_a**, 2단 **V_o = (1+R_g/R_f)·V_X·R_e/(R_d+R_e)**.
+- ★ **오분류(수정됨) — 형제 2개가 연속으로 가로챔**(CLAUDE.md 1-5의 전형):
+  (a) 분류가 generic `opamp` → route의 **`opamp_finite_gain_block` 안전망**이 코어션 → "블록도 + 개방루프 이득 A(s)" 문제로 변질.
+  (b) 그걸 고치자 이번엔 **`opamp_three_stage_sum`**(designRf = "저항 구하기 + 출력전압 목표", 조건이 넓다)이 가로챔 → 3단 반전가산 문제로 변질.
+  → **판별자는 미지 저항의 이름·위치**: 이쪽은 접지로 내려가는 **분압 저항 R_X(+단자측)**, 형제는 **R_f(피드백)**. 3단 원본엔 R_X가 없다.
+  → 분류기 0-PRE를 **three_stage_sum 앞**으로, route 안전망을 **finite_gain_block 앞**으로 두고 그 형제에 `!detectOpampTwoStageRx` 양보 가드를 달았다.
+- ★ **Vision이 inventory에 OPAMP를 하나도 안 넣는 회차가 있다**(실측: 저항 12개만, "연산 증폭기"도 단수) → "2단"을 낱말/개수로 요구하면 통째로 샌다. **구조 신호(미지 R_X + 중간 출력 V_X + 출력 V_o)** 로 대체하고, R_X는 **inventory 값("Rx[kΩ]")** 에서도 읽는다.
+- 모드: **exam_similar**=V_X가 목표 → R_X·V_o / **exam_variant**=**V_o가 목표** → 2단을 거슬러 V_X·R_X(구하는 양 교환).
+- ★ 값은 규칙 열거+필터: R_X 양의 정수(1~20kΩ)·V₊·V₊₂ 0.5배수·V_o 정수(≠V_X)·3입력 전압이 모두 같지 않음. 열거 상한 4000.
+- 파일: `lib/generation/topologies/opampTwoStageRxDesign.ts`·`lib/pipeline/runOpampTwoStageRxPipeline.ts`(3단계 + `detectOpampTwoStageRx`)·`lib/renderers/opampTwoStageRxCircuitRenderer.ts`(U₁·U₂ 삼각형, **(+) 3입력 레인 3개 + 수직 트렁크**, R_X 점선 박스, R_L 부하). circuitType `opamp_two_stage_rx`, diagramType `opamp_two_stage_rx_circuit`. types·renderers/index·validateProblem·classifier(0-PRE, three_stage_sum 앞)·route(안전망 finite_gain_block 앞+dispatch+semantic+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- ★ **렌더 gotcha — 라벨 겹침**(사용자 신고 "수치들이 서로 너무 겹쳐서 못알아보겠어"): 3입력으로 늘리자 좌측이 빽빽해져 전원값·저항값 라벨이 서로 덮었다. 해결 = (1) 입력 4개(V₁ + (+)측 3개)를 **행(y)으로 완전히 분리**, (2) 각 전원의 **세로 다리를 서로 다른 x 열**에 두되 **위 행일수록 왼쪽**으로 — 그러면 아래 행의 가로선이 위 행 전원의 다리와 절대 만나지 않는다(교차 0), (3) 전원 원은 `dcSource(..., cyOpt)`로 **행 근처에 고정**(다리가 길어도 원이 중간으로 내려가지 않게).
+  ★ 회귀 방지: `scripts/_labelOverlap.mjs`(SVG `<text>` bbox 충돌 검출, 극성 +/− 제외)를 스모크에 편입 — **16 케이스 겹침 0건**을 단언한다. 다른 렌더러에도 재사용 가능.
+- 검증: tsc 0 / `scripts/smokeOpampTwoStageRx.mjs` **21/21**(실측 요약 3종(과목 오선택 포함) + 형제 회귀 4종(two_stage·저역필터·함수발생기·정전압) + 3입력 합성 공식 + 생성물 24개 독립 재검산((+)마디 KCL·(−)마디 KCL·2단 이득) + 렌더 구조 7) / `smokeOriginalRouting` **36/36** / **원본 이미지 E2E 라우팅 2/2**·양모드 issues=0(유사 R_X=4kΩ·V_o=5V 수기검산 일치).
+
+## SW₁ 닫힘 + SW₂(접점 b→c) 2전압원 RLC → 초기조건 + 2차 미분방정식 + v_c(t) (2022 전기 B-5 — `switched_rlc_dual_switch`) 전용 archetype
+- 원본: `V_s(1V) — SW₁(t=0 닫힘) — R₁(4Ω) — L(1H, i₁) — 노드 a`, `노드 a ∥ C(½F, v_c)`, `노드 a — SW₂(t=0에 b→c) — {b: V_b(2V), c: R₂(2Ω)}`. t<0: SW₁ 열림·SW₂=b.
+- ★ **원본 발문은 라플라스 행렬식**([[s+4,1],[−2,s+1]]·[I₁,V_c]ᵀ=[1/s,2]ᵀ의 ㉠㉡ 계수)이지만, **사용자 지정(2026-08-02)으로 회로는 그대로 두고 발문만 "미분방정식" 형식**으로 낸다. 두 방식의 답이 같음을 손검산으로 확인: **v_c(t)=1/3+3e^(−2t)−(4/3)e^(−3t)**.
+- ★ 물리(닫힌형, 유리수 정확 연산): KVL `V_s = R₁i₁ + L·i₁' + v_c` + KCL `i₁ = C·v_c' + v_c/R₂` 결합 →
+  **LC·v_c'' + (R₁C + L/R₂)·v_c' + (1+R₁/R₂)·v_c = V_s**. 초기조건 **i₁(0₊)=0**(SW₁이 t<0에 열림)·**v_c(0₊)=V_b**(커패시터가 V_b에 직결)·**v_c'(0₊) = −V_b/(R₂C)**. 해 `v_∞ + Ae^(−pt) + Be^(−qt)`, v_∞ = V_s·R₂/(R₁+R₂). 변형은 `i₁ = C·v_c' + v_c/R₂`.
+- ★ **오분류(수정됨)**: 실측 dispatch가 **`switched_rlc_step`(v1 3-leg)** — 그 archetype은 **전류원 + R_c+L 병렬가지** 구조라 전류원이 없는 이 회로가 **전류원 1A 회로로 변질**되고 지수 계수도 지저분해졌다(`exp(−7/13 t)` 등).
+- ★ 형제와 구분 = **전류원 유무**: `switched_rlc_step`(V+I)·`switched_rlc_5leg`(V+I·L 2개·단자 A↔B)는 전원이 V·I 혼합. 이 유형은 **전압원 2개·전류원 0 + 스위치 2개**. classifier **0-PRE(subject 무관, 5leg 다음)** + route 안전망 `detectSwitchedRlcDualSwitch`(dispatch를 switched_rlc_step **앞**에).
+- 모드: **exam_similar**=v_c(t) (원본) / **exam_variant**=**구하는 양 교환** i₁(t) — 회로·미분방정식 동일. 값 풀은 절반씩 분할.
+- ★ 값은 규칙 열거+필터: 특성근이 **서로 다른 양의 정수**(과제동), v_∞·A·B·i₁ 계수의 **분모 ≤ 6**, v_c(0₊)≠v_c(∞). **원본 튜플 제외**(풀 130).
+- 파일: `lib/generation/topologies/switchedRlcDualSwitch.ts`(유리수 Q 연산 — 1/3·−4/3을 반올림 없이)·`lib/pipeline/runSwitchedRlcDualSwitchPipeline.ts`(3단계 + `detectSwitchedRlcDualSwitch`)·`lib/renderers/switchedRlcDualSwitchCircuitRenderer.ts`(V_s—SW₁—R₁—L—a ∥ C, SW₂{b:V_b, c:R₂}). circuitType `switched_rlc_dual_switch`, diagramType `switched_rlc_dual_switch_circuit`. types·renderers/index·validateProblem·classifier(0-PRE)·route(dispatch를 step 앞+semantic 단일 figure+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- ※ analyzeImage 규칙은 **추가하지 않았다** — 분류기 0-PRE + 감지기만으로 실측 요약이 3/3 잡히고, 회로 프롬프트가 이미 TPM 한도(30k/분) 근처다([[ac_thevenin_dependent]] 사고 참고).
+- 검증: tsc 0 / `scripts/smokeSwitchedRlcDualSwitch.mjs` **22/22**(실측 요약 + 표현 변형 2종 + 형제 미탈취 3종 + 원본 값 7(라플라스 결과와 일치) + 생성물 24개 독립 재검산(ODE 계수·초기조건·정상상태·i₁(0)=0) + 원본 튜플 미생성 + 렌더 구조 5) / `smokeOriginalRouting` **35/35** / 형제 스모크 무회귀(switchedRlc5leg·switchedRlcStep·switchedRlDualSourceGuard 5/5·acTheveninDependent 24/24) / **원본 이미지 E2E 라우팅 2/2**·양모드 issues=0(유사 6V·4Ω·1H·½F·2Ω·6V → v_c=2+6e^(−2t)−2e^(−3t) 수기검산 일치).
+
+## 종속전원 포함 페이저 회로 → 테브난 등가(★단락전류법★) + 복소 켤레 최대전력 (임용 6번 회로이론 — `ac_thevenin_dependent`) 전용 archetype
+- 원본: 독립 전류원 √2∠0°[A rms] ∥ 션트 j[Ω] — 상단 직렬 **종속 전압원 ½I₂** — 션트 −j½[Ω](전류 I₂↓) — 단자 A(상)·B(하), (나)는 테브난 등가 + 부하 **Z_L=R+jX**. [1] V_AB [2] **A–B 단락 전류 I_AB로 Z_AB** [3] 켤레 정합 R+jX·P_L(max). 답: **V_AB=1∠−45°V · Z_AB=½−j½ · Z_L=½+j½ · P_L=0.5W**.
+- ★ 물리(닫힌형, GPT 없음): I₂=V₂/Z₂, V₁=V₂+k·I₂, 마디1 KCL(A 개방→상단 가지 전류=I₂) → **V_AB = I_s·Z₁Z₂/(Z₁+Z₂+k)**.
+  A–B 단락 → V₂=0 → I₂=0 → 종속원=0 → V₁=0 → **I_AB = I_s (독립 전원값 그대로)** → **Z_AB = Z₁Z₂/(Z₁+Z₂+k)**. P=|V_AB|²/(4R_AB).
+  ※ 종속전원이 있어 **전원 무효화법을 못 쓴다** — 단락전류법이 이 유형의 교육 포인트다.
+- ★ 다이아몬드는 **종속 전압원**이다 (KCL로 확정): 상단 직렬 가지에 종속 **전류원**을 두면 A 개방 시 KCL이 ½I₂=I₂ → I₂=0이 되어 회로가 degenerate가 된다. 값이 깨끗하게 떨어지는 해석(V_AB=1∠−45°)도 CCVS 해석뿐.
+- ★ **오분류(수정됨)**: 실측 dispatch가 **`switched_rl_dep_i_pipeline`**(직류 스위치 RL + 종속 전류원 과도) — "직류 16V + 5iₙ + t=0 스위치" 문제로 통째 변질(로그에 `generic_dispatch_warning`). 원인 = `detectSwitchedRlDepI`가 (a) **교류·페이저 문맥을 확인하지 않고** (b) bare **"개방"** 을 스위치 신호로 인정(테브난 설명 "전류원은 개방"에 흔히 나온다). → 그 감지기에 **양보 가드**(페이저/∠ 있으면 false, 테브난+최대전력이면 false) + "개방" 신호 제거.
+- ★ 형제와 구분: `ac_thevenin_ladder`(종속원 없음·전원 무효화로 Z_TH)·`theveninMaxPower`(2독립전원·순저항 R_L)·`ac_bridge_max_power`(브리지·순저항)·`thevenin_dep_voltage`(**직류** 저항망·L/C 있으면 스스로 양보)·`ac_vccs_phasor`(테브난·최대전력 없는 순수 페이저). ★**종속전원 + 테브난 + 최대전력** 3박자★가 이 유형 고유 → classifier **0-PRE(subject 무관, ac_vccs_phasor 앞)** + route 안전망 `detectAcTheveninDependent`(dispatch 체인 최상단).
+- 모드: **exam_similar**=원본 배치(션트1=L·션트2=C → Z_AB 용량성 R−jX) / **exam_variant**=**리액티브 소자 종류 교환**(션트1=C·션트2=L → Z_AB 유도성 R+jX, 부하는 용량성) — 구조·절차 동일, 답이 거울.
+- ★ 값은 규칙 열거+필터: |Z_AB| 실·허부 크기가 같고(∠∓45°) 0.5 배수, |V_AB| 정수, P_max 0.5 배수, I_s=s√2(s=1~3). **원본 튜플 제외**(풀 유사 27·변형 28).
+- 파일: `lib/generation/topologies/acTheveninDependent.ts`(결정론 복소 solve)·`lib/pipeline/runAcTheveninDependentPipeline.ts`(3단계 텍스트 + `detectAcTheveninDependent`)·`lib/renderers/acTheveninDependentCircuitRenderer.ts`((가) 전류원∥Z₁—다이아몬드—Z₂—단자 A·B + 점선 영역 / (나) V_AB·Z_AB + 부하 R+jX). circuitType `ac_thevenin_dependent`, diagramType `ac_thevenin_dep_circuit`/`_equiv_circuit`. types·renderers/index·validateProblem·classifier(0-PRE)·route(dispatch 최상단+semantic+topology 우회)·analyzeImage 규칙·`smokeOriginalRouting`(+1줄) 등록.
+- ★ **analyzeImage 규칙은 짧게 쓸 것** — 처음 쓴 긴 블록(14줄)이 회로 프롬프트를 **OpenAI TPM 한도(30k/분) 위로** 밀어 analyze가 429로 전부 실패했다(실측 `Requested 30322`). 5줄로 압축해 해결. 새 규칙 추가 시 프롬프트 총량을 의식할 것.
+- 검증: tsc 0 / `scripts/smokeAcTheveninDependent.mjs` **24/24**(실측 요약 + 표현 변형 3종 + 형제 회귀 4종(직류 스위치 RL·DC 종속 테브난·사다리·ac_vccs) + 원본 값 5 + 생성물 24개 독립 재검산 + 원본 튜플 미생성 + 렌더 구조 7) / `smokeOriginalRouting` **34/34** / 형제 스모크 무회귀(switchedRlDepI·theveninDepVoltage·theveninDependentForms 2/2·acTheveninOriginal 24/24·switchedRlDualSourceGuard 5/5) / **원본 이미지 E2E 라우팅 3/3**·양모드 issues=0(유사 V_AB=18∠−45°·Z_AB=3−j3·P=27W, 변형 V_AB=12∠45° 수기검산 일치).
+- ※ 남은 취약점: analyze의 **inventory↔branches 일관성 검사**가 Vision이 다이아몬드를 I로 한 번 더 세면 502를 낸다(1/4 관측, 재업로드로 해결). 라우팅 문제는 아니다.
 
 ## 단일 AC원 L-C-R 사다리 + 테브난 + 복소 켤레 최대전력 (임용 7번 회로이론 — `ac_thevenin_ladder`) 전용 archetype
 - 원본: 단일 V_RMS(∠0°) + 직렬 L(j2)—마디 M—션트 C(−j1)—직렬 R(2)—단자 a, b=하단. 부하 **복소 Z_L**. [1] Z_TH·V_TH, [2] **Z_L=Z_TH*(켤레)=R+jX**, [3] P_max=|V_TH|²/(4R_TH). (원본 답: Z_TH=2−j2·V_TH=4∠180°·Z_L=2+j2·P=2W, RMS.)
@@ -812,6 +1246,61 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - 파일: `lib/generation/topologies/dcWheatstoneBalance.ts`·`runDcWheatstoneBalancePipeline.ts`(+`detectDcWheatstoneBalance` 안전망)·`lib/renderers/dcWheatstoneBalanceCircuitRenderer.ts`(전용 fixed-slot: 세로 전원+직렬 R_s / 다이아몬드 4암(대각 지그재그)+브리지 암 / 하단좌 병렬 세로 / 미지 암 병렬 R_p / 개방 V_o 단자). circuitType `dc_wheatstone_balance`, diagramType `dc_wheatstone_balance_circuit`. types·circuitType·renderers/index·validateProblem·classifier(0-PRE)·route(안전망+subject보정+semantic+dispatch+topology우회)·analyzeImage 규칙·smokeAll[+1] 등록.
 - ★ 렌더 gotcha: 하단 좌측 **대각 저항 라벨은 다이아몬드 안쪽(오른쪽)** 에 둔다 — 바깥에 두면 바로 옆 세로 병렬 저항 지그재그와 겹친다(규칙 #6). 병렬쌍은 큰 값을 세로·작은 값을 대각으로(원본 배치).
 - 검증: tsc 신규 0 / `scripts/smokeDcWheatstoneBalance.mjs` **38/38**(실측 Vision 요약 4과목 라우팅 + 표현 변형 3종 + AC 브리지·일반 DC 회귀 + 원본 물리 + 생성물 24개 독립 재검산 + 렌더 구조) / `scripts/smokeWheatstoneStale.mjs` **4/4**(stale `dc_nodal` + branches 8 재현 → 전용 figure·issues 0) / smokeAll **39/39** / Edge 시각검증(원본 배치 재현·겹침 0).
+
+## 전원변환(전류원→전압원) + 전압비 3:2:1 → 미지 R₃ (임용 7번 회로이론 — `source_transform_ratio`)
+
+- 원본: (가) `전류원 10mA ∥ 480Ω → 320Ω → [200Ω ∥ R₃]`, (나) 그 점선부를 **전원변환**한 회로
+  (`V_s + R₁(480Ω) → R₂(320Ω) → [200Ω∥R₃]`). 전압비 **V₁:V₂:V₃ = 3:2:1**.
+  [1] V_s [2] R₃ [3] 전체 전류 I·R₃ 전류 I₃.
+- 물리(닫힌형): V_s = I_src·R₁ = 4.8V. 비가 3:2:1이고 합이 V_s → V₁=2.4·V₂=1.6·V₃=0.8V.
+  **I = V₁/R₁ = 5mA**, 병렬합성 = V₃/I = 160Ω → **200∥R₃ = 160 → R₃ = 800Ω**, **I₃ = V₃/R₃ = 1mA**.
+- ★★ **생성 실패(500)로 사용자 화면에 에러가 떴다** (신고 2026-08-05 "생성 실패: 문제 생성 중 오류가 발생했습니다"):
+  `detectSourceTransformRatio`가 null → **universal_dc**로 떨어졌고, generic 경로가 **floating source** 회로를
+  만들어 `figure 검증 실패`로 500이 났다(로그: `dispatch universal_dc_pipeline` →
+  `figure_critical_validation_failed: V_leg1_1 … closed loop 없음`).
+  · 원인: 그 회차는 Vision이 **비율 숫자(3:2:1)도, nodeAnnotations의 V_1·V_2·V_3도 둘 다 흘렸다**
+    (내가 캡처한 다른 3회차에는 둘 중 하나가 남아 있어 정상 라우팅됐다 — 전형적인 비결정 실패).
+  · ✅ **최후의 구조 신호** 추가: 명시적 `전원 변환` 낱말 + **독립 전류원** + **값이 기호/빈 미지 저항**
+    (`R=R3` 또는 `R=` — 실측 3/3 회차에 모두 존재). 이 셋은 표현이 흔들려도 남는다.
+  · ※ `semantic.hasEquivalentTransformation`은 테브난 유형도 켜므로 **낱말 근거만** 쓴다(형제 미탈취).
+- ★ 교훈: **generic 경로로 떨어지면 조용히 이상한 문제가 되는 정도가 아니라 500 에러로 끝나기도 한다.**
+  신고가 "생성 실패"면 로그에서 `dispatch` 한 줄과 `figure_critical_validation_failed`를 먼저 볼 것.
+- 검증: `scripts/smokeSourceTransformRatioRouting.mjs` **8/8**(신고 회차 재현 2 + 기존 경로 2 +
+  형제 양보 4(종속전원·스위치·가변저항·테브난)) / `smokeOriginalRouting` 56/56 / tsc 0 /
+  **원본 이미지 E2E 양모드 200**(유사 V_s=72/5V·R₃=600Ω·I=10mA·I₃=4mA — 자체 검산 일치).
+
+## 2전압원 + 2전류원 → 개방전압·단락전류 → 테브난 등가 + 최대전력 (임용 5번 회로이론 — `max_power_transfer` / `viTheveninMaxPower`)
+
+- 원본: `TL ─R₁(2kΩ)─ 마디 c ─R₂(3kΩ)─ 단자 a`, 좌측 `TL ─3V─ BL ─1V─ GND`(직렬 2전압원),
+  마디 c에 **전류원 2개**(↑5mA · ↓3mA), 단자 a–b에 부하 R_L.
+  [1] a–b **개방** 시 마디 c 전압 [2] a–b **단락** 시 a→b 전류 [3] 테브난 등가 + 최대전력 R_L·P_L.
+- 물리(닫힌형, 단위를 V·mA·kΩ로 두면 `V = I·R`가 그대로 성립):
+  · **V_c = (V₁+V₂) + (I_up − I_down)·R₁** (개방이라 R₂ 무전류 → V_a = V_c = V_th)
+  · **R_th = R₁ + R₂** (이상 전원 무효화: V 단락·I 개방) · **I_sc = V_c/R_th** · **P_max = V_c²/(4R_th)**
+  원본 검산: V_c=8V · R_th=5kΩ · I_sc=8/5mA · **P_L=16/5mW**.
+- ★★ **두 결함이 있었다** (사용자 확인 2026-08-04, E2E 실측):
+  ① `PARAM_SETS[0]`이 **원본 튜플인데 제외되지 않아** 원본이 그대로 생성됐다.
+  ② 파이프라인이 이 분기에서 **`mode`를 넘기지 않아 유사와 변형이 완전히 동일**했다.
+  → 값은 **규칙 열거 + 필터**로 바꾸고(V_c 정수 4~30 · R_th 3~10kΩ · I_sc·P_max 기약분모 ≤ 5 ·
+  순 주입전류 ≥ 1mA), **원본 튜플 제외** + **원본과 도출량(V_c·R_th)이 같은 조합도 제외**
+  (소자값만 달라도 답이 전부 같으면 사실상 원본이다 — 실측으로 잡혔다), 결정론 해시로 섞은 뒤
+  **유사/변형 풀을 절반씩 분리**. 풀 8425(유사 4213·변형 4212).
+- ★★ **형제 `thevenin_dep_graph_max_power`(임용 9번)가 간헐적으로 가로챘다** (재현 **1/4**):
+  Vision이 이 원본 요약에 **없는 종속전원을 지어냈고**("종속 전원이 포함되어 있어 이를 고려한 해석이…"),
+  마침 부하가 `R_L`(기호 저항)로 남아 그 archetype의 "그래프 신호(기호 미지 저항)"까지 충족돼 통째로 뺏겼다.
+  → `matchesTdgSignature`에 **인벤토리 반증 가드**: 인벤토리에 종속원이 하나도 없고
+  **독립 전류원이 2개 이상**이면 이 유형이 아니다(임용 9번 원본에는 독립 전류원이 없다).
+  ※ Vision이 다이아몬드를 `I`로 오타이핑해도 값이 `2i_x` 꼴이면 `isDependentComponent`가 잡아 가드는 발화하지 않는다.
+  ★ 교훈: **Vision 텍스트는 없는 소자를 지어내기도 한다** — 낱말이 인벤토리와 충돌하면 **인벤토리(구조)를 믿는다**.
+- ※ universal_dc 흡수는 하지 않는다: 분류기에서 테브난·최대전력은 전용 archetype 유지로 배제돼 있고,
+  universal path는 고정 토폴로지(직렬 2전압원·단자 a·b)를 못 그려 figure가 변질된다([[feedback_universal_path]]의 예외).
+- 파일: `lib/generation/topologies/viTheveninMaxPower.ts`(`buildSpace` 규칙 열거 + MNA 검산)·
+  `lib/pipeline/runMaxPowerTransferPipeline.ts`(mode 전달). figure `vi_thevenin_maxpower_circuit`.
+- 검증: `scripts/smokeViTheveninMaxPower.mjs` **13/13**(값 공간·원본 미생성·**도출량 충돌 제외**·
+  생성물 48개 닫힌형 재검산·모드 비중첩·원본 물리·**신고 회차 형제 미탈취 3종**) /
+  `smokeOriginalRouting` 56/56 / 형제 무회귀(theveninDepGraph 45/45·theveninViGraphSignal 10/10·
+  acTwoSourceMesh 37/37·acTheveninDependent 24/24) / tsc 0 / **원본 이미지 E2E 양모드**
+  (유사 V_c=8V·R_th=3kΩ·P=16/3mW, 변형 V_c=8V·R_th=10kΩ·P=8/5mW — 손검산 일치, 원본과 서로 다름).
 
 ## 2전압원 병렬가지 → 테브난 등가 (임용 3번 회로이론 — `dc_thevenin_2src`) 전용 archetype
 - 원본: 단자 a–b 사이 2 병렬 leg (leg1 2Ω+12V, leg2 6Ω+6V). (가)→(나) 테브난 등가 변환, **R_T·V_T 도출**. Millman: R_T=R1∥R2=1.5Ω, V_T=R_T·(V1/R1+V2/R2)=10.5V.
@@ -877,6 +1366,232 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - 파일: `lib/generation/topologies/supermeshSwitchedDependent.ts`(결정론 generator, MNA solver)·`runSupermeshSwitchedDependentPipeline.ts`(2단계 텍스트, figure 2개 state_before/after)·`lib/renderers/supermeshSwitchedDependentCircuitRenderer.ts`(전용 fixed-slot: 4가지+SW open/closed+초메쉬 점선). circuitType `supermesh_switched_dependent`, diagramType `supermesh_switched_dependent_circuit`. types·validateProblem `CIRCUIT_FIGURE_TYPES`·renderers/index.tsx·route dispatch 등록.
 - ★ 부수 수정: `shouldUseTopologyDriven`이 `universal_dc`를 무조건 차단하던 것을, **SW나 (supermesh+종속)면 topology_driven 허용**으로 완화(universal_dc가 SW 못 푸는 모순 해소). `augmentTopologyFeatures`로 inventory(SW·종속)·텍스트(supermesh)에서 features 보강(Vision 불안정 대비). `detectSourceTransformRatio`에 배제 가드(종속전원·SW·supermesh면 양보).
 
+## **(+)단자 3입력 평균** + 2단 중첩 → 미지 저항 (임용 8번 전자회로 — `opamp_avg_superposition_r`) 전용 archetype
+
+- 원본(5배 확대로 확정): 1단 U₁ — ★**(+)단자에 입력이 3개**★(3V·2V·1V가 각각 3kΩ을 거쳐 **한 마디**로).
+  그 마디에서 접지로 내려가는 저항은 **없다**. (−)는 `접지—2kΩ—(−)` + `2kΩ 궤환`.
+  2단 U₂ — `V₁—R—(−)`, `3kΩ 궤환`, (+)에 V₂=3V. 출력 V_o = 1.5V일 때
+  〈해석 절차〉 [1] V₁ [2] a점에서 **V₁에 의한 전압과 V₂에 의한 전압을 각각 R의 식으로** [3] R[kΩ].
+- ★ 물리(이상 OPAMP, 닫힌형): (+) 마디로 전류가 흘러들지 않으므로 `Σ(V_i−V₊)/R_in = 0` →
+  **V₊ = 세 입력의 산술 평균**(저항이 모두 같다). 1단은 **비반전 증폭기** → `V₁ = (1+R_f1/R_g)V₊`.
+  2단은 중첩으로 나눈다 — `V_o(V₁) = −(R_f2/R)V₁`(반전), `V_o(V₂) = (1+R_f2/R)V₂`(비반전) →
+  **V_o = V₂ + (R_f2/R)(V₂−V₁)**, 역으로 **R = R_f2(V₂−V₁)/(V_o−V₂)**.
+  원본 검산: V₊=2 → **V₁=4V**, 성분 −6V·15/2V → V_o=3/2V → **R = 2[kΩ]**.
+- ★★ **오분류(수정됨)**: 전용 항목이 없어 generic OPAMP 경로로 갔고 **(+)단자 3입력이 반전 가산기로
+  뒤집힌** 회로가 생성됐다(사용자 신고: "원본은 +입력에 입력이 3개 달린 건데 이건 반전증폭기잖아").
+- ★ **형제와의 판별선** — `opamp_two_stage_rx`(임용 2번)는 (+) 마디에 **접지로 내려가는 미지 R_X**가 있고
+  그것을 구한다. 이 유형은 그 저항이 **없고**, 미지 저항은 **2단 경로**에 있다.
+  `opamp_three_stage_sum`(3단·버퍼)·`opamp_summer_tfeedback`(T형 궤환·부하 전류)과도 다르다.
+  분류기 0-PRE(과목 무관) + route 안전망이 **같은 매처를 import** 한다.
+- 모드: **exam_similar**=원본(2단 **입력 직렬 저항 R**이 미지) /
+  **exam_variant**=**구하는 양 교환**(R은 주어지고 2단 **궤환 저항 R_f**가 미지). 중첩 절차는 동일.
+- ★ 값은 규칙 열거+필터: 세 입력이 서로 다르고 **합이 3의 배수**(평균 정수) · V₁ 정수 · V₁≠V₂ ·
+  목표 V_o가 0.5 배수이고 0도 V₂도 아닐 것 · **중첩 두 성분의 부호가 반대**(반전/비반전 대비가 드러나야
+  [단계 2]가 의미 있다). **원본 튜플 제외**, 유사/변형 풀 절반 분리.
+  ★ 열거 순서대로 두면 앞쪽이 전부 같은 입력 집합이라 **결정론 해시로 재정렬**해 다양성을 확보한다.
+- ★ 유리수 helper는 `lib/format/rational.ts`로 분리했다 — 생성기가 **반올림 없이** 계산하고 `qTex`로
+  분수를 직접 써야 전역 분수 변환기의 오복원(1-4-3)이 원천 차단된다.
+- 파일: `lib/generation/topologies/opampAvgSuperpositionR.ts`·`lib/pipeline/runOpampAvgSuperpositionPipeline.ts`
+  (+`detectOpampAvgSuperposition`)·`lib/renderers/opampAvgSuperpositionCircuitRenderer.ts`
+  (원본처럼 (+)측 입력 3개가 계단식으로 트렁크에 모이고, (−)는 접지-R_g + 상단 궤환 레인).
+  circuitType `opamp_avg_superposition_r`, diagramType `opamp_avg_superposition_circuit`.
+  types·circuitType·renderers/index·validateProblem·classifier(0-PRE)·route(dispatch+semantic+topology 우회)·
+  `smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 · eslint 0 / `scripts/smokeOpampAvgSuperposition.mjs` **37/37**
+  (감지 3(OPAMP를 하나만 인식한 회차 포함) + 3과목 분류 + 형제 양보 5 + 원본 물리 6 +
+  **생성물 48개를 노드 방정식에 대입해 KCL 잔차 0 확인** + 값 품질 4 + 발문·정답 8 + 렌더 6) /
+  `smokeOriginalRouting` **56/56** / 형제 무회귀(opampTwoStageRx 21/21·opampSummerTFeedback 33/33) /
+  **원본 이미지 E2E 양모드**: analyze가 곧바로 전용 유형으로 분류, (+)3입력 구조 보존, 손검산 일치.
+
+## 종속전원 저항회로 + **V-I 그래프로 미지 R 도출** → I_SC → 최대 전달 전력 (임용 9번 회로이론 — `thevenin_dep_graph_max_power`) 전용 archetype
+
+- 원본(6배 확대로 확정, [[feedback_verify_wiring_by_zoom]]): **점선 박스 안**
+  `9V(+위) — 5Ω — ◇2i_x(+왼쪽) — 1Ω — 마디 M — 2Ω — 단자 a`, `마디 M — R(i_x ↓) — 하단 rail → 단자 b`.
+  **점선 박스 밖**: `a — Ⓐ(I_RL) — R_L(V_RL, +위) — b`, R_L에 Ⓥ 병렬.
+  (나)는 V_RL–I_RL 직선인데 **y절편만 수치(1)이고 x절편은 `I_SC` 기호**로만 적혀 있다.
+  〈해석 절차〉 [1] V_TH를 R의 함수로 제시하고 (나)로 R을 구한다 [2] I_SC [3] P_L(max).
+- ★ 물리(닫힌형, 유리수 정확 연산). S = R_a + k + R_b, A = R_a + R_b 라 두면
+  · **개방**: R_c에 전류가 0이므로 `i_x = V_s/(S+R)` → **V_TH = R·V_s/(S+R)**, 역으로 **R = S·V₀/(V_s−V₀)**
+  · **단락**: 마디 M 전압 v에 대해 `V_s = A(v/R + v/R_c) + k·v/R + v` → **I_SC = v/R_c**
+    (R에 대해 정리하면 **I_SC = V_s·R/[(A+k)R_c + (A+R_c)R]**)
+  · **R_TH = V_TH/I_SC**, **P_L(max) = V_TH·I_SC/4**
+  ★ 종속전원이 있어 **전원 무효화법(전압원 단락)을 쓸 수 없다** — 개방전압/단락전류법이 교육 포인트다.
+  원본 검산: **R = 1Ω · I_SC = 3/8A · R_TH = 8/3Ω · P_L = 3/32W**.
+- ★★ **오분류(수정됨)**: 전용 항목이 없어 generic `thevenin_max_power_generic`(GPT 구조 추출)으로 갔고,
+  사용자 화면에서 (a) **점선 박스·전류계·전압계·i_x 표기가 전부 소실**, (b) 회차에 따라 **(나) 그래프가
+  통째로 누락**되면서 **미지 저항 R에 값이 노출**됐다(그림만 봐도 [단계 1]의 답이 보인다).
+- ★★ **판별선은 낱말이 아니라 구조다** (실측 요약 2종을 그대로 스모크에 넣었다):
+  · 실측 요약은 **종속전원을 한 번도 언급하지 않는다**(다이아몬드는 인벤토리에만 CCVS로 남는다)
+    → `isDependentComponent`(값 기반 정규화)를 재사용해 **인벤토리에서** 종속원을 본다.
+  · 다른 회차는 **"그래프"·"(나)"·"I_sc"를 하나도 쓰지 않는다** → 그때 남는 신호가
+    **값이 기호인 저항**(`{type:"R", value:"R"}`)이다(1-4-5 규칙).
+  분류기 0-PRE(과목 무관) + route 안전망이 **같은 매처를 import** 한다(복제 금지 — 드리프트).
+- 모드: **exam_similar**=원본(그래프에 y절편 V_TH 수치 → R·I_SC·P) /
+  **exam_variant**=**구하는 양 교환**(그래프에 x절편 I_SC 수치 → R·V_TH·P). 회로·절차는 동일.
+- ★ 값은 규칙 열거+필터: **V_TH 정수**(그래프에서 읽을 수 있어야 한다) · R_TH > 0 ·
+  I_SC·P 분모가 작을 것. **원본 튜플 제외**, 유사/변형 풀 절반 분리(풀 5724).
+- ★ (나)는 **기존 `vi_line_graph` 렌더러를 재사용**하되 `vInterceptLabel`/`iInterceptLabel`을 추가해
+  **학생이 구할 절편은 기호로만** 찍는다. ※ 두 라벨 중 **한쪽만 고치면 반대쪽에 답이 그대로 노출된다**
+  (실측으로 잡혔다 — 스모크가 두 방향 모두 단언한다).
+- ★★ **기호식도 검산 대상이다**: 변형의 `[단계 1]` I_SC 식을 손으로 잘못 적어 R 대입 시 10/9(실제 5/6)가
+  나왔고 **E2E에서야 드러났다**. → 스모크가 **정답에 적힌 기호식에 R을 대입해 그래프 절편과 대조**한다.
+- 파일: `lib/generation/topologies/theveninDepGraphMaxPower.ts`(유리수 Q 연산 + 공용 매처)·
+  `lib/pipeline/runTheveninDepGraphMaxPowerPipeline.ts`(3단계 + `detectTheveninDepGraph`)·
+  `lib/renderers/theveninDepGraphCircuitRenderer.ts`(점선 박스 + 다이아몬드 + Ⓐ/Ⓥ + i_x + 미지 "R").
+  circuitType `thevenin_dep_graph_max_power`, diagramType `thevenin_dep_graph_circuit`.
+  types·circuitType·renderers/index·validateProblem·classifier(0-PRE)·route(dispatch+semantic+topology 우회)·
+  `smokeOriginalRouting`(+1줄, **실측 요약 그대로**) 등록.
+- ★ 부수 수정(형제 generic 경로) — 같은 신고에서 함께 잡힌 것:
+  ① `theveninDependentCircuitRenderer`가 **직렬 가지의 종속전원을 저항 지그재그로** 그렸다
+     (shunt 쪽만 `DEP_TYPES`를 검사했다) → 가로 다이아몬드 심볼 추가.
+  ② 같은 렌더러가 **i_x 화살표를 직렬 가지에만** 그려, 제어 전류가 세로 가지일 때 통째로 빠졌다 → 추가.
+  ③ `extractTheveninNetlist`의 `round3`가 전역 분수 변환기의 오복원을 유발했다(1-4-3 참고).
+- 검증: tsc 0 · eslint 0 / `scripts/smokeTheveninDepGraphMaxPower.mjs` **45/45**
+  (실측 요약 포함 감지 4 + 3과목 분류 + 형제 양보 5 + 원본 물리 5 + **생성물 48개를 독립 solver로 재검산
+  (KVL 잔차 포함)** + 값 품질 4 + 발문·표기 + **기호식 대입 검산** + 렌더 구조 10) /
+  `smokeOriginalRouting` **55/55** / 형제 무회귀(acTheveninDependent 24/24·acTheveninDesignAb 18/18·
+  acTwoSourceMeshPower 37/37·theveninViGraphSignal 10/10) /
+  **원본 이미지 E2E 양모드**: analyze가 곧바로 전용 유형으로 분류, figure 2종·손검산 일치
+  (유사 V_TH=4·R=6·I_SC=8/11·P=8/11, 변형 I_SC=6/5·V_TH=9·R_TH=15/2·P=27/10) / 렌더 시각검증.
+
+## **두 교류 전원** RLC 메시 → 페이저 전류 I₁·I₂ + 평균 전력 (임용 5번 회로이론 — `ac_two_source_mesh_power`) 전용 archetype
+
+- 원본: 직사각 2-메시. 좌 세로 v₁(√8∠45°)·우 세로 v₂(2∠180°), 상단 좌 R₁(1Ω, I₁)·상단 우 C₂(−j2),
+  가운데 R₂(1Ω), 하단 좌 C₁(−j1)·하단 우 L(j3). [1] I₁·I₂ [2] **R₂ 소비 평균전력** [3] v₁ 공급 평균전력.
+- ★ 물리(닫힌형, 복소 2×2): 두 메시를 모두 시계로 잡으면 가운데 R₂에 **I₁ − I₂** 가 흐른다.
+  `[Z₁ −R₂; −R₂ Z₂][I₁;I₂] = [V₁;V₂]`, **P_R2 = ½|I₁−I₂|²R₂**, **P_v1 = ½Re(V₁I₁*)**.
+  원본 검산: **I₁ = I₂ = 2∠90°** → R₂ 전류 **0** → **P_R2 = 0[W]**, **P_v1 = 2[W]**
+  (R₁ 소비 2W와 전력수지 일치, v₂는 0W 공급).
+- ★★ **극성은 "값이 깨끗한 쪽"으로 확정했다**: 그림의 AC 전원 기호엔 +/− 표기가 없어 극성이 모호한데,
+  두 전원을 **같은 방향(+ 위)** 으로 두면 I₁=I₂=2∠90°·P_R2=0·P_v1=2W로 전부 정수/45° 배수가 되고,
+  반대로 두면 I₂ = 6/√5∠−26.57° 같은 값이 나온다. ⇒ **I₁=I₂ → R₂ 전력 0** 이 이 문제의 교육 포인트다.
+- ★★ **오분류(수정됨)**: 전용 항목이 없어 형제 **`ac_rl_average_power`(임용 8번, 단일 전원)** 가 가로챘고
+  생성물의 **정답이 빈 문자열**, 풀이는 *"모든 branch 전류가 0A"* 라는 엉터리였다(**issues=0으로 통과**).
+  ⇒ 판별선 = **교류 전원 2개** + 평균전력 + 페이저 전류/메시 요구. **그 블록 바로 앞**에 0-PRE로 둔다.
+  양보: 중첩의 원리·테브난/최대전력·공진·역률·전원 크기 역산·종속전원·스위치 과도·오실로스코프.
+- ★★ **값은 역설계로 열거한다**: 전원을 먼저 고르면 전류가 지저분해진다 → **깨끗한 전류 I₁·I₂를 먼저 고르고
+  전원을 역산**한 뒤, 전원이 **가우스 정수 + 깨끗한 극형식**(√8∠45°·2∠180° 같은 45° 배수)인 조합만 채택한다.
+  그러면 전류·전력이 자동으로 깔끔하다. 필터: P_R2·P_v1이 0.5 배수, P_v1 > 0, **원본 튜플 제외**.
+  ★ P_R2가 **0인 경우와 아닌 경우를 모두** 낸다 — 항상 0이면 [단계 2]의 답이 노출된다.
+- 모드: **exam_similar**=원본 배치 / **exam_variant**=**리액티브 소자 종류 교환**(상단우·하단좌 L, 하단우 C).
+- 파일: `lib/generation/topologies/acTwoSourceMeshPower.ts`(결정론 generator + 공용 매처)·
+  `lib/pipeline/runAcTwoSourceMeshPowerPipeline.ts`(3단계 + `detectAcTwoSourceMeshPower`)·
+  `lib/renderers/acTwoSourceMeshCircuitRenderer.ts`(직사각 2-메시 fixed-slot: 좌·우 AC 전원(+ 위) +
+  상단 2소자(I₁·I₂ 화살표) + 가운데 세로 R₂ + 하단 2소자). circuitType `ac_two_source_mesh_power`,
+  diagramType `ac_two_source_mesh_circuit`. types·circuitType·renderers/index·validateProblem·
+  classifier(0-PRE, `ac_rl_average_power` **앞**)·route(dispatch 체인 최상단+semantic+topology 우회)·
+  `smokeOriginalRouting`(+1줄) 등록.
+- ★ 표기 gotcha: 음수는 **유니코드 마이너스(−)** 로 통일(`numFmt`) — ASCII 하이픈이 섞이면 같은 문항에
+  `−j2`와 `-2`가 공존한다(실측). 전력·전류는 정수/0.5 배수라 전역 분수 변환기가 개입하지 않는다.
+- 검증: tsc 0 · 신규 파일 eslint 0 / `scripts/smokeAcTwoSourceMeshPower.mjs` **36/36**(감지 3 + 형제 양보 6 +
+  4과목 분류 + 형제 회귀 + 원본 물리 10 + 생성물 48개 재검산(**연립식 잔차 0 + 전력수지 독립 검증**) +
+  값 품질·원본 튜플 미생성·풀 비중첩 + 렌더 겹침 0 + 발문·표기) / `smokeOriginalRouting` **54/54** /
+  형제 무회귀(oscPhaseL 40/40·acDeltaWye 47/47·acSupSourceDesign 28/28·acTheveninDependent 24/24) /
+  **원본 이미지 E2E issues=0**(R₁2·R₂1·C₂−j2·C₁−j2·L j2, V₁=10·V₂=2∠180° → I₁=√8∠45°·I₂=2∠90°·
+  P_R2=2W·P_v1=10W — 손검산·전력수지 일치).
+
+## **오실로스코프 파형 판독** → V_m·f·위상차 α → 미지 인덕턴스 L (임용 11번 회로이론 — `oscilloscope_phase_l`) 전용 archetype
+
+- 원본: (가) **오실로스코프 화면**(㉠=Ch1의 v_s, ㉡=Ch2의 v_L, Ch1 2.00 V/div·Ch2 1.00 V/div·500µs/div) +
+  (나) 회로 `v_s(t) ─ 2000π/√3[Ω] ─ 마디 A`, 마디 A에 **미지 L**(v_L 측정),
+  `마디 A ─ 1H ─ 마디 B ─ 1H ─ 접지` 가지가 병렬. 〈해석 절차〉 [1] V_m·f [2] α와 v_L(t) [3] L.
+- ★★ **원본 값은 화면을 8배 확대해 격자로 확정했다** ([[feedback_verify_wiring_by_zoom]]):
+  10 div × 8 div 격자. 실선의 영교차가 x=205→720→1240px → **주기 6 div = 3000µs → f = 1000/3[Hz]**,
+  진폭 4 div × 2.00 V/div → **V_m = 8[V]**. 점쇄선은 **1 div 앞서고** 진폭 4 div × 1.00 V/div → 4[V].
+  ⇒ **α = (1/6)×360° = 60°**. (골·마루로 눈대중하면 0.4~0.7 div로 흔들린다 — **영교차**로 재라.)
+- ★ 물리(닫힌형): v_L/v_s = Z/(R+Z), Z = jX → **∠ = 90° − arctan(X/R) = α** 이고
+  **|v_L|/|v_s| = cos α**(두 채널 진폭이 이 관계를 만족 — 자체 검산).
+  X = R/tanα, L_eq = X/ω, **L = L_eq·S/(S − L_eq)** (S = 직렬 가지 합).
+  원본 검산: X = R/√3 = 2000π/3 = ω → L_eq = 1H → **L = 1·2/(2−1) = 2[H]**.
+- ★★ **α = 60°는 설계상 강제된다**: 학생이 격자에서 읽으려면 (1) α=(α div/T div)×360°가 눈금으로 떨어지고
+  (2) **cos α = 두 채널 진폭비**도 눈금으로 떨어져야 한다. 45°(cos=√2/2)·30°(√3/2)는 (2)가 깨진다.
+  **60°(cos=1/2)** 만 둘 다 만족하며 그때 T=6 div·α=1 div로 원본 화면이 그대로 나온다.
+  ⇒ α는 고정하고 **V_m·f·R·소자값**을 변형한다(값 공간은 그것만으로 충분하다).
+- ★★ **오분류(수정됨)**: 전용 항목이 없어 **`universal_ac`** 로 떨어졌고 생성물의 정답이 **"(query 없음)"**,
+  풀이는 *"AC 정상상태 phasor 해석 — 입력 ω = 10000 rad/s"* placeholder, figure는 generic `analog_netlist`
+  (**오실로스코프 화면 자체가 소실**)였다. **validator는 issues=0으로 통과** — generic 경로 실패의 전형.
+  ⇒ 판별선 = **화면 판독 신호**(V/div·µs/div·Ch1/Ch2) + 위상차/파형, **0-PRE(과목 무관)**.
+- ★★ **bare "과도응답"을 양보 근거로 쓰지 마라 (실측)**: Vision이 이 **정상상태** 원본을
+  *"RL 회로의 **과도응답** 분석"* 으로 요약한 회차가 있다(3/3 관측). 그 낱말에 양보를 걸었더니 원본이 통째로
+  빠져나갔다(스모크가 즉시 잡음). → 양보는 **구조 신호**(스위치·t=0·시정수·계단 입력)로만 건다.
+- 모드: **exam_similar**=원본(인덕터 3개, v_L이 **60° 앞섬**, L 도출) /
+  **exam_variant**=**소자 종류 교환**(커패시터 3개, v_C가 **60° 뒤짐**, C 도출).
+  구조·절차·진폭비(cos60°=1/2)는 동일하고 위상 부호만 거울. 직렬 가지 합성만 L=합 / C=곱÷합으로 바뀐다.
+- ★ 값은 규칙 열거 + 필터: R = **Mπ/√3**(M = 10⁶·L_eq/s) 형태가 되도록 s·L_eq를 고르고,
+  화면 진폭 div·V/div·미지값·직렬합성이 **전부 정수**가 되게 필터. **원본 튜플 제외**, 유사·변형 값 비중첩.
+- ★★ **표기 gotcha 3건(모두 실측)** — 전역 분수 변환기(1-4-3)가 소수를 제각각 바꾼다:
+  ① `0.50 V/div` → **`1/2 V/div`** → **V/div 후보를 정수 {1,2,5}로 제한**(원본도 1.00·2.00이다).
+  ② 리액턴스를 소수로 적으면 `1047.198[Ω]` → **기호로 적는다**(`X = R/√3 = Mπ/3`).
+  ③ 진폭비를 `0.5`로 적으면 변환기가 손댄다 → **기약분수 `1/2`** 로 적는다.
+  스모크가 발문·조건·정답·풀이에 **소수점이 하나도 없음**을 단언한다.
+- 파일: `lib/generation/topologies/oscilloscopePhaseL.ts`(결정론 generator + 공용 매처)·
+  `lib/pipeline/runOscilloscopePhaseLPipeline.ts`(3단계 텍스트 + `detectOscilloscopePhaseL`)·
+  `lib/renderers/oscilloscopePhaseCircuitRenderer.ts`((가) **스코프 화면 렌더러 신설** — 10×8 격자·중앙축 눈금·
+  실선/점쇄선 2채널·α 화살표·Ch1/Ch2/µs-div 표기 / (나) 회로). circuitType `oscilloscope_phase_l`,
+  diagramType `oscilloscope_screen`·`oscilloscope_phase_circuit`.
+  types·circuitType·renderers/index·validateProblem·classifier(0-PRE)·route(dispatch **체인 최상단**+semantic+
+  topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- ★ semantic gotcha: 파형은 **주어지는 자료**(학생이 그리는 게 아니다) → `hasWaveformEvolution`을 켜지 마라
+  (켜면 IO-waveform split 요구가 붙는다 — `opamp_analog_summer` 선례). `requiresMultiFigure`만 켠다.
+- ★ 렌더 gotcha: ㉠·㉡ 지시선 끝은 **파형 함수를 실제로 평가해** 찍는다. 상수 비율로 찍었더니 빈 공간이나
+  남의 파형을 가리켰다(시각검증에서 발견).
+- 검증: tsc 0 · 신규 파일 eslint 0 / `scripts/smokeOscilloscopePhaseL.mjs` **40/40**(실측 오요약 회차 포함 감지 4종 +
+  형제 양보 5종 + 4과목 분류 + 원본 물리 11(**복소 임피던스 독립 재검산** 포함) + 생성물 48개 재검산 +
+  값 품질·원본 튜플 미생성·풀 비중첩 + 렌더 겹침 0 + 발문·소수 0) / `smokeOriginalRouting` **53/53** /
+  형제 무회귀(acDeltaWye 47/47·acTheveninDependent 24/24·acSupSourceDesign 28/28·rlcStateEquation 19/19·
+  switchedRlcSourceFree 19/19·acTheveninDesignAb 18/18) / **원본 이미지 E2E 양모드 issues=0**
+  (유사 50µs/div·R=20000π/√3 → V_m=4V·f=10000/3Hz·L=2H / 변형 C=3µF — 모두 수기·복소 검산 일치) /
+  헤드리스 Chrome 시각검증(원본 화면 배치 재현).
+
+## 교류 브리지 + **Δ-Y(델타-와이) 변환** → 등가 임피던스 Z_AB → 전류 크기 a (임용 2번 회로이론 — `ac_delta_wye_bridge`) 전용 archetype
+
+- 원본: 단자 A(상)·B(하) 사이 **5-arm 브리지(다이아몬드)** — 좌상 j2·우상 2·**가운데 가교 −j2**·좌하 j2·우하 2.
+  (나)는 **상단 델타(A, 좌마디, 우마디)를 Y로 변환**한 등가 회로(좌하·우하 arm은 그대로 남는다).
+  요구 = 단자 A-B의 **등가 임피던스 Z**와, V=20∠0° 인가 시 **I=a∠−45°** 의 **a**.
+- ★ 물리(닫힌형, GPT 없음): Δ→Y는 `각 Y 팔 = (그 마디의 두 Δ 변의 곱)/(Δ 세 변의 합)`.
+  · 상단 Δ 세 변의 합 = j2 + 2 − j2 = **2 (실수)** — 리액턴스가 상쇄되는 것이 이 회로의 핵심이다.
+  · Z_A = j2, Z_1 = 2, Z_2 = −j2 → 두 가지 = **(2+j2)** 와 **(2−j2)** = **켤레쌍** → 병렬 = **2(순저항)**
+  · **Z_AB = j2 + 2 = 2+j2 = 2√2∠45°** → **a = 20/(2√2) = 5√2 ≈ 7.07**
+- ★★ **값 규칙 (예시 hardcode 금지)**: 상단 델타 3소자를 같은 크기 X로(jX·X·−jX), 하단 2 arm을 같은 크기 t로
+  (jt·t) 두면 **항상** Z_A=jX·Z_1=X·Z_2=−jX 이고 두 가지가 켤레쌍이 되어
+  **Z_AB = ((X+t)/2)(1+j) = k√2∠45°** 로 **위상이 정확히 45°** 다 → 원본의 `I = a∠−45°` 형식이 그대로 유지된다.
+  a = |V|/(k√2) = **m√2** (m = V/(2k)). 필터: **X·t 정수 + X+t 짝수**(k 정수) + m 정수 2~12. **원본 튜플(2,2,20) 제외**,
+  유사·변형 풀 절반 분할. ※ 이 규칙은 **Δ-Y를 전혀 쓰지 않는 노드해석**으로 220/220 교차검증했다(스모크).
+- 모드: **exam_similar**=원본 배치(좌상 L·가교 C·좌하 L → 유도성, I=a∠−45°) /
+  **exam_variant**=**소자 종류 교환**(좌상 C·가교 L·좌하 C → 용량성, I=a∠+45°). 구조·Δ-Y 절차는 동일, 답이 켤레 거울.
+- ★★ **오분류(수정됨)**: 전용 항목이 없어 **`ac_parallel_branches`(임용 5번)** 가 가로챘다(서버 로그 실측:
+  `reclassified=ac_parallel_branches`, `figures=analog_netlist`) — 그 형제의 조건이 "L≥2 + C + R + 단자 a·b 없음"으로
+  넓어 이 브리지가 그대로 걸린다. 생성물은 **전류원·가지 전류 페이저 문제**로 통째 변질됐고
+  **validator는 issues=0으로 통과**했다(검증기가 못 잡는 유형의 실패). ⇒ 판별선 = **Δ-Y 변환**(형제가 쓰지 않는 고유 절차),
+  **0-PRE(과목 무관)** 로 `ac_parallel_branches`·`universal_ac` **앞**에 둔다. 양보: 최대(평균)전력·3상 결선·종속전원.
+- ★★ **낱말에 걸지 마라 (실측 E2E)**: 처음엔 `등가\s*임피던스`를 요구했더니, Vision이 같은 원본을
+  *"**특정** 임피던스를 구하고"* 로 요약한 회차에서 통째로 미발화해 다시 형제에게 뺏겼다.
+  → `임피던스|impedance|등가 회로` 수준으로 넓혔다(CLAUDE.md 규칙 2). Δ-Y 시그니처가 이미 강한 판별자다.
+- ★ **분류기·감지기는 매처를 공유한다**: `matchesDeltaWyeSignature`/`matchesDeltaWyeAsk`/`yieldsDeltaWyeToSibling`을
+  `lib/generation/topologies/acDeltaWyeBridge.ts`에 두고 **classifyCircuitType과 detect가 함께 import**한다.
+  (두 곳에 정규식을 복제하면 한쪽만 고쳐져 조용히 드리프트한다 — 이 프로젝트에서 반복된 사고.)
+- ★★ **표기 gotcha 2건 (둘 다 실측)**:
+  ① 답이 무리수(k√2)라 **소수 근삿값을 적으면 route의 전역 분수 변환기**(1-4-3)가 `4.243 → 140/33`으로 뭉갠다
+     → **근호 형태로만** 적는다(`≈` 금지).
+  ② k가 **반정수**면 변환기가 `Z = 5/2 + j2.5`·`|Z|² = 5/2² + 5/2²`처럼 소수/분수를 뒤섞고 `5/2√2`가 모호해진다
+     → **값 규칙 단계에서 X·t를 정수 + X+t 짝수로 강제**해 문항 전체에서 소수를 없앤다(포맷터로 때우지 말 것).
+  스모크가 발문·조건·정답·풀이에 **소수점이 하나도 없음**을 단언한다.
+- 파일: `lib/generation/topologies/acDeltaWyeBridge.ts`(결정론 generator + 공용 매처)·
+  `lib/pipeline/runAcDeltaWyeBridgePipeline.ts`(3단계 텍스트 + `detectAcDeltaWyeBridge`)·
+  `lib/renderers/acDeltaWyeBridgeCircuitRenderer.ts`((가) 다이아몬드 5-arm + 점선 박스 + 전원·I 화살표 /
+  (나) Y 세 팔은 **빈 박스**(학생이 [단계 1]에서 도출) + 하단 2 arm은 원본 그대로).
+  circuitType `ac_delta_wye_bridge`, diagramType `ac_delta_wye_bridge_circuit`/`ac_delta_wye_equiv_circuit`.
+  types(DiagramType+payload)·circuitType·renderers/index·validateProblem `CIRCUIT_FIGURE_TYPES`·classifier(0-PRE)·
+  route(dispatch **체인 최상단**+semantic(등가·multi on)+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- ★ 렌더 gotcha: 전원 극성은 **위가 +** 다(전류 I가 단자 A로 유입) — 처음에 뒤집혀 있었다(시각검증에서 발견).
+  대각 arm 라벨은 다이아몬드 **바깥쪽 법선**으로 밀어 가교 소자 라벨과 겹치지 않게 한다(규칙 #6).
+- 검증: tsc 0 / `scripts/smokeAcDeltaWyeBridge.mjs` **47/47**(실측 오분류 회차 3종(‘특정 임피던스’ 회차 포함) +
+  표기 변형 3 + 형제 양보 6 + 4과목 분류 + 원본 물리 10(**노드해석 독립 재검산 포함**) +
+  생성물 48개 재검산(Δ-Y 결과 = 노드해석) + 원본 튜플 미생성 + 유사/변형 풀 비중첩 + 발문·표기(소수 0) + 렌더 겹침 0) /
+  `smokeOriginalRouting` **52/52** / 형제 무회귀(acTheveninDesignAb 18/18·acTheveninTwoBox 37/37·
+  acTheveninDependent 24/24·acSupSourceDesign 28/28·rlcStateEquation 19/19·reactiveNormalization 29/29) /
+  **원본 이미지 E2E 양모드 issues=0**(유사 3문항 모두 수기·노드해석 검산 일치) / 헤드리스 Chrome 시각검증.
+
 ## AC 휘트스톤 브리지 + 테브난 + 최대평균전력 (임용 7번 — `ac_bridge_max_power`) 전용 archetype
 - 원본: 교류원 V(∠0°) + 다이아몬드 4-arm 브리지(좌상 −jXc1·우상 R2·좌하 jXl·우하 R4) + 단자 A·B에 부하 R_L. 단자 개방 시 V_A·V_B·테브난(Z_TH) 구하고 순저항 최대평균전력 R_L 도출.
 - ★ generic universal_ac는 브리지(다이아몬드+A·B 가교) 구조를 잃고 임의 병렬회로로 변질 → figure·답 모두 깨짐 → 전용 결정론 archetype.
@@ -937,6 +1652,19 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - 원본값(첫 PARAM_SET): 20V·V_z7.3·V_BE0.7·R_1=120·R_3=150·I_L=80mA → **V_o=8V·I_1=100mA·I_z=20mA·R_4=300Ω**. 사전검증 세트 모두 정수/깔끔 (Rload<R3, Iz>0).
 - 파일: `lib/generation/topologies/zenerBjtRegulator.ts`(결정론 generator, GPT 없음), `lib/pipeline/runZenerBjtRegulatorPipeline.ts`(결정론 3단계 텍스트), `lib/renderers/zenerBjtRegulatorCircuitRenderer.ts`(전용 fixed-slot: 20V·R₁+I_1·제너(삼각형+Z바)·R₂(수직)·NPN BJT·R₃∥R₄(점선)·V_o 단자·I_L). circuitType `zener_bjt_regulator`, diagramType `zener_bjt_regulator_circuit`. index.tsx·validateProblem `CIRCUIT_FIGURE_TYPES`·route dispatch(특성곡선 앞)·semantic normalize(multi-figure off) 등록.
 - ★ **토폴로지 주의**: 표준 제너-BJT 션트 레귤레이터 해석으로 구현 (V_o=V_z+V_BE). 원본 정확한 wire-routing은 사용자 확인 시 정정 가능.
+- ★★ **제너 심볼 방향이 뒤집혀 있었다** (사용자 신고 2026-08-04 "제너 다이오드 방향이 반대 아니야?"):
+  원본을 6배 확대해 확인한 결과 **캐소드 바가 위 · 삼각형 꼭짓점이 위**(A 노드에서 아래로 항복 전류)인데,
+  렌더러는 꼭짓점을 `cy + h`(아래)에 찍고 bar를 삼각형 **밑변 쪽**에 붙여 그렸다 — 주석은 "cathode 위"라고
+  적혀 있었는데 좌표가 반대였다(주석과 코드가 어긋난 채 통과).
+  · **다이오드 심볼 규칙: bar(캐소드)는 삼각형의 꼭짓점 쪽에 붙는다.** 밑변 쪽에 붙이면 방향이 뒤집힌 그림이다.
+  · 같은 오류를 `opampSeriesRegulatorCircuitRenderer.ts`가 **복사해 갖고 있었다**(두 곳 동시 수정).
+    `zenerShuntRegulatorCircuitRenderer.ts`의 `zenerV`는 처음부터 올바르다(꼭짓점 위) — 그쪽이 기준 구현.
+  · 검증: `scripts/smokeZenerSymbolOrientation.mjs` **4/4** — 세 렌더러의 SVG를 파싱해
+    (a) 꼭짓점 y < 밑변 y (b) 캐소드 bar가 **꼭짓점 y**에 위치를 단언하고,
+    **뒤집힌 기하를 넣어 검사기가 실제로 잡는지 자체 검증**까지 포함한다(검사기가 무력한 채 초록이 되는 것 방지).
+    + `smokeZenerShuntRegulator` 18/18 무회귀 · tsc 0 · 헤드리스 Chrome 시각검증(원본과 동일 방향).
+  · ★ 교훈: **심볼 방향은 주석을 믿지 말고 좌표로 확인**할 것. 그리고 심볼 헬퍼는 렌더러마다 복사되므로
+    한 곳에서 틀리면 형제 렌더러도 같이 틀려 있다 — 고칠 때 `grep`으로 전부 확인한다.
 
 ## OPAMP(오차증폭기) 직렬형 정전압 안정화 회로 (임용 30번 전자회로 — `opamp_series_regulator`) 전용 archetype
 - 원본: 제너 기준전압 V_z + **연산증폭기(오차증폭기)** + **직렬 패스 NPN 트랜지스터**(C=V_DD·E=V_o, 이미터 팔로) + 피드백 분압(R_a·R_b). OPAMP (+)=V_z, (−)=분압 탭 M, 출력→베이스(R_s bias). 부하 R_L.
@@ -954,7 +1682,34 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
   - ★ 끊김/정돈 수정(사용자 "회로가 좀 끊겨있어"): 제너 cathode/anode 리드 연속(anode 단선 해소), 피드백 배선을 OPAMP 하단 아래로 우회(본체 관통 방지), `resistorV`(중앙 밴드≤84px+리드)로 긴 R_L도 균일 톱니, Q/I_E 라벨 분리.
   - ★ 교훈: 사용자가 "본문(원본)처럼"이라고 하면 **원본 이미지의 소자 방향·위치를 그대로** — 특히 직렬 패스 트랜지스터는 **수평**(C-E 수평축), R_s는 **제너 바이어스**(제너 직상단)임을 원본에서 읽을 것.
 - 검증: tsc 0 new err(theveninDep 8 baseline만)·Vision 분류 원본 이미지 4/4 재현(opamp_series_regulator)·E2E 양모드 totalIssues=0 수기검산 일치(V_o=V_z(1+R_a/R_b), R_a=R_b(V_o/V_z−1))·Edge 시각검증(원본 토폴로지 재현: 오차증폭기+제너 기준+직렬 패스+피드백 분압, 겹침 없음)·smokeAll 32/32 무회귀.
-- ★ 교훈: **OPAMP 유무가 두 레귤레이터 유형의 핵심 판별자** — (제너+BJT)만으로 분류하면 OPAMP 있는 직렬형이 OPAMP 없는 션트형으로 샌다. analyzeImage에 "OPAMP 누락 금지" 명시 + PRE-SUBJECT 분류로 흡수. 원본이 개념형(보기)이어도 수치 유도형으로 재현(function_generator 선례).
+- ★ 교훈: **OPAMP 유무가 두 레귤레이터 유형의 핵심 판별자** — (제너+BJT)만으로 분류하면 OPAMP 있는 직렬형이 OPAMP 없는 션트형으로 샌다. analyzeImage에 "OPAMP 누락 금지" 명시 + PRE-SUBJECT 분류로 흡수.
+- ★★ **원본은 동작 판정형 객관식이다 — 수치 유도형으로 재현하면 학습목표가 사라진다** (2026-08-14 정정.
+  위 줄에 "개념형이어도 수치 유도형으로 재현"이라 적었던 것이 이 유형에서는 틀렸다):
+  원본 〈보기〉 ㄱ~ㅂ은 (1) 정전압 상태의 **트랜지스터 상태**(ㄱ ON/ㄴ OFF) (2) **출력전압**(ㄷ 10V/ㄹ 20V)
+  (3) **부하 변동 시 보정 방향**(ㅁ ON/ㅂ OFF)을 묻는다. **정답 = ⑤ ㄴ·ㄹ·ㅂ**(사용자 답지 확인).
+  · ㄹ: 귀환이 **분압 중점**에서 온다(원본 6배 확대로 확정) → V_o = V_z(1+R_a/R_b) = 20V.
+  · ㄴ: **출력 단자가 개방(무부하)** 이다. 직렬 패스 소자는 부하가 요구하는 만큼만 흘리므로 공급할
+    부하 전류가 없어 **차단(OFF)**. ★ R_a·R_b를 부하로 세면 "ON"으로 오판한다 — 그건 부하가 아니라
+    출력을 되먹임하는 분압망이다(내가 처음 ②로 잘못 답한 원인).
+  · ㅂ: V_o↑ → V_−↑ → 오차증폭기 출력↓ → 베이스↓ → 도통 감소(차단 방향) → V_o 복귀(부귀환).
+  ⇒ 기존 수치형 3단계(I_f·I_L·I_E)로 내면 (1)·(3)이 통째로 사라진다(절대규칙 0) →
+  **같은 archetype 안에 `isRegulatorOperationForm` 분기 추가**(유형 목록이 아니라 **형식 신호**로 판정:
+  동작·상태 어휘 O + 수치 요구 X). 발문 = [1] V_o [2] 트랜지스터 상태 판정+근거 [3] 보정 방향 서술.
+  변형은 [3]을 **"낮아지려 할 때"** 로 교환(구조·원리 동일, 방향만 거울).
+- ★ 렌더러에 **`noLoad`** 를 가산적으로 추가(미지정이면 기존과 동일 — 형제 수치형 무회귀):
+  R_L·I_L·dot을 생략하고 **하단 접지 레일을 분압기까지만** 그린다(부하 자리까지 뻗으면 끝이 떠 있는 배선이
+  된다 — 시각검증에서 발견). ★ figure에 부하가 그려져 있으면 [단계 2]의 "차단"이 성립하지 않으므로
+  **발문과 그림은 반드시 함께** 가야 한다.
+- ★ 표기 gotcha: 값 공간의 **소수 제너전압(2.5V)** 때문에 조건에는 `V_z=2.5V`, 정답·풀이에는 전역 분수
+  변환기(1-4-3)가 바꾼 `5/2`가 찍혀 한 문항 안에서 표기가 갈렸다(실측). **조건은 변환기를 거치지 않는다**는
+  것이 핵심 — 포맷터로 때우지 말고 **값 공간에서 소수를 제거**했다(`V_Z_SET = [2,3,4,5]`).
+- ★ 검증: `scripts/smokeOpampRegulatorForms.mjs` **435/435**(형식 감지 양·음성 5 + 두 형식 × 두 모드 × 6문항의
+  3단계 계약 · 객관식 잔존 0 · **조건에 소수 0** · noLoad 설정 · 보정 방향 모드별 반대 · 동작형 분수 변환기 불변 ·
+  무부하인데 R_L 언급 0 + **조건에서 V_z·R_a·R_b를 되읽어 V_o 재검산**) / `smokeOriginalRouting` 70/70 ·
+  `smokeThreeStepMultipleChoice` 118/118 · `smokeActiveLowpassNotation` 338/338 무회귀 / tsc 0 /
+  생성 API 양모드 issues=0 / 헤드리스 Chrome 시각검증(무부하 배치가 원본과 일치).
+  ⚠️ 기존 `scripts/smokeOpampSeriesRegulator.mjs`는 옛 세션 image-cache를 읽는 E2E라 실행이 ENOENT로 죽는다
+  (`smokeActiveLowpassFilter`와 같은 상태). 회귀 방어는 위 정적 스모크가 맡는다.
 
 ## 1차 능동 저역통과 필터 — 대역폭 분석 (임용 31번 전자회로 — `active_lowpass_filter`) 전용 archetype
 - 원본: `v_i ─ R ─ 마디 P ─ OPAMP(+), P ─ C ─ GND` (입력단 RC 저역통과) + OPAMP 비반전 버퍼(R_f 피드백). **대역폭 = 차단주파수 f_c = 1/(2πRC)**. 질문: C(또는 R)를 바꿀 때 대역폭[Hz] 변화. 원본(R=50k·C 8n→16n·π=3.14) → f_c 398→199 → **약 200 감소(정답 ①)**.
@@ -966,6 +1721,18 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - 파일: `lib/generation/topologies/activeLowpassFilter.ts`·`runActiveLowpassFilterPipeline.ts`·`lib/renderers/activeLowpassFilterCircuitRenderer.ts`(전용 fixed-slot: v_i·R 수평·C 접지·OPAMP(−위·+아래)·R_f 피드백·v_o, 원본 배치). circuitType `active_lowpass_filter`, diagramType `active_lowpass_filter_circuit`. types·circuitType·renderers/index·validateProblem·classifier(PRE-SUBJECT)·route(dispatch+subject보정+semantic)·analyzeImage·smokeAll[+1]·smokeActiveLowpassFilter 등록.
 - 검증: tsc 0 new err·**Vision 분류 원본 이미지 라우팅 성공**·E2E 양모드 totalIssues=0 수기검산 일치(f_c=1/(2πRC))·Edge 시각검증(원본 토폴로지: RC 저역통과+OPAMP 버퍼+R_f 피드백)·smokeAll 33/33 무회귀.
 - ★ 교훈: OPAMP+C 회로에서 **필터/대역폭 키워드가 discriminator** — 없으면 generic opamp가 C를 흘려 반전증폭기로 변질. analyzeImage "커패시터·대역폭 보존" + PRE-SUBJECT 분류(적분기 제외 가드)로 흡수.
+- ★★ **표기 gotcha — 전역 분수 변환기가 답을 뭉갰다** (2026-08-14 실측): 발문·풀이는 이미 3단계 서술형이었는데
+  정답의 `≈ 398.1 Hz`가 **3981/10**, `796.2 Hz`가 **3981/5**, 풀이의 `π=3.14 대입`이 **π=157/50**으로 바뀌었다.
+  변환기(1-4-3)는 **대괄호 단위가 바로 뒤에 붙은 소수만** 보호하므로 `[Hz]` 없이 쓴 주파수와 맨 `3.14`가 걸린다.
+  ⇒ ① 주파수는 `hz()` 헬퍼로 항상 `398.1[Hz]` 형태 ② 풀이의 π는 **기호로**("π는 조건대로 계산" — 3.14 지시는
+  본문·조건에만, 그쪽은 변환기가 안 건드린다) ③ 소자 값은 `25×10³`·`5×10⁻⁹` 지수 표기 ④ 음수는 유니코드 마이너스.
+  Wien bridge design에서 겪은 것과 **같은 함정**이다.
+- ★ 검증: `scripts/smokeActiveLowpassNotation.mjs` **338/338**(생성물 16개를 `fractionizeText`에 통과시켜
+  **한 글자도 안 바뀜**을 단언 + "숫자 Hz"·3.14 노출·ASCII 하이픈 0 + 3단계 계약 + **조건에서 R·C를 되읽어
+  f_c 독립 재검산**·증감 방향 + figure). `smokeThreeStepMultipleChoice` 118/118 · `smokeFractionText` 24/24 ·
+  `smokeOriginalRouting` 70/70 무회귀.
+  ⚠️ 기존 `scripts/smokeActiveLowpassFilter.mjs`는 **옛 세션의 image-cache 파일을 읽는 E2E**라 그 캐시가 지워지면
+  실행 자체가 ENOENT로 죽는다(현재 상태). 회귀 방어는 위의 정적 스모크가 맡는다.
 - ★★ **route 재검출 안전망 (stale analysis 방어, 사용자 "아직도 이렇게 나와")**: 분류(analyze) 5/5 정상인데 브라우저는 여전히 반전증폭기 → 원인은 **프론트(`app/page.tsx`)가 업로드 시 analysis를 React state에 저장하고 "생성" 때마다 재사용** → 수정 이전 분석(circuitType=generic opamp)이 state에 남아 generate로 전달(generate는 body의 circuitType 신뢰). → `detectActiveLowpassFilter(analysis)`(pipeline export, 분류기 동일 시그니처)를 route 상단(jk_sync_counter 안전망 옆)에서 실행 → stale이라도 텍스트가 "OPAMP+C+저역필터/대역폭"이면 `analysis.circuitType.type=active_lowpass_filter`+subject=electronics 강제. **opamp_series_regulator도 동일 안전망 추가**(임용 30번 같은 위험). 검증: stale(opamp_generic) analysis→generate가 active_lowpass_filter_circuit로 보정(figure·물리 정확). ★ 교훈: **프론트가 analysis를 state 캐시하면 분류기 수정만으로 부족** — generate 단계 재검출 안전망 필수(jk_sync_counter 선례). 사용자는 재업로드로도 해결되지만 안전망이 근본 방어.
 
 ## OPAMP 루프이득 L(s)=V_r/V_t + 특성방정식 좌반평면 안정도 (임용 12번 전자회로 — `opamp_loop_gain_stability`) 전용 archetype
@@ -1040,6 +1807,302 @@ generator와 renderer는 다음 규칙을 모든 회로 figure에 무조건 준�
 - 단계별 풀이: (1) β=R_1/(R_1+R_2), (2) B·D를 β·A_0로 표현, (3) 라플라스 역변환으로 V_out(t) 도출 + K 상수.
 - validator 인정 범위: V_out → V+ 피드백도 정상 OPAMP 회로 (V_out → V− 외에).
 - 임용 6번은 SW가 t=0에 닫혀 V−(s) = 1/s 단위 step 입력으로 응답을 보는 형식.
+
+## Maxwell 방정식 **개념 빈칸 채우기** (임용 24번 — `maxwell_concept_fill_blank`) — ★그림 없음★
+
+- 원본: 〈보기〉 ㄱ~ㄹ의 참·거짓을 가려 고르는 객관식. 지식점은
+  ㄱ **변위전류밀도의 정체**(체적전하 이동은 전도전류밀도 J다 — 원본의 **거짓** 항목)
+  ㄴ ∇×H = J + ∂D/∂t에서 변위전류항을 넣은 **이유**(전류 연속방정식과의 정합)
+  ㄷ 패러데이 — **자속밀도가 시불변이어도 면적**이 변하면 기전력 발생
+  ㄹ Maxwell 방정식의 해 → 도체 내 **표피 깊이(skin depth)**
+- ★ 사용자 지정: **빈칸 채우기**로 출제(임용 27번과 같은 처리). 〈보기〉 구조를 유지하되 핵심 용어·수식을
+  ㉠~㉤로 비운다. 원본은 **틀린 서술**을 읽혀야 하지만 빈칸형에서는 **모든 문장이 참**이 되고
+  학생이 정확한 용어·수식을 직접 써야 한다(개념 확인이 더 정밀해진다).
+- ★ 값은 **사실 표 + 그룹 조합**으로 규칙 열거한다(예시 하드코딩 아님). Maxwell 4방정식 + 보조 개념
+  (변위전류·연속방정식·표피깊이·δ = √(2/(ωμσ)))을 표에 담고, 지식 축이 겹치지 않도록 그룹에서 하나씩 뽑는다.
+  정답은 표에서 그대로 나오므로 결정론이다. **원본 4지식점이 표에 모두 들어 있음을 스모크가 단언**한다.
+- ★★ **dispatch 위치가 핵심**: 이 유형은 그림도 수치 given도 없어
+  ① `isConceptNamingAnalysis`(개념 명칭형)와 ② `subjectKey === "electromagnetics"` **둘 다**
+  회로 dispatch 체인을 통째로 우회하는 분기다. 그래서 **그 둘보다 앞**에 두어야 도달한다
+  (`periodic_signal_dc_rms`와 같은 이유 — 뒤에 두면 실행조차 안 된다).
+  분류기 0-PRE도 개념 명칭형 가드보다 앞에 둔다(CLAUDE.md 1-4-2).
+- ★ 판별선: **Maxwell + 개념 서술**(변위전류·연속방정식·표피깊이·미분형·회전/발산).
+  EM **계산** 유형(레지스트리)은 수치를 주고 "구하시오"라고 하므로 그 어투·단위 표기가 보이면 양보한다.
+- 파일: `lib/generation/topologies/maxwellConceptFillBlank.ts`(사실 표 + 조합)·
+  `lib/pipeline/runMaxwellConceptFillBlankPipeline.ts`(+`detectMaxwellConceptFillBlank`). **렌더러 없음**.
+  circuitType `maxwell_concept_fill_blank`. types/circuitType·classifier(0-PRE)·route(안전망+semantic 전부 false+
+  **개념 명칭형·EM 분기 앞 dispatch**)·`smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 · eslint 0 / `scripts/smokeMaxwellConceptFillBlank.mjs` **39/39**(라우팅 2종×2과목 +
+  형제 양보 3종(EM 계산 2·회로) + **원본 4지식점 표 존재** + 사실 표 무결성 + 생성물 24개
+  (사실 중복 0·빈칸↔정답 대응·**정답이 문항에 노출되지 않음**) + 빈칸 5개·그림 0·객관식 아님) /
+  `smokeOriginalRouting` **68/68** / **생성 API E2E** 유사·변형·stale `unsupported`(개념형) 모두 issues=0 · figure 0.
+
+## 컴퓨터 데이터 표현·산술 연산 **빈칸 채우기** (임용 27번 — `number_repr_fill_blank`) — ★그림 없음★
+
+- 원본: 〈보기〉 ㄱ~ㅁ 다섯 항목의 참·거짓을 가려 고르는 **객관식**. 지식점은
+  ① 2진 → 16진 변환 ② 1의 보수 ↔ 2의 보수 표현 ③ 1의 보수 덧셈의 **순환 자리올림** ④ n비트 2의 보수 범위
+  ⑤ 8비트 2의 보수 덧셈과 **오버플로 판정**.
+  (원본 ㄱ의 2진수는 F94₁₆에 대응하는 **111110010100₂** 로 읽었다 — 확대해도 마지막 자리가 흐리다.)
+- ★ **사용자 지정 (2026-08-12)**: **빈칸 채우기**로 출제하되 **"유형은 비슷하게"** — 〈보기〉 5항목 구조를
+  그대로 두고 값만 **㉠~㉤ 빈칸**으로 비운다. 원본 ㄷ·ㅁ은 서술이 모호해 참·거짓 논쟁 여지가 있는데,
+  **결정론적으로 계산되는 값**을 묻는 형태로 바뀌면서 정답이 명확해진다(부수 효과).
+- ★★ **3단계 계약을 형식으로 완화**: 절대원칙(객관식 → 3단계)의 취지는 "보기 고르기 → 학생이 직접 산출"이다.
+  **㉠~㉪ 빈칸 3개 이상 + '빈칸/채우/들어갈/알맞은'** 이면 그 취지를 만족하므로
+  `missing_three_step_question`을 내지 않는다(`validateProblem`). **유형별 예외 목록이 아니라 형식 판정**이라
+  다른 빈칸형 유형에도 그대로 적용된다.
+- ★ 모든 빈칸은 코드로 계산한다(GPT 없음): 진수 변환·1의 보수·2의 보수 해석·범위·8비트 덧셈과 오버플로.
+  오버플로는 **같은 부호끼리 더했는데 결과 부호가 달라지는 경우**로 판정하고, 조건문에 그 정의를 명시한다.
+- 모드: **exam_similar**=값 → 표현(2진→16진, −a의 1의 보수) / **exam_variant**=**방향 교환**(16진→2진,
+  비트열을 1의 보수·2의 보수로 **읽어** 십진수를 답).
+- ★★ **표기 gotcha 2건(둘 다 실측)**: ① 문장은 "n비트"인데 답이 `−2^15`처럼 구체 지수라 **모순**이었다 →
+  비트 수를 문장에도 구체값으로 쓴다. ② `-40`(ASCII)과 `−4`(유니코드)가 한 문항에 공존했다 →
+  `neg()`로 **유니코드 마이너스 통일**(스모크가 ASCII 하이픈 0건을 단언).
+- ★ 판별선: bare **"진수"·"수 표현"은 너무 넓다** — 형제 `number_representation`(임용 4번, n비트 수 표현
+  **고리 그림**)을 통째로 뺏었다(통합 라우팅이 잡음). 고유 작업인 **16진 변환 또는 오버플로**로 좁혔다.
+  회로 낱말(플립플롭·게이트·저항·카운터…)이 보이면 양보한다.
+- 파일: `lib/generation/topologies/numberReprFillBlank.ts`·`lib/pipeline/runNumberReprFillBlankPipeline.ts`
+  (+`detectNumberReprFillBlank`). **렌더러 없음** — `figureVariants: []`(logic_condition_sop 선례).
+  circuitType `number_repr_fill_blank`. types/circuitType·classifier(0-PRE)·rules/digital(figure-less 분기)·
+  route(안전망+과목 보정+DIGITAL 집합+semantic 전부 false+dispatch)·`smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 · eslint 0 / `scripts/smokeNumberReprFillBlank.mjs` **36/36**(라우팅 2종×2과목 + 형제 양보 3종 +
+  **원본 값 6항목 재현**(F94·1101·−3·11101000·−24·오버플로 없음) + 생성물 48개 독립 계산 재검산 +
+  ASCII 하이픈 0 + "n비트" 모순 0 + 빈칸 5개·그림 0·객관식 아님 + 배치 내 문항 상이) /
+  `smokeOriginalRouting` **67/67** / **생성 API E2E** 유사·변형·stale 모두 issues=0 · figure 0개.
+
+## npn BJT **Early 효과** 개념 **빈칸 채우기** (임용 27번 전자회로 — `bjt_early_effect_fill_blank`) 전용 archetype
+
+- 원본: (가) BJT 세로 단면도(Collector/Base/Emitter + CBJ·EBJ 공핍층 + 유효 베이스폭 \(W_B^{eff}\)) +
+  (나) 출력특성곡선(활성영역 직선을 왼쪽으로 연장 → \(-V_A\), 기울기의 역수 \(r_o = 1/(dI_C/dV_{CE})\)).
+  〈보기〉 ㄱ~ㅁ의 참·거짓을 가려 고르는 **객관식**(정답 ② ㄱ·ㄴ·ㅁ).
+  ㄱ \(V_A\)=Early 전압(참) · ㄴ \(V_{CE}\)↑ → \(W_B^{eff}\)↓(참) · **ㄷ \(r_o\)→∞일 때 Early 효과(거짓 — 그때는 안 나타난다)** ·
+  **ㄹ \(W_B^{eff}=W_B\)일 때 Punch Through(거짓 — \(W_B^{eff}\to 0\)일 때다)** · ㅁ \(V_{CE}\)↑ → 소수캐리어 농도 기울기↑(참).
+- ★ **사용자 지정 (2026-08-13)**: **빈칸 채우기**로 출제(임용 24·27번과 같은 처리). 〈보기〉 5항목 구조를 그대로 두고
+  핵심 용어·수식을 ㉠~㉤로 비운다. 원본의 거짓 항목(ㄷ·ㄹ)은 **올바른 서술로 고쳐** 표에 담았다 —
+  빈칸형에서는 모든 문장이 참이 되고 학생이 정확한 용어를 직접 써야 한다.
+  ★ **그림 (가)·(나)는 유지**(사용자 지정) — 형제 빈칸형 둘(그림 없음)과 다른 점이다.
+- ★ 값은 규칙 열거: 지식 축 5개(Early 전압 / 공핍층·유효 베이스폭 / 소수캐리어 / 동적출력저항 / Punch Through)를
+  그룹으로 두고 각 그룹에서 하나씩 뽑는다(원본 5항목 축 보존). 풀 72(유사 36·변형 36, 비중첩).
+- ★★ **정답 노출을 두 방향에서 막는다** — 이 유형의 최대 위험이다:
+  (1) **문항 안에서**: 어떤 보기 문장도 다른 보기의 정답 문자열을 담지 않게 표를 짰다.
+      초판은 "베이스"·"증가"가 정답이었는데 다른 문장에 널려 있어(유효 **베이스**폭·\(V_{CE}\)가 **증가**하면)
+      사실상 답이 노출됐다(**스모크가 잡음**) → "역방향 바이어스"·"가팔라진다"로 교체.
+  (2) **그림에서**: (나)의 `r_o = 1/(dI_C/dV_CE)` 주석은 그대로 두면 정답이 그림에 찍힌다 →
+      그 항목이 뽑힌 문항은 생성기가 **`r_o = ( ㉣ )`** 로 바꿔 보낸다(`figureMask`).
+      CLAUDE.md `thevenin_dep_graph_max_power`에서 학생이 구할 절편을 기호로만 찍은 것과 같은 처리.
+  (3) **발문·조건에 "Early"를 쓰지 않는다** — 그 말 자체가 ㉠의 정답인 문항이 있다(원본 발문은 쓴다).
+- ★★ **dispatch는 개념 명칭형보다 앞** (실측 실패): 이 원본은 수치 given이 하나도 없어
+  `isConceptNamingAnalysis`가 그대로 물어갔다 — 처음엔 회로 dispatch 체인 안에 두었더니
+  **"㉠, ㉡에 해당하는 용어를 순서대로 쓰시오"가 그림 없이** 생성됐다(E2E 4/4 실패).
+  개념 명칭형은 회로 체인 전체를 우회하므로 뒤에 두면 도달조차 못 한다
+  (`maxwell_concept_fill_blank`·`periodic_signal_dc_rms`와 같은 이유).
+- ★ 판별선 = **BJT 문맥 + Early 고유 낱말**(베이스폭 변조·유효 베이스폭·Punch Through) + 개념 신호(\(r_o\)·공핍층·소수캐리어).
+  양보: 바이어스·동작점·소신호·테브난·제너/레귤레이터·논리게이트·"구하시오"(계산형).
+  형제 `bjt_characteristic_curve`(영역 이름 식별)는 이 고유 낱말을 쓰지 않는다 — route 안전망의 coercible에
+  그 형제와 `bjt_bias`·`bjt_small_signal`을 넣었다(GENERIC이 아니라 canCoerce만으론 건너뛴다).
+  ★ **`early`는 단어 경계로 검사**한다 — 안 그러면 "n**early**"·"cl**early**"에 걸린다(비정현파⊃정현파와 같은 함정).
+- 모드: 유사·변형은 값 풀을 절반씩 나눠 서로 다른 빈칸 조합을 낸다(형제 빈칸형과 같은 방식).
+- 파일: `lib/generation/topologies/bjtEarlyEffectFillBlank.ts`(사실 표 + 조합 + 공용 매처)·
+  `lib/pipeline/runBjtEarlyEffectFillBlankPipeline.ts`(+`detectBjtEarlyEffectFillBlank`)·
+  `lib/renderers/bjtEarlyEffectRenderer.ts`(두 그림). circuitType `bjt_early_effect_fill_blank`,
+  diagramType `bjt_early_structure`·`bjt_early_curve`. types(DiagramType+payload)·renderers/index·
+  validateProblem(**hasConceptOnly**에 추가 — 둘 다 netlist가 아니다)·classifier(0-PRE)·
+  route(안전망+과목 보정(electronics)+semantic(multi만 on)+**개념 명칭형 앞 dispatch**+topology 우회)·
+  `smokeOriginalRouting`(+1줄) 등록. 시각검증 스크립트 `scripts/_bjtEarlyFigShot.mjs`.
+- ★ 렌더 gotcha: (가)의 **`W_B` 치수 라벨이 V_CE 전원 원 위에 얹혔다**(시각검증에서 발견).
+  텍스트끼리가 아니라 **텍스트↔심볼** 충돌이라 `_labelOverlap.mjs`가 못 잡는 자리다 — 캔버스 폭과
+  치수선 x를 벌려 해결. 라벨 겹침 검사기만 믿지 말고 **반드시 눈으로 볼 것**.
+- 검증: tsc 0 · eslint 0 / `scripts/smokeBjtEarlyEffectFillBlank.mjs` **122/122**
+  (라우팅 4종×3과목 + 형제 양보 7종 + **substring 함정 2종** + 값 공간·원본 5축 보존 +
+  **생성물 48개의 정답 노출 0 · 그림 마스킹 일치** + 발문 5빈칸·Early 미노출·객관식 아님 + 렌더 라벨 겹침 0) /
+  `smokeOriginalRouting` **69/69** / 형제 무회귀(bjtCharacteristicCurve·bjtTheveninBias 37/37·
+  bjtSwitchLogicGate 36/36·zenerShuntRegulator 18/18·numberRepr 36/36·maxwell 39/39·smokeAll 40/40) /
+  **생성 API E2E 4경로**(유사·변형·stale `bjt_characteristic_curve`·과목 오선택) 모두 **HTTP 200 · totalIssues=0** ·
+  figure 2종 정상 / 헤드리스 Chrome 시각검증.
+- ※ 기존 실패로 남겨 둔 것: `scripts/smokeBjtBiasRouting.mjs`의 A·B 2건(`bjt_two_stage_switched`가
+  `bjt_bias`를 가져감)은 이 작업과 무관하다(이 유형의 매처는 그 4케이스에 모두 false).
+
+## n채널 JFET **공핍층·핀치오프** 개념 **빈칸 채우기** (임용 28번 전자회로 — `jfet_depletion_fill_blank`) 전용 archetype
+
+- 원본: (가)~(라) 네 그림이 ( V_{GS}=0 )인 n채널 JFET에서 ( V_{DS} ) = 1·3·5·10[V]일 때의 공핍층을 보여 준다.
+  조건은 선형동작구간 0~2[V]·핀치오프 전압 5[V]. 〈보기〉 ㄱ~ㄹ의 참·거짓을 가려 고르는 **객관식** → **정답 ① (ㄱ, ㄴ)**.
+  ㄱ (가)는 선형구간이라 채널 저항이 일정(참) · ㄴ 게이트-드레인 역바이어스로 채널이 드레인 쪽으로 좁아진다(참)
+  **ㄷ 거짓** — ( V_{DS,pinch} = V_{GS} + V_P )이므로 ( V_{GS}<0 )이면 **낮아진다**
+  **ㄹ 거짓** — (라)는 포화 영역이라 ( I_D )가 **거의 일정**하다.
+- ★ **사용자 지정 (2026-08-14)**: **빈칸 채우기**로 출제(임용 24·27번과 같은 처리). 〈보기〉 5항목 구조를 유지하고
+  핵심 용어·값·식을 ㉠~㉤로 비운다. 원본의 거짓 항목(ㄷ·ㄹ)은 **올바른 서술로 고쳐** 표에 담았다 —
+  빈칸형에서는 모든 문장이 참이어야 학생이 정확한 개념을 써 넣을 수 있다. **그림 (가)~(라)는 유지**한다.
+- ★ 값은 규칙 열거: 지식 축 5개(선형(옴) 영역 / 채널 테이퍼링 / 핀치오프 조건 / 포화 영역 / 소자 구조)를
+  그룹으로 두고 각 그룹에서 하나씩 뽑는다(원본 ㄱ~ㄹ 축 보존 + 핀치오프 식). ( V_P )·선형구간 상한·
+  네 패널의 ( V_{DS} )·예시 ( V_{GS} )를 열거하고 **네 패널이 선형·테이퍼·핀치오프·포화를 하나씩**
+  대표하도록 필터한다. 유사/변형 값 풀은 절반씩 분리.
+- ★★ **정답 노출을 두 방향에서 막는다**:
+  (1) 초판은 ㉠의 정답이 **"선형(옴)"** 이었는데 **조건문의 "선형동작구간"이 그대로 답을 알려 줬다**(스모크가 잡음).
+      원본이 그 구간을 조건으로 주므로 낱말을 지울 수 없다 → 같은 지식(옴 영역의 성질)을 노출 없이 묻도록
+      **전류-전압 관계("거의 ( )한다" → 비례)** 로 바꿨다.
+  (2) 스모크가 **모든 정답 핵심어가 본문·조건 어디에도 없음**을 48개 생성물에 대해 단언한다.
+- ★★ **배치 안 문항이 전부 같은 조합으로 나왔다**(실측): `generateInParallel`이 주는 seed 증분 7919 +
+  index·211 = **8130**이 작은 그룹 길이의 배수라 `(base) % group.length`가 배치 내내 고정됐다.
+  ⇒ **사실 회전은 index만** 쓴다(값은 seed 기반이라 수치는 문항마다 다르다). 변형은 회전을 한 칸 밀어
+  유사와 다른 빈칸 조합을 낸다. `periodic_signal_dc_rms`의 "가족 선택에 seed를 섞지 마라"와 같은 함정.
+- ★★ **dispatch·분류 모두 개념 명칭형보다 앞**: 수치 given이 하나도 없어 `isConceptNamingAnalysis`가
+  그대로 물어간다(`bjt_early_effect_fill_blank`에서 실측된 실패와 같은 이유). 개념 명칭형은 회로 dispatch
+  체인 전체를 우회하므로 뒤에 두면 도달조차 못 한다.
+- ★ 판별선 = **JFET 문맥 + 공핍층·핀치오프 개념 신호**(채널 테이퍼링·선형/포화 영역·( V_P )).
+  형제 `jfet_bias`(분압 바이어스 → ( V_{GS} )·( I_D ) 계산)는 **수치 given**이 있어 매처가 양보한다.
+- ★★ **검증기의 수치 요구는 빈칸형에 오탐이다**: `validateAnswerSolution`의 `answer_no_digit`·
+  `solution_no_digit`·`answer_too_abstract`가 용어형 정답에 발화했다(solutionWarnings). 유형 목록으로
+  예외를 두면 새 빈칸형마다 빠지므로 **형식으로 판정**한다 — 정답에 ㉠~㉪ 마커가 3개 이상이면 빈칸 응답표로
+  보고 수치 요구를 면제(`number_repr_fill_blank`의 3단계 계약 판정과 같은 방식). 수치형은 그대로 경고한다.
+- ★★ **렌더 gotcha 3건(전부 헤드리스 Chrome 시각검증에서 발견)**:
+  ① 공핍층 두께를 소스↔드레인 **선형 보간**으로 그렸더니 포화(( V_{DS} > V_P ))에서 맞닿는 구간이 자라지 않아
+     **(다)와 (라)가 똑같이** 그려졌다 → 위치 t의 역바이어스 ( V_{DS}t - V_{GS} )로 **위치마다** 계산한다
+     (그러면 ( t_p = (V_P + V_{GS})/V_{DS} )부터 맞닿아 포화가 깊을수록 핀치 구간이 소스 쪽으로 자란다).
+  ② "핀치오프" 라벨을 원 옆에 붙이면 ( t_p )가 ( V_{DS} )에 따라 오르내려 어떤 패널에서는 **게이트 사각형** 위에,
+     어떤 패널에서는 **V_DS 전원 기호** 위에 얹힌다 → **패널 우상단 고정 위치 + 점선 지시선**으로 바꿨다.
+  ③ 행 라벨 "(가)"와 다음 행 D 단자가 붙어 `PANEL_H`를 250 → 272로, 전원 열 간격 확보를 위해 `PANEL_W`를 210 → 240으로.
+- 파일: `lib/generation/topologies/jfetDepletionFillBlank.ts`(사실 표 + 조합 + 공용 매처)·
+  `lib/pipeline/runJfetDepletionFillBlankPipeline.ts`(+`detectJfetDepletionFillBlank`)·
+  `lib/renderers/jfetDepletionPanelsRenderer.ts`(4패널 도식). circuitType `jfet_depletion_fill_blank`,
+  diagramType `jfet_depletion_panels`. types(DiagramType+payload)·circuitType·renderers/index·
+  validateProblem(**hasConceptOnly**에 추가 — netlist가 아니다)·classifier(0-PRE)·
+  route(안전망+과목 보정(electronics)+semantic(단일 figure)+**개념 명칭형 앞 dispatch**)·
+  `smokeOriginalRouting`(+1줄) 등록. 시각검증 스크립트 `scripts/_jfetShot.mjs`.
+- 검증: tsc 0 / `scripts/smokeJfetDepletionFillBlank.mjs` **453/453**(감지 3 + 3과목 분류 + 형제 양보 5 +
+  값 공간·유사/변형 비중첩 + **생성물 48개의 정답 노출 0**(본문·조건 양쪽) + 축별 1개 규칙 + 값 무결성 +
+  유사↔변형 빈칸 조합 상이 + 발문·figure·배치 내 상이 + 렌더 구조(핀치오프 표시 개수 = ( V_{DS} ge V_P ) 패널 수)) /
+  `smokeOriginalRouting` **70/70** / 형제 무회귀(bjtEarly 122/122·maxwell 39/39·numberRepr 36/36·
+  threeStep 118/118·wireIntegrity 4/4·cSwitchFallThrough 549/549·wienBridgeDesign 397/397) /
+  **생성 API E2E 4경로**(유사·변형·stale `jfet_bias`·과목 오선택) 모두 **HTTP 200 · totalIssues=0 ·
+  solutionWarnings=0** · figure `jfet_depletion_panels` / 헤드리스 Chrome 시각검증.
+
+## 전원 크기만 다른 **두 회로**의 최대전력 부하 + 비 η₁·η₂ (임용 17번 — `max_power_two_source_ratio`) 전용 archetype
+
+- 원본(확대 확정): `v(t) ─ C(직렬) ─ 마디 A ─ [R_p ∥ L_p] ─ 마디 B ─ 부하(점선 박스: R+L 직렬) ─ 하단 rail`.
+  (가)·(나)는 **회로망이 완전히 같고 전원 진폭만 다르다**(24 V vs 48 V).
+- ★ 물리(닫힌형, GPT 없음): 부하를 떼면 전류가 0이라 직렬 소자에 강하가 없다 → **V_th = 전원 전압 그대로**.
+  Z_th = −jX_C + (R_p ∥ jX_p). 최대전력은 **켤레 정합** Z_L = Z_th\* → R = Re(Z_th), X = |Im(Z_th)|.
+  정합되면 허수부가 상쇄되어 |I| = |V|/(2R) → **P_max = |V|²/(8R)**.
+  원본 검산: −j8 + (6∥j6) = −j8 + (3+j3) = **3 − j5** → R = 3Ω · **L = 5mH**,
+  P₁ = 24²/24 = 24 W, P₂ = 48²/24 = 96 W → **η₁ = 4, η₂ = 2** (원본 보기 ③). ✓
+- ★★ **채점 포인트는 두 비가 다른 이유**다: Z_th는 전원을 단락하고 본 값이라 **부하 값이 전원 크기와 무관**
+  ⇒ R₁=R₂, L₁=L₂ → **η₂ = 1+1 = 2**. 반면 **P_max ∝ |V|²** ⇒ 전원을 k배 하면 **η₁ = k²**.
+- ★ 판별선 = **두 회로 비교**. 형제 최대전력 유형(`max_power_transfer`·`ac_thevenin_ladder`·
+  `ac_bridge_max_power`·`ac_thevenin_two_box`)은 전부 **단일 회로**다. 매처는
+  `최대전력 + (가)·(나)/P_max1·P_max2/η 표기 + 부하 설계` 셋이 모일 때만 발화하고,
+  테브난 등가 변환·단자 a·브리지·Δ-Y·스위치·중첩이면 양보한다.
+  안전망 coercible에 위 단일 회로 형제 3종을 넣었다(GENERIC이 아니라 캐시되면 건너뛴다).
+- ★ 값은 규칙 열거+필터: **X_p = R_p** 로 두면 병렬 합성이 (R_p/2)(1±j)로 딱 떨어진다(원본 6∥j6 = 3+j3).
+  R 정수 · X 0.5배수 · 소자 mH·µF 정수 · P 0.5배수 · **원본 튜플 제외**.
+- 모드: **exam_similar**=직렬 C + 병렬 R∥L → 부하 **R+L**(인덕턴스를 구함) /
+  **exam_variant**=**소자 종류 교환**(직렬 L + 병렬 R∥C) → Z_th가 유도성이라 부하가 **R+C**(정전용량을 구함).
+  η₁ = k², η₂ = 2는 구조가 같으므로 그대로.
+- 파일: `lib/generation/topologies/maxPowerTwoSourceRatio.ts`·`lib/pipeline/runMaxPowerTwoSourceRatioPipeline.ts`
+  (+`detectMaxPowerTwoSourceRatio`)·`lib/renderers/maxPowerTwoSourceCircuitRenderer.ts`(dual 플래그로 (가)/(나)·유사/변형 공용).
+  circuitType `max_power_two_source_ratio`, diagramType `max_power_two_source_circuit`.
+  types·circuitType·renderers/index·validateProblem·classifier(0-PRE)·route(안전망+semantic+dispatch+topology 우회)·
+  `smokeOriginalRouting`(+1줄) 등록.
+- ★ 렌더 gotcha: `P_max` 라벨이 부하 점선 박스 **오른쪽 바깥**에 붙으므로 캔버스를 넉넉히 잡아야 한다
+  (700이면 "P_ma"로 잘렸다 — 시각검증에서 발견).
+- 검증: tsc 0 · eslint 0 / `scripts/smokeMaxPowerTwoSourceRatio.mjs` **48/48**(라우팅 2종×2과목 + 형제 양보 4종 +
+  원본 물리 7 + **생성물 40개를 복소수 직접 연산으로 재검산**(Z_th·켤레정합 후 순저항·P·η₁·소자값↔리액턴스) +
+  원본 튜플 미생성 + 발문·정답·렌더 겹침 0) / `smokeOriginalRouting` **66/66** /
+  **생성 API E2E** 유사·변형·stale `max_power_transfer` 모두 issues=0 / 헤드리스 Chrome 시각검증.
+
+## JK + **2상 클럭발생기** + 출력 게이트 2개 → Y 파형 도시 (임용 30번 — `jk_two_phase_clock`) 전용 archetype
+
+- 원본(확대 확정 — [[feedback_verify_wiring_by_zoom]]): JK₁은 J₁·K₁ 외부 입력 + CLK 핀에 **버블(하강 에지)**.
+  점선 박스 = **2상 클럭발생기** — JK₂의 **J₂ = K₂ = High**(토글 전용), JK₂의 CLK 핀은 **버블 없음 →
+  Q₁의 상승 에지**마다 토글(2분주). 출력 게이트 2개: 위 (Q₁, Q₂) → **Y₁**, 아래 (Q₁, Q̄₂) → **Y₂**.
+  원본은 AND라 두 출력이 겹치지 않는 2상 클럭이 된다.
+- ★ **사용자 지정 변경 (2026-08-12)**:
+  ① AND 2개 → **EX-OR 2개** ⇒ **Y₁ = Q₁ ⊕ Q₂**, **Y₂ = Q₁ ⊕ Q̄₂ = Y₁′** — 두 출력이 **서로 보수**가 되는 것이
+     EX-OR 버전의 성질이고 그대로 채점 포인트가 된다(원본 AND의 "비중첩"과 대비해 풀이에 명시).
+  ② 객관식 → **출력 파형을 직접 도시**하는 서술형. (나)의 Y₁·Y₂는 **빈 트랙**, 정답 파형은 `solutionFigures`.
+  ③ **문항마다 J₁·K₁이 달라야 한다** → 비트열 자체를 값 공간에 넣고 `index`로 서로 다른 항목을 고른다
+     (한 배치 5문항이 모두 다름을 스모크가 단언).
+- ★ 값은 규칙 열거+필터: J₁·K₁을 **2펄스 단위 4구간**으로 열거(파형이 읽히게) 후
+  · 입력이 최소 1회 변할 것 · Q₁·Q₂·Y₁이 상수가 아닐 것 · 네 동작(유지·세트·리셋·토글) 중 **3종 이상**
+  · ★ **Q₁·Q₂·Y₁의 전이가 각각 2회 이상**(파형을 그리는 문항인데 `Y₁ = 00000001`처럼 전이가 한 번뿐이면
+    그릴 것이 없다 — 시각검증에서 발견). **원본 J₁·K₁ 튜플 제외**.
+- ★ 시간축: 펄스 i = [2i, 2i+2), **CLK 상승 = 2i · 하강 = 2i+1**. J₁·K₁은 **펄스 경계(2i)** 에서만 바뀌어
+  FF가 동작하는 하강 에지와 겹치지 않는다. Q₂는 Q₁ 상승 **직후(ε=0.08)** 에 바꿔 캐스케이드를 파형에서 구분한다
+  (같은 t에 두 샘플을 찍으면 `waveform_time_not_monotonic`).
+- 모드: **exam_similar**=EX-OR / **exam_variant**=**EX-NOR**(소자 종류 교환, 답은 보수). 값 풀도 분리.
+- 파일: `lib/generation/topologies/jkTwoPhaseClockXor.ts`(시뮬+파형+공용 매처)·
+  `lib/pipeline/runJkTwoPhaseClockPipeline.ts`(3단계 + `detectJkTwoPhaseClock`)·
+  `lib/renderers/jkTwoPhaseClockCircuitRenderer.ts`(JK₁ + 점선 박스 + High + EX-OR/EX-NOR, Q₁이 위·아래 레인으로 분기).
+  circuitType `jk_two_phase_clock`, diagramType `jk_two_phase_clock_circuit`.
+  types·circuitType·renderers/index·validateProblem·rules/digital·classifier(0-PRE)·
+  route(안전망+과목 보정+DIGITAL 집합+semantic+dispatch)·`smokeOriginalRouting`(+1줄) 등록.
+- ★ 분류: **"2상 클럭발생기"** 는 형제 어느 유형도 쓰지 않는 고유 낱말이라 그 자체로 확정.
+  낱말을 흘린 회차는 (JK + FF 2개 + 게이트 2개 + 출력 Y 파형) 구조로 잡는다.
+  양보: 카운터·상태도·여기표·MUX·DAC·비동기 PR/CLR.
+  ★ 안전망 coercible에 `jk_sync_counter`·`ff_with_waveform`을 넣었다 — 둘 다 GENERIC이 아니라
+  캐시된 분석이 그 값이면 안전망이 통째로 건너뛴다(임용 27·15번에서 반복된 구멍).
+- 검증: tsc 0 · eslint 0 / `scripts/smokeJkTwoPhaseClock.mjs` **54/54**(라우팅 2종×3과목 + 형제 양보 5종 +
+  **생성물 48개를 독립 시뮬레이터로 재검산** + Y₂=Y₁′ + 파형 t 단조 + 한 배치 5문항 J₁·K₁ 전부 다름 +
+  발문·정답·빈 트랙·정답 파형 분리 + 렌더 구조·XNOR 버블·겹침 0) / `smokeOriginalRouting` **65/65** /
+  디지털 형제 무회귀(jkMealy 23/23·jkExcitation 28/28·ffMixed 7/7·dffPresetClear 96/96·asyncPreset 10/10·
+  jkClockEdge 26/26) / **생성 API E2E**: 유사 3문항 issues=0(J₁·K₁·Y₁ 모두 다름), 변형·stale `jk_sync_counter`·
+  과목 오선택 모두 전용 유형으로 복구 / 헤드리스 Chrome 시각검증.
+
+## D-FF + 비동기 **PR·CLR** + A·B 조합논리 → 구간 ㉠~㉢ 출력 Q 파형 (임용 27번 — `dff_preset_clear_regions`) 전용 archetype
+
+- 원본: (가) D 플립플롭 하나 — **D ← Q̄ 되먹임**(토글), **PR(위)·CLR(아래) 비동기 입력에 버블**(active-low),
+  이들을 **A·B와 그 보수를 받는 NAND 4개 + 인버터 2개**(2-to-4 디코더 형태)가 구동. (나) CLK·A·B 파형이
+  구간 ㉠·㉡·㉢으로 나뉘어 주어지고 **구간별 출력 Q**를 묻는다(원본은 보기 ①~⑤ 객관식).
+- ★ 물리(규칙, GPT 없음): PR̄ = (곱항)′ · CLR̄ = (곱항)′ → 그 곱항이 1인 (A,B)에서만 비동기 입력이 활성.
+  · 활성이면 클럭과 무관하게 Q가 **구간 내내 고정**(세트/리셋) · 둘 다 비활성이면 D=Q̄라 **클럭마다 토글**.
+  원본 결선은 **A가 인에이블**: CLR̄=(Ā·B̄)′ → ㉠(0,0) 리셋 / PR̄=(Ā·B)′ → ㉡(0,1) 세트 / A=1 → ㉢ 토글.
+- ★★ **오분류(수정됨)**: 전용 항목이 없어 3과목 모두 `unsupported`(→ digital이면 `universal_digital`)로 떨어졌고,
+  프론트 캐시가 남은 회차에는 형제 **`ff_with_waveform`(임용 8번)** 이 가져가 **입력 A·B·C 3개 + 비동기 RESET만
+  있는 다른 회로**가 생성됐다(사용자 신고 2026-08-12, 로그의 `coercionSkipped: yes(specific)`).
+  · 판별선 = **비동기 입력이 PR·CLR 둘 다** / **외부 입력이 A·B 2개**(형제는 3개) / **구간별 출력 Q 요구**.
+  · ★ 셋을 모두 요구했더니 Vision이 구간 마커를 흘린 회차에서 통째로 미발화했다 →
+    **3개 중 2개 이상**이면 발화(하나만으로는 형제를 뺏는다 — 2/3이 균형점).
+  · ★★ **substring 함정**: bare `셋`은 **"리셋"에 걸린다** — RESET만 있는 형제를 "PR도 있다"로 오판한다.
+    반드시 `프리셋`처럼 앞말을 붙일 것("비정현파 ⊃ 정현파"·"개루프 이득 ⊃ 루프 이득"과 같은 유형).
+  · stale 대비: 안전망의 coercible 집합에 **`ff_with_waveform`을 예외로 추가**했다(GENERIC이 아니라 원래는 건너뛴다).
+- 모드: **exam_similar**=원본 결선 유지, **A·B 구간 값만 변경**(사용자 지정) /
+  **exam_variant**=★**PR·CLR을 구동하는 곱항 쌍 자체를 값 공간에 넣어** 매번 달라지게 한다(사용자 지정) —
+  곱항이 바뀌면 **(가) 회로의 인버터 배치가 자동으로 달라진다**. 원본 결선은 변형 풀에서 제외.
+- ★ 값은 규칙 열거+필터: 구간 3개의 (A,B) 순서열을 전수 열거 → 이웃 구간 다름 · **첫 구간은 세트/리셋**
+  (Q 초깃값에 답이 의존하지 않게 — 원본 ㉠도 리셋) · **세 구간이 리셋·세트·토글을 모두 포함**(학습목표 보존)
+  · 토글 구간은 3펄스 이상 · 총 10펄스 이하. **원본 튜플 제외**.
+- ★★ **시간축 설계로 경합을 원천 차단**: 펄스 i는 [2i, 2i+2)이고 **에지는 반정수**(2i+0.5 / 2i+1.5),
+  **구간 경계는 짝수 정수**. 경계와 에지가 같은 시각이면 "그 에지가 어느 구간인가"라는 경합이 생겨
+  학생이 풀 수 없는 문항이 된다(스모크가 단언).
+- ★ **발문은 3단계 서술형**(절대원칙 — 객관식 원본): [1] PR̄·CLR̄ 논리식과 구간별 논릿값 [2] 구간별 동작 판정
+  [3] **Q 파형 도시**. (나)의 Q는 **빈 트랙**, 정답 파형은 `solutionFigures`.
+- ★ **파형 렌더러에 `regions` 가산 추가**: 축 아래 span bar + ㉠·㉡·㉢ 라벨(원본 (나) 하단 표기).
+  미지정이면 기존 그림과 완전히 동일 — 형제 무영향.
+- ★★ **렌더 gotcha 4건(전부 시각검증에서 발견)**:
+  ① 박스 안 PR/CLR 라벨을 가운데로 몰면 D·CLK 핀에 붙은 것처럼 읽힌다 → **각자 핀 옆**에.
+  ② 교차 도선에 **반원 hop을 그리지 마라** — 이 그림에서 속 빈 원은 이미 "논리 반전"이라 버블로 읽힌다.
+    접속은 전부 채워진 dot이므로 **표시 없는 교차**가 비접속으로 명확하다(규칙 #4).
+    ※ 되먹임과 PR 구동선의 교차 1회는 **위상적으로 불가피**하고 원본 그림도 그렇다.
+  ③ 두 입력이 모두 반전이면 인버터 2개가 붙어 겹친다 → **slot별로 x를 벌린다**.
+  ④ 여분 게이트 출력을 길게 빼면 **Q 외부 단자와 같은 높이**에 놓여 헷갈린다 → 게이트 옆 짧은 stub.
+- ★★ **범용 규칙 (사용자 지정 2026-08-12) — 게이트 입력 옆 신호 부호(A / A′)를 표시하지 않는다.**
+  반전 여부는 **인버터 심볼과 배선**이 이미 말해 준다. `logicNetworkRenderer`에도 적용(디지털 전반).
+  예외는 **빈칸 게이트뿐** — 학생이 채워야 할 게이트는 어느 신호가 어느 입력인지 보여야 문제가 성립한다
+  (2026-08-04 신고로 추가된 흰 배경 칩은 유지).
+- 파일: `lib/generation/topologies/dffPresetClearRegions.ts`(생성기 + 공용 매처)·
+  `lib/pipeline/runDffPresetClearRegionsPipeline.ts`(3단계 + `detectDffPresetClearRegions`)·
+  `lib/renderers/dffPresetClearCircuitRenderer.ts`(전용 fixed-slot). circuitType `dff_preset_clear_regions`,
+  diagramType `dff_preset_clear_circuit`. types·circuitType·renderers/index·validateProblem·rules/digital·
+  classifier(**0-PRE, 개념 명칭형 가드보다 앞** — 수치 given이 없어 그대로 걸린다)·
+  route(안전망+과목 보정+semantic+dispatch+DIGITAL 집합+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 · eslint 0(신규) / `scripts/smokeDffPresetClearRegions.mjs` **96/96**(실측 요약 4종×3과목 라우팅 +
+  형제 양보 7종 + 원본 결선 동작 + **생성물 48개를 독립 시뮬레이터로 Q 파형 재검산** + 파형 단조성 +
+  **구간 경계≠클럭 에지** + 원본 튜플 미생성 + NAND 4개·인버터 수·입력 부호 미표기 + 3단계·보기 없음) /
+  `smokeOriginalRouting` **60/60** / 디지털 형제 무회귀(ffMixed 7/7·asyncPreset 10/10·dffStateDesign 6/6·
+  jkExcitation 28/28·jkClockEdge 26/26·muxImpl 7/7·tffDacChain 17/17·tff3 52/52·conceptNaming 18/18) /
+  `smokeAll` 40/40 / **생성 API E2E** — stale `ff_with_waveform`·`unsupported`·과목 오선택 모두 전용 유형으로 복구,
+  issues=0 / 헤드리스 Chrome 시각검증.
+- ⚠️ **미확인**: 원본 (가)의 **NAND 4개 내부 결선**은 이미지 해상도로 확정하지 못했다. 부품 수(NAND 4 + 인버터 2)와
+  동작(㉠ 리셋·㉡ 세트·㉢ 토글, (나) 파형에서 역산)은 원본과 일치시켰고, PR·CLR에 쓰이지 않는 두 줄은
+  **열린 단자**로 그린다. 실제 원본이 다른 결선이면 `DECODE_SIMILAR` 한 줄만 고치면 된다.
 
 # 🚨 디지털논리 LogicDAG 중간 signal 보존 — 절대 규칙
 
@@ -1169,6 +2232,654 @@ system prompt에도 동일 규칙 박힘: `lib/prompts/system.ts`의 `[LOGIC_DAG
 - 모드: `exam_similar`=I∈{001,011,111}(value 4·6·7), clk 4. `exam_variant`=I∈{101,011,111}(value 5·6·7), clk=N+1로 **000→재적재(F)를 파형에 노출**(교육 포인트 강화).
 - figure 2개: (가) `async_preset_counter_circuit`(전용 fixed-slot 렌더러 — 3 D-FF + 셀별 인버터+AND(Set=F·I·Reset=F·I′) + D=Q̄ 피드백 + 리플 클럭 체인 + 우측 NOR(F). F·I·Q는 net 라벨로 표기해 배선 단순화), (나) `waveform`(클럭 step + Q 빈 트랙(학생 도시) + ㉠·㉡ 마커).
 - 파일: `lib/generation/topologies/asyncPresetCounter.ts`(결정론 generator — faithful edge-sim, GPT 없음), `lib/pipeline/runAsyncPresetCounterPipeline.ts`(결정론 2단계 텍스트), `lib/renderers/asyncPresetCounterCircuitRenderer.ts`. classifier는 **`sequential_dff_generic` 앞**에 매치 — 트리거: FF + **비동기 SET**(RESET만인 임용8 ff_with_waveform과 구분) + I 병렬입력(I₀I₁I₂)/구간(㉠㉡). semantic normalize: hasStateTransition=false(스위치 상태쌍 없음, F 자동재적재), 파형·multi-figure 유지.
+- ★★ **아래첨자 표기 때문에 간헐적으로 ff_with_waveform에 뺏겼다** (2026-08-04 사용자 신고 "유사문제가 생성이 안돼"):
+  같은 원본이 회차에 따라 `async_preset_ripple_counter`(재현 5/5)와 **`ff_with_waveform`**(로그 실측 1회,
+  topic="비동기식 D 플립플롭 회로"·topicKey=switching_circuit)로 갈렸고, 실패 회차는 FF 1개짜리 다른 문제가
+  **totalIssues=0으로 조용히** 생성됐다.
+  · 원인: Vision이 신호를 `I_0, I_1, I_2`(ASCII)로도 **`I₀, I₁, I₂`(유니코드 아래첨자 + 쉼표)** 로도 쓰는데,
+    조건이 `/i_?0\b/`(ASCII)와 `/i₀\s*i₁\s*i₂/`(공백만 허용)뿐이라 **쉼표 나열 회차에서 구조 신호가 통째로 미발화**.
+    거기에 "SET" 낱말까지 빠지면 넓은 분기(ff_with_waveform)가 가져갔다. ff_with_waveform의 **양보 가드도
+    같은 이유로 미발화**(`Q₀, Q₁, Q₂`를 다중 Q로 못 읽음)라 두 겹이 동시에 뚫렸다.
+  · ✅ 수정: `normalizeSubscriptDigits`(₀~₉ → ASCII, `inferDcQueries.ts`와 같은 규약)로 **정규화 층에서 흡수**
+    ([[feedback_gpt_format_normalization]] — 조건·프롬프트를 늘리지 말 것). async 블록의 I·Q 검출과
+    ff_with_waveform의 `multiQOutputs` 양보 가드 **양쪽 모두** 정규화 텍스트로 검사.
+  · ✅ 최후의 구조 신호 추가: **비동기 + 3비트 Q(Q₀·Q₁·Q₂)** → 이 archetype. 형제는 단일 Q(임용8)·2비트
+    Q₁Q₀(임용12)라 셋 다 언급되는 형식은 이것뿐이다(I 입력도 SET도 흘린 회차의 마지막 방어선).
+  · 검증: `scripts/smokeAsyncPresetRouting.mjs` **10/10**(신고 회차 재현 3종(아래첨자+쉼표·가운뎃점·Q만) +
+    기존 정상 회차 2 + 형제 미탈취 5(임용8 단일 Q·D-FF 2비트·JK 카운터·T+JK 혼합·mod-N)) /
+    `smokeOriginalRouting` **56/56** / 디지털 형제 무회귀(ffMixed 7/7·jkExcitation 28/28·dffStateDesign 6/6·
+    muxImpl 7/7·tffDacChain 17/17) / tsc 0 / **원본 이미지 E2E 양모드 issues=0**.
+
+## 2전원 페이저 + 중첩 → **V_L = 0이 되는 전류원 역산** (임용 3번 회로이론 — `ac_superposition_null_source`) 전용 archetype
+
+- 원본: 직사각 2-메시. 좌 세로 = **전압원 V_s(√2∠45°, + 위)**, 우 세로 = **전류원 I_s(↑)**,
+  상단 1Ω·1Ω, 가운데 **j2Ω(양단이 V_L, + 위)**, 하단 −j1Ω·−j1Ω.
+  〈해석 절차〉 [1] I_s **개방** 시 V_L1 [2] V_s **단락** 시 V_L2 [3] 중첩 + **V_L = 0** → I_s.
+- ★ 물리(닫힌형): **V_L1 = V_s·Z_m/(Z_a+Z_m+Z_c)**, **Z_p = Z_m ∥ (Z_a+Z_c)**, **V_L2 = I_s·Z_p**,
+  **I_s = −V_L1/Z_p**. 원본 검산: V_L1 = j2 = 2∠90° · Z_p = 2Ω(순저항) · **I_s = −j = 1∠−90°[A]**.
+- ★★ **우측 상·하단 소자(Z_b·Z_d)는 답에 전혀 관여하지 않는다** — 이상 전류원과 직렬이라 전류가 이미
+  정해져 있다. 원본이 그대로 갖고 있는 **distractor**이고 이 유형의 교육 포인트다
+  (형제 `ac_superposition_source_design`의 R₂와 같은 역할).
+- ★★ **오분류(수정됨)**: 전용 항목이 없어 **generic `universal_ac`** 로 떨어져 정답이 **"(query 없음)"**,
+  풀이는 *"AC 정상상태 phasor 해석 — 입력 ω = 10000 rad/s"* placeholder, figure는 generic `analog_netlist`였다
+  (사용자 신고 2026-08-05). 로그에 `generic_dispatch_warning`이 남았고 **validator는 issues=0으로 통과** —
+  generic 경로 실패의 전형(`oscilloscope_phase_l`·`ac_superposition_source_design`과 같은 실패 모드).
+- ★★ **판별선은 "영(0) 조건"이다**: 형제 `ac_superposition_source_design`은 **0이 아닌 목표 페이저**(−7−j)를 주고
+  **두 전원의 크기**를 구한다. 이쪽은 목표가 **0**이고 미지가 **전류원 하나**다.
+  ★ 실측 회차는 **"중첩"·"전류원"을 한 번도 쓰지 않았고** 있지도 않은 **"종속 전원"을 지어냈다**(인벤토리 dep=0).
+  → 요구 매처는 넓게(`전류/전압/전원 … 구하`), 판별력은 **영 조건**에 싣는다. 전원 개수는 인벤토리
+  구조 신호(V≥1 ∧ I≥1 ∧ 리액티브≥1)로도 인정한다([[feedback_gpt_format_normalization]]).
+- ★★ **그 "영(0) 조건"마저 흘린 회차가 나왔다** (사용자 신고 2026-08-10, 재현 2/2):
+  요약이 *"인덕터 양단의 전압 V_L이 **주어졌을 때** 페이저 전류 I_S를 구한다"* 로만 서술해 `0`이 한 글자도
+  없었다 → `matchesNullSourceAsk` 미발화 → **universal_ac**로 떨어져 generic `analog_netlist`가 나왔다
+  (내부 id `V_leg1_1`·`C_leg3_1` 노출 + **학생이 구해야 할 I_s에 값 1.5A가 찍힘**, totalIssues=0으로 조용히 통과).
+  · ✅ **최후의 판별선은 인벤토리의 미지 전원 기호**(CLAUDE.md 1-4-5와 같은 교훈):
+    그 회차에도 전압원은 `√2∠45°V`(**수치**), 전류원은 `Is[A]`(**미지 기호**)로 남아 있었다.
+    `matchesNullSourceUnknownSource`(unknownI≥1 ∧ knownV≥1 ∧ 리액티브≥1 + 양단 전압 언급 + 전류를 구함)를
+    **ask의 대안 경로**로 두고 분류기·감지기가 공유한다.
+  · ★ **크기와 각도를 구분해서 볼 것** — `V_s∠0°V`는 각도에 숫자가 있어도 **크기는 미지**다.
+    ∠ 앞의 크기만 보므로 형제 `ac_superposition_source_design`(V·I **둘 다** 미지 → knownV=0)은 안 걸리고,
+    두 전원이 모두 수치인 `ac_thevenin_two_box`(unknownI=0)·종속전류원(`2V_c`는 제어식이라 미지 전원 아님)도 안 걸린다.
+  · 검증: `scripts/smokeNullSourceUnknownI.mjs` **9/9**(신고 회차 재현 3 + 기존 경로 무회귀 + 형제 양보 5) /
+    `smokeAcSuperpositionNullSource` 32/32 · `smokeOriginalRouting` **57/57** · tsc 0 /
+    신고 회차 analysis로 **E2E 양모드 issues=0**(figure가 전용 `ac_two_source_mesh_circuit`으로 복귀,
+    **stale `universal_ac` analysis로도 구제**됨).
+- 모드: **exam_similar**=원본(가운데 인덕터, V_L=0) / **exam_variant**=**리액티브 소자 종류 교환**
+  (가운데 커패시터·하단 인덕터, V_C=0) — 구조·중첩 절차 동일.
+- ★ 값은 규칙 열거 + 필터: **V_L1·Z_p·I_s가 모두 정수 격자** + I_s 위상 45° 배수. **원본 튜플 제외**,
+  유사/변형 풀 분리(각 1000여 개).
+- ★★ **표기 gotcha 3건(모두 E2E에서 발견)**:
+  ① `magTex`가 |z|²를 **반올림**해 |I_s| = 1.5를 **`√2`(=1.414)** 로 찍었다 — 값 공간을 **정수 격자**로 조이고
+     magTex에도 방어(비정수면 √n 표기 금지)를 넣었다. **크기 오표기는 정답이 틀린 것과 같다.**
+  ② 각도의 ASCII 하이픈(`∠-90°`) → `numFmt`로 **유니코드 마이너스** 통일, `−180°`는 관례대로 **180°**.
+  ③ `elemTex`를 " + "로 이으면 `+ −j2Ω` → `zSumTex`가 부호를 흡수해 `2Ω + j4Ω − j2Ω`로 적는다.
+  스모크가 **극형식 크기 = 실제 |z|** 를 96건 대조하고 ASCII 하이픈 0건을 단언한다.
+- ★ 렌더러는 **형제(임용 5번) `acTwoSourceMeshCircuitRenderer`를 가산적으로 일반화**해 재사용한다
+  (`rightSource:"current"` · `midMeasureLabel` · `showMeshArrows:false` · `caption`). 미지정이면 형제 그림은
+  **완전히 동일**하고 스모크가 그걸 단언한다. + 좌측 전원 라벨이 길면 캔버스 밖으로 잘려 **전원 위**로 옮긴다(실측).
+- 파일: `lib/generation/topologies/acSuperpositionNullSource.ts`(결정론 generator + 공용 매처)·
+  `lib/pipeline/runAcSuperpositionNullSourcePipeline.ts`(3단계 + `detectAcSuperpositionNullSource`)·
+  `acTwoSourceMeshCircuitRenderer.ts`(확장). circuitType `ac_superposition_null_source`,
+  diagramType는 **기존 `ac_two_source_mesh_circuit` 재사용**. types·circuitType·classifier(0-PRE, 두 형제 **앞**)·
+  route(dispatch+semantic+topology 우회)·`smokeOriginalRouting`(+1줄, **실측 요약 그대로**) 등록.
+- 검증: tsc 0 / `scripts/smokeAcSuperpositionNullSource.mjs` **32/32**(실측 회차 포함 감지 4 + 형제 양보 7 +
+  3과목 분류 + 원본 물리 4 + **생성물 48개를 독립 메시 해석으로 재검산(V_L=0)** + 값 품질·원본 미생성 +
+  극형식 크기 96건 대조 + 합 표기 + 렌더 6(형제 무회귀 포함)) / `smokeOriginalRouting` **57/57** /
+  AC 형제 무회귀(twoSourceMesh 37/37·supSourceDesign 28/28·theveninDependent 24/24·twoBox 37/37·
+  deltaWye 47/47·oscPhaseL 40/40) / **생성 API E2E 양모드**(stale `universal_ac` analysis로도 안전망이 보정) /
+  헤드리스 Chrome 시각검증(원본 배치 재현).
+
+## JK 3개 동기식 카운터 (임용 6번 디지털 — `jk_sync_counter`) — **클럭 에지·반전 신호 배선** (2026-08-05 신고 2건)
+
+- 원본: JK-FF 3개(Q₂Q₁Q₀) 공통 CP. **CP 입력에 버블이 붙은 하강 에지** 트리거이고,
+  J₀는 **FF₁의 Q̄ 출력에서 오는 배선**(J·K 입력에는 버블이 없다). (나) 타이밍 도표의 Q 전이도 하강 에지에 놓인다.
+- ★★ **신고 ① "clk가 하강엣지로 작용하는데 문제는 상승엣지로 생성되었어"**: 렌더러의 `clkTri`가 삼각형만
+  그려 버블이 없었고, `bitSamples`가 Q 값을 `[2k, 2k+1]` 구간에 찍어 **전이가 상승 에지(짝수 t)** 에 놓였다.
+  · 클럭 에지는 **원본의 구조적 속성**이다 → `JkStateMachineCircuitDiagram.clockEdge`로 데이터에 싣고
+    렌더러(버블)·타이밍(전이 시각)·발문/풀이 문구가 **한 값을 함께 따른다**.
+  · shape="step"은 zero-order hold라 **값이 바뀌는 샘플 시각 = 전이 에지**다.
+    falling이면 `t=0`에 초기값을 찍고 `t=2k−1`에 seq[k]를 찍는다(= 펄스 k의 하강 에지에서 전이).
+    같은 t에 샘플 2개를 찍으면 `waveform_time_not_monotonic`이 나므로 시각은 항상 증가시킨다.
+- ★★ **신고 ② "생성된 회로에는 Q0 f/f 입력에 not 게이트가 있어"**: 반전 신호(Q̄ᵢ)를 **Q̄ 출력 핀에서
+  배선**하면서 목적지 J·K에 **반전 버블까지** 덧그려 **이중 반전(= 사실상 Q)** 이 됐다.
+  FF가 Q̄ 핀을 내놓는 회로에서 반전은 **배선으로 표현**한다 — 버블을 겹쳐 그리지 마라.
+- ★ 에지 판정은 **공용 감지기** `lib/analysis/clockEdge.ts`(`detectClockEdge`)로 한다 — 하강/상승·엣지 표기 변형·
+  영문(negative/positive edge)·"클럭 입력의 버블" 묘사를 흡수하고, **근거가 없거나 양쪽이 다 나오면 `null`**.
+  파이프라인은 `?? "falling"`로 **원본을 보존**한다(절대규칙 0). 특정 문제에 하드코딩하지 않으므로
+  다른 FF archetype도 같은 함수를 쓸 수 있다. ※ Vision 요약에 에지가 없는 회차가 흔하다 — 기본값이 곧 답이다.
+- 파일: `lib/analysis/clockEdge.ts`(신설)·`jkStateMachine.ts`(`ClockEdge`·`bitSamples(falling)`·seq를 nClk+1로)·
+  `jkStateMachineCircuitRenderer.ts`(클럭 버블 + 입력 버블 제거)·`runJkSyncCounterPipeline.ts`(감지·배선·문구)·
+  `types/index.ts`(payload `clockEdge`).
+- 검증: tsc 0 / `scripts/smokeJkClockEdge.mjs` **26/26**(감지 11(하강 5·상승 2·보류 2·형태 2) +
+  전이 에지 패리티 양모드 + CP 파형 불변 + **t 단조 증가**(2모드×6시드×2파형) + 사이클·비순환·마커 **무회귀** +
+  렌더 7(클럭 버블 3개/0개·미지정 기본값·J·K 버블 0·Q̄ 출력에서 배선·변형 게이트)) /
+  `smokeOriginalRouting` 56/56 · 디지털 형제 무회귀(asyncPreset 10/10·jkExcitation 28/28·ffMixed 7/7) /
+  **생성 API E2E 6회**(에지 미언급·하강·상승 × 양모드) **issues=0** — 미언급·하강은 falling·전이 홀수 t,
+  상승은 rising·전이 짝수 t / 헤드리스 Chrome 시각검증(`scripts/_jkEdgeFigShot.mjs`).
+
+## 교류 테브난 → **소자 값 a·b 설계** + 최대 평균전력 (임용 7번 회로이론 — `ac_thevenin_design_ab`) 전용 archetype
+
+- 원본: `V=8∠90° ─ [2Ω + (−j3Ω) 직렬 션트] ─ 상단 a[Ω] ─ jb[Ω] ─ 마디 A`, `마디 A ─ (−jb[Ω]) ─ GND(=B)`,
+  단자 A–B에 **고정 부하 Z_L = 2 + j2**. 최대 평균전력이 되는 **a, b**와 **P_L**을 구한다.
+- ★ 물리(닫힌형, 복소 연산 교차검증):
+  · 좌측 션트(2 − j3)는 **이상 전압원과 병렬**이라 A–B에서 본 회로에 무영향 — **원본의 distractor**.
+  · 직렬 (a+jb)와 션트 (−jb)의 합이 **a로 약분**되는 것이 이 회로의 핵심:
+    **Z_TH = (a+jb)∥(−jb) = b²/a − jb**, **V_TH = V·(−jb)/a** (|V_TH| = |V|·b/a)
+  · 정합 조건 Z_L = Z_TH* → **b = X_L**, **a = X_L²/R_L**
+  · **P_max = |V_TH|²/(4R_TH) = |V|²/(4a)** — b가 완전히 약분된다.
+  원본: **a=2, b=2**, Z_TH=2−j2, V_TH=8∠0°, **P_max = 8[W]**.
+- ★ 형제와 방향이 반대: `ac_thevenin_ladder`·`ac_bridge_max_power`·`ac_thevenin_two_box`는 모두
+  **부하**를 구한다. 이 유형만 **회로의 소자 값을 역산**한다 — 그게 판별선이다.
+- ★★ **오분류 2건(수정됨)**:
+  ① 분류에서 `ac_bridge_max_power`(브리지 4-arm + 순저항 R_L)가 가져갔다(사용자 신고). 넓은
+     `universal_ac`(AC+L/C+최대전력)도 같은 이유로 삼킨다 → **pre-subject 0-PRE**로 올렸다.
+  ② 고친 뒤 **변형 모드만** `ac_thevenin_dependent`(종속전원 테브난)로 샜다 — 그 감지기가
+     "테브난+최대전력+리액티브"만 보고 dispatch **체인 최상단**에 있었기 때문. → 이 유형 dispatch를
+     **그보다 앞**에 두었다(중복으로 남긴 뒤쪽 블록은 tsc가 unreachable로 잡아 주므로 제거).
+- ★★ **Vision이 a·b를 요약에서 통째로 흘린다**(실측): "테브난 등가와 최대 전력"까지만 쓰고 미지 소자를
+  언급하지 않은 회차가 있었다. 그때 남는 유일한 신호는 **인벤토리의 기호 소자 값**(`a[Ω]`·`jb[Ω]`·`-jb[Ω]`)이다.
+  → 분류기·감지기 모두 **텍스트 OR 인벤토리 기호 값(2개 이상)** 으로 판정한다.
+  ⇒ 일반화: **미지 소자를 기호로 들고 있는 유형은 인벤토리 값이 최후의 판별선**이다.
+- ★ 값은 규칙 열거: a·b 정수, `R_L = b²/a` 0.5 배수, `P = |V|²/(4a)` 0.5 배수, `|V_TH| = |V|b/a` 0.5 배수.
+  **원본 튜플 제외**, 유사·변형 풀 분리. exam_similar=Z_L given → a·b(원본) /
+  exam_variant=**구하는 양 교환**(a·b given → Z_L·P_max).
+- 파일: `lib/generation/topologies/acTheveninDesignAb.ts`·`lib/pipeline/runAcTheveninDesignAbPipeline.ts`
+  (+`detectAcTheveninDesignAb`)·`lib/renderers/acTheveninDesignAbCircuitRenderer.ts`(전용 fixed-slot:
+  교류원 + distractor 션트(R+(−jX)) + 상단 a·jb + 마디 A의 −jb + 점선 박스 Z_L(R 직렬 jX) + 단자 A·B).
+  circuitType `ac_thevenin_design_ab`, diagramType `ac_thevenin_design_ab_circuit`.
+  types(payload)·renderers/index·validateProblem·classifier(**pre-subject 0-PRE**)·
+  route(**dispatch 최상단**+semantic+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 · eslint 0 / `scripts/smokeAcTheveninDesignAb.mjs` **18/18**(실측 오분류 회차 +
+  **a·b를 흘린 최악 회차(인벤토리 기호 값으로 구제)** + 형제 양보 4종(브리지·two_box·종속전원·사다리) +
+  생성물 28개 재검산(복소 연산으로 Z_TH·V_TH·켤레정합·P_max) + 원본 값 + 원본 튜플 미생성 + 렌더 6) /
+  `smokeOriginalRouting` **50/50** / 형제 무회귀(acTheveninDependent 24/24·acTheveninTwoBox 37/37·
+  zenerShunt 18/18) / **원본 이미지 E2E 양모드 정상**(유사 V=16∠−90°·Z_L=8+j4 → a=2·b=4·P=32W,
+  변형 a=8·b=2 → Z_TH=1/2−j2·Z_L=1/2+j2·P=8W — 둘 다 복소 연산 교차검증 일치).
+
+## 무한 면전하 + 무한 **직선** 선전하 → **합성 전계 벡터**로 C₁·C₂ 역산 (임용 12번 전자기학 — `sheet_line_efield_vector`) EM 레지스트리 항목
+
+- 원본: ㉠ **x=4[m] 평면**(yz면과 나란)에 면전하밀도 C₁[nC/m²], ㉡ **(x=0, z=1)의 무한선**(y축과 나란)에
+  선전하밀도 C₂[nC/m]. **축 밖의 점 P(1,2,−1)** 에서 합성 전계 **E = −162π a_x − 36π a_z**가 되는
+  **C₁·C₂를 각각** 구한다. ε₀=(1/36π)×10⁻⁹, π는 그대로.
+- ★ 물리(닫힌형): ε₀ 대입 시 `1/(2ε₀) = 18π×10⁹`, `1/(2πε₀) = 18×10⁹` 이므로 [nC] 단위에서
+  · **E₁ = 18π·C₁**, 방향은 평면에서 멀어지는 쪽(P가 −x쪽 → **−a_x**)
+  · 선→P 수직벡터 (d_x, 0, d_z), ρ²=d_x²+d_z² → **E₂ = (18C₂/ρ²)(d_x a_x + d_z a_z)**
+  · ★ **a_z 성분은 선전하만** 기여 → 거기서 C₂를 먼저 얻고, a_x 성분에서 C₁을 얻는다(원본 절차 그대로).
+  원본 검산: ρ²=5 → E_z = −36C₂/5 = −36π → **C₂ = 5π**, E_x = −18πC₁+18π = −162π → **C₁ = 10**.
+- ★ 형제와 다르다: `sheet_line_efield_superposition`은 **z=0 평면·축 위 점·E=0 조건**으로 미지수 **하나**,
+  `sheet_ring_efield_ratio`는 **원형 링**+크기 비. 이쪽은 **평면이 x에 수직 + 점이 축 밖**이라 선전하 전계가
+  **x·z 두 성분**을 갖고, 주어진 **벡터 두 성분에서 미지수 두 개**를 푼다.
+- ★★ **오분류(수정됨) — Vision이 원본을 통째로 지어냈다**: 실측 dispatch가 `sheet_ring_efield_ratio`.
+  더 심각한 건 요약 자체가 *"원형 루프에 분포한 선전하… 두 전계의 **크기 비**가 주어진다"* 로,
+  **원본에 없는 조건을 만들어 냈다**는 점이다(원본은 합성 전계 벡터가 주어짐). 원인 추정 =
+  analyzeImage의 기존 `sheet_ring`(면전하+원형 링+비율) 규칙이 **few-shot 템플릿처럼 작용**해
+  겉모습이 비슷한 원본을 그 틀에 맞춰 다시 쓴 것. ⇒ 2겹 대응:
+  (1) 구조 감지기 `detectSheetLineEfieldVector`(**두 밀도를 동시에 구함** + 합성 전계; 반지름 given이면 양보)를
+      EM 강제 체인 최상단(0-0-B)에, (2) **analyzeImage에 이 유형 전용 추출 규칙**을 추가해
+      "원형 루프·크기 비로 요약 금지"를 명시. 보강 후 topic이 "무한 면전하와 **직선** 선전하의 합성 전계"로 교정됐다.
+  ★ 교훈: **추출 규칙은 Vision의 인식을 바꾼다** — 비슷한 형제 규칙만 있으면 그쪽으로 끌려간다.
+  감지기만 고치면 요약 자체가 오염된 회차는 못 살린다.
+- ★ 값은 규칙 열거: **C₂ = m·π** 로 두면 E₂도 π의 배수가 되어 두 성분이 모두 깔끔하다.
+  `q = 18m/ρ²`가 정수인 (d_x, d_z, m)만 채택, E_x<0·크기 제한. **원본 튜플 제외**.
+  exam_similar=E 주어짐 → C₁·C₂(원본) / exam_variant=**구하는 양 교환**(C₁·C₂ 주어짐 → E).
+- 파일: `electromagnetics.ts`(`sheetLineEfieldVector` + `SHEET_LINE_VEC_SPACE`)·
+  `emFieldRenderer.ts`(`renderSheetLineVectorAxes`, geometry `sheet_line_vector_axes` — z↑·y→·x↙ 축 +
+  빗금 평행사변형 평면(㉠) + y축과 나란한 굵은 선(㉡) + 축 밖의 점 P와 수직 보조선).
+  classifyElectromagnetics(감지기)·runElectromagneticsPipeline(체인 0-0-B)·analyzeImage 규칙·
+  `smokeOriginalRouting`(+1줄, 실측 오요약 그대로) 등록.
+- ★ 스모크 gotcha: `texToPlain`이 `C_1` → **`C₁`(아래첨자)** 로 바꿔 렌더한다 — 원문 형태로 단언하면 거짓 실패.
+- 검증: tsc 0 / `scripts/smokeSheetLineEfieldVector.mjs` **21/21**(실측 오요약 회차 재현 + 형제 양보 3종
+  (진짜 원형 링·E=0 조건·자계) + 생성물 28개 재검산(E₁+E₂ = 주어진 E) + 원본 값 + 원본 튜플 미생성 +
+  발문·렌더) / `smokeOriginalRouting` **49/49** / EM 형제 무회귀(sheetRing 10/10·sheetLine 8/8·
+  twoPointCharges 13/13·pointLineNull 25/25·bentWire 27/27·cylinderInductance 30/30·curl 34/34·flux 10/10) /
+  **원본 이미지 E2E 정상**(평면 x=5·선 z=2·P(1,2,3) → C₁=20·C₂=2π, E=−342π a_x+18π a_z — 독립 검산 일치).
+
+## 제너 n개 **직렬** 션트 정전압 → 부하 저항 **최솟값·최댓값** (임용 2번 전자회로 — `zener_shunt_regulator`) 전용 archetype
+
+- 원본: `V_i(40V) ─ a[kΩ] ─ 마디 P`, 마디 P에 **제너 2개 직렬**(각 V_Z=5V, I_ZM=8mA) ∥ **R_L**(V_RL 측정).
+  정전압이 유지되도록 R_L을 변화시킬 때 **R_Lmin=1kΩ이 되는 a**를 구하고, 그 a로 **R_Lmax**를 구한다.
+- ★ 물리(닫힌형): 정전압 **V_L = n·V_Z**, 직렬 저항 전류 **I_S = (V_i − V_L)/a [mA]**(V[V]·a[kΩ] → mA),
+  KCL `I_S = I_Z + I_L`, `I_L = V_L/R_L`.
+  · **R_L 최소 ⟺ I_L 최대 ⟺ I_Z = 0**(이상적 제너의 하한) → **a = (V_i − V_L)·R_Lmin/V_L**
+  · **R_L 최대 ⟺ I_L 최소 ⟺ I_Z = I_ZM** → **R_Lmax = V_L/(I_S − I_ZM)**
+  원본: V_L=10V → I_S=10mA → **a = 3[kΩ]**, I_Lmin=2mA → **R_Lmax = 5[kΩ]**
+  (두 극단에서 0 ≤ I_Z ≤ I_ZM 성립을 검산으로 확인.)
+- ★★ **오분류(수정됨) — 정답까지 틀렸다**: 전용 항목이 없어 `dc_mesh`(electronics fallback)로 dispatch돼
+  **원본을 거의 그대로 베낀 문항**이 나왔고 정답은 **a=5(실제 3)**, 풀이는 "임피던스를 최소화해야 하므로"
+  같은 알맹이 없는 문장이었다(사용자 신고). ⇒ 전용 항목이 없으면 generic 경로가 **베끼면서 틀린다**.
+- ★★ **0-PRE는 반드시 "진짜 subject 무관 구역"에** — 처음엔 `decideType` 안(다른 0-PRE 블록들 옆)에 넣었는데
+  **electronics 분기는 함수 중간(≈1806행)에서 早期 return**하므로 electronics 과목에서는 도달조차 못 했다
+  (스모크가 즉시 잡음). `classifyCircuitType` 상단의 pre-subject 구역(BJT 스위치·OPAMP 레귤레이터 옆)으로 이동.
+  ⇒ **"0-PRE"라는 이름이 붙어 있다고 다 subject 무관인 게 아니다** — 함수 위치를 확인할 것.
+- ★ 형제와 구분: `zener_bjt_regulator`(제너+**BJT** 션트)·`opamp_series_regulator`(OPAMP 오차증폭기+직렬 패스).
+  판별선 = **능동소자 없음 + 부하 저항의 최솟값/최댓값(범위)를 묻는다**. BJT·OPAMP 낱말이 있으면 양보.
+- ★ 값은 규칙 열거: (n, V_Z, V_i, R_Lmin, I_ZM) 열거 후 **a 0.5 배수(0.5~20kΩ)** · **R_Lmax 0.5 배수(≤60kΩ)** ·
+  `I_S > I_ZM` · `R_Lmax > 1.5·R_Lmin`(범위가 시시하지 않게) 필터. **원본 튜플 제외**, 유사·변형 풀 분리.
+  exam_similar=R_Lmin given → a·R_Lmax(원본) / exam_variant=**구하는 양 교환**(a given → R_Lmin·R_Lmax 범위).
+- 파일: `lib/generation/topologies/zenerShuntRegulator.ts`·`lib/pipeline/runZenerShuntRegulatorPipeline.ts`
+  (+`detectZenerShuntRegulator`)·`lib/renderers/zenerShuntRegulatorCircuitRenderer.ts`(전용 fixed-slot:
+  V_i 세로 → a 상단 → 마디 P ∥ 제너 n개 세로 직렬(캐소드 위) ∥ R_L(V_RL +/−), 접지).
+  circuitType `zener_shunt_regulator`, diagramType `zener_shunt_regulator_circuit`.
+  types(payload)·renderers/index·validateProblem·classifier(**pre-subject 0-PRE**)·
+  route(dispatch+semantic+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- 검증: tsc 0 / `scripts/smokeZenerShuntRegulator.mjs` **18/18**(실측 오분류 회차를 **electronics·circuit_theory
+  두 과목**에서 재현 + 형제 양보 3(BJT·OPAMP·범위 미요구) + 생성물 28개 재검산(a·R_Lmax·**두 극단의 I_Z**) +
+  원본 값 + 원본 튜플 미생성 + 유사/변형 풀 비중첩 + 렌더 7) / `smokeOriginalRouting` **48/48** /
+  **원본 이미지 E2E 양모드 정상**(유사 24V·제너2개 6V·8mA → V_RL=12V·a=1kΩ·R_Lmax=3kΩ,
+  변형 45V·제너3개 3V·4mA·a=8kΩ → V_RL=9V·I_S=4.5mA·R_Lmin=2kΩ·R_Lmax=18kΩ — 둘 다 수기검산 일치) /
+  Edge 시각검증(원본 배치 재현·겹침 0).
+
+## t=0 스위치 **개방** → 무전원 직렬 RLC 자연응답 (임용 5번 회로이론 — `switched_rlc_source_free`) 전용 archetype
+
+- 원본: `25V ─ 10Ω ─ SW(t=0 개방) ─ 마디 N`, `마디 N ─ 40Ω ─ GND`,
+  `마디 N ─ 60Ω ─ C(2×10⁻³F, v(t) + 위) ─ L(5H, i(t) ↓) ─ GND` (우측 leg는 **C·L 직렬**).
+  [1] v(0⁻)·i(0⁻) [2] i(t) 2차 미분방정식 [3] i(t).
+- ★★ **결합을 원본 확대로 확정했다** ([[feedback_verify_wiring_by_zoom]]): 우측 leg의 C와 L이
+  **직렬**임을, 그리고 **i(t) 화살표가 아래 방향**임을 5배 확대로 확인했다. 병렬로 읽으면 답이 완전히 달라진다.
+- ★ 물리(닫힌형, RK4 9자리 교차검증):
+  · t<0 (SW 닫힘·직류 정상상태): C 개방 → 우측 leg 전류 0 → **i(0)=0**. 60Ω·L 강하도 0이므로
+    **v(0) = V_s·R_p/(R_s+R_p)** = 25·40/50 = **20V**.
+  · t≥0 (SW 개방): 전원 가지가 분리되고 **R_p+R_3+C+L 직렬 무전원 RLC** 만 남는다(R=100Ω).
+    `i'' + (R/L)i' + (1/LC)i = 0`, `i(0)=0`, `i'(0) = −v(0)/L = −4`.
+  · **α = R/2L = 10 = ω₀ = 1/√(LC)** → **임계제동**(중근) → **i(t) = −4t·e^(−10t) [A]**,
+    **v(t) = 20(1+10t)e^(−10t) [V]**.
+  · ★ i가 **음수**인 것은 커패시터 방전 전류가 그림의 기준 방향(↓)과 반대이기 때문 — 정상이다.
+- ★ **오분류(수정됨)**: 실측 dispatch가 `switched_rlc_step`(v1: SPDT + **전류원** + R_c+L 병렬가지)이라
+  **원본에 없는 전류원 1A와 SPDT(A→B) 스위치**가 있는 회로로 변질됐다(사용자 신고).
+  판별선 = **전류원 0 + 전압원 1개 + 스위치가 "열린다"**. 전류원이 있으면 형제(step·5leg)가 맞고,
+  전압원 2개면 `switched_rlc_dual_switch`가 맞다. classifier **0-PRE** + route 안전망 2겹.
+- ★ 값은 규칙 열거 — **임계제동 조건 R²C = 4L** 을 만족하도록 (R_p, R_3, α)에서 `L=R/2α, C=2/(αR)`를
+  역산한다. 필터: L이 0.5 배수(1~20H) · **커패시턴스 가수 두 자리 이하** · v₀ 정수 · i'(0) 0.5 배수.
+  **원본 튜플 제외**. exam_similar=i(t)(원본) / exam_variant=**구하는 양 교환**(v(t)).
+- ★ 표기 gotcha: `capLabel`이 가수 세 자리를 허용해 **`125×10⁻⁵[F]`** 가 문항에 그대로 나갔다(실측).
+  두 자리를 넘으면 **값 풀에서 제외**한다(라벨만 고치면 다른 지저분한 값이 또 샌다).
+- 파일: `lib/generation/topologies/switchedRlcSourceFree.ts`·`lib/pipeline/runSwitchedRlcSourceFreePipeline.ts`
+  (+`detectSwitchedRlcSourceFree`)·`lib/renderers/switchedRlcSourceFreeCircuitRenderer.ts`.
+  circuitType `switched_rlc_source_free`, diagramType `switched_rlc_source_free_circuit`.
+  types(payload)·renderers/index·validateProblem·classifier(0-PRE, **rlc_state_equation 앞**)·
+  route(dispatch+semantic+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- ★ 삽질 기록: 패치 스크립트의 중복 삽입 가드를 `slice(0,50)`으로 걸었더니 **형제 0-PRE 블록의 머리말과
+  50자가 같아** 삽입이 조용히 건너뛰어졌다(스모크가 즉시 잡음). 가드는 **고유 토큰**으로 걸 것.
+- 검증: tsc 0 · eslint 0 / `scripts/smokeSwitchedRlcSourceFree.mjs` **19/19**(실측 오분류 회차 재현 +
+  표현 변형 + 형제 양보 4(전류원·전압원2개·스위치 닫힘·교류) + 생성물 24개 재검산(**임계제동·닫힌형·RK4**) +
+  커패시턴스 표기 + 원본 값 + 원본 튜플 미생성 + 렌더 6) / `smokeOriginalRouting` **47/47** /
+  형제 무회귀(switchedRlcDualSwitch 22/22·rlcStateEquation 19/19·switchedRlcStep·switchedRcStale 6/6) /
+  **원본 이미지 E2E 양모드 정상**(유사 30V·20/20/20Ω·5×10⁻³F·2H → v(0)=15V·i(t)=−7.5t·e^(−10t),
+  변형 v(0)=48V·v(t)=48(1+5t)e^(−5t) — 둘 다 RK4 교차검증 일치) / Edge 시각검증.
+  ※ 정답의 `−7.5`가 화면에 `−15/2`로 보이는 건 route의 전역 분수 변환기(1-4-3 규칙) 때문 — 의도된 동작.
+
+## t=0 스위치가 **커패시터를 단락** → 1차 RL 계단응답 (임용 7번 회로이론 — `switched_cap_short_rl`) 전용 archetype
+
+- 원본: `12V ─ 4Ω ─ [C(1F) ∥ SW] ─ L(2H) ─ 복귀` 단일 직렬 루프. **스위치가 커패시터와 병렬**이라
+  t=0에 닫히면 C를 단락시킨다. [1] i_L(0⁻)·i_L(0⁺) [2] KVL로 미분방정식 유도·해 [3] 완전응답 i_L(t).
+- ★ 물리(닫힌형): t<0에는 **C가 직류를 차단**해 루프 전류가 0 → **i_L(0⁻)=0**, 강하가 없어 **v_C(0⁻)=V_s**.
+  t≥0에는 C가 단락돼 **V_s = R·i_L + L·di_L/dt** 의 **1차** 회로만 남는다(RLC인데 2차가 아니다).
+  → I_∞=V_s/R, τ=L/R, **i_L(t)=I_∞(1−e^(−t/τ))**, v_L(t)=V_s·e^(−t/τ).
+  원본 검산: **i_L(t)=3(1−e^(−2t))[A]**.
+  ★ **커패시턴스는 답에 관여하지 않는다** — t<0 차단 역할만 하고 t≥0에는 단락된다(원본의 distractor).
+- ★★ **오분류(수정됨)** — 사용자 신고 2026-08-10, analyze→generate E2E 실측:
+  전용 항목이 없어 **`switched_rlc_step`(v1: SPDT + 전류원)** 이 가로챘고, 원본에 **없는 전류원 2A와
+  SPDT 스위치**가 들어간 회로가 생성됐다(묻는 양도 i_L(t) → **v_C(t)**). Vision 요약·인벤토리는
+  정확했다(V:12V·R:4Ω·C:1F·L:2H) — **받아 줄 항목이 없던 것**이 원인이다.
+  ⇒ 분류가 정확한데 엉뚱한 문제가 나오면 감지기보다 **항목 부재**를 먼저 의심할 것
+  (`cylinder_internal_inductance`와 같은 교훈).
+- ★★ **형제 `switched_rlc_source_free`(임용 5번)와 소자 구성이 완전히 같다**(V=1·I=0·C≥1·L≥1·SW).
+  **가르는 신호는 스위치가 닫히느냐 열리느냐 하나뿐**이다. 그래서 어미를 넓게 잡아야 한다 —
+  처음에 `닫히|닫은|닫힌`만 봤다가 실측 요약의 **"닫힐 때"** 를 통째로 놓쳤다(스모크가 즉시 잡음).
+  ★ 반대로 **개방은 스위치와 결합된 것만** 인정한다 — "t<0에서 커패시터는 **개방**"처럼 소자 상태를
+  말하는 서술에 걸리면 이 유형이 형제로 잘못 양보한다.
+- 모드: **exam_similar**=i_L(t)(원본) / **exam_variant**=**구하는 양 교환**(인덕터 양단 전압 v_L(t)).
+  회로·미분방정식은 동일하다.
+- ★ 값은 규칙 열거+필터: **I_∞=V_s/R 과 1/τ=R/L 이 모두 정수**인 조합만 — 그래야 답이 `3(1−e^(−2t))`처럼
+  떨어지고 전역 분수 변환기(1-4-3)가 손댈 소수가 애초에 생기지 않는다.
+  **원본 튜플은 물론 도출량(I_∞·1/τ)이 원본과 같은 조합도 제외**한다.
+- 파일: `lib/generation/topologies/switchedCapShortRl.ts`(generator + 공용 매처)·
+  `lib/pipeline/runSwitchedCapShortRlPipeline.ts`(+`detectSwitchedCapShortRl`)·
+  `lib/renderers/switchedCapShortRlCircuitRenderer.ts`(전압원 leg / 상단 R·C / **C 위쪽에 병렬 스위치** /
+  우측 L + i_L 화살표 / 접지 1개). circuitType `switched_cap_short_rl`,
+  diagramType `switched_cap_short_rl_circuit`. types·circuitType·renderers/index·validateProblem·
+  classifier(0-PRE)·route(dispatch를 **switched_rlc_step 앞**+semantic+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- ★ 렌더 gotcha: 변형의 `v_L(t)` 표기를 인덕터 옆에 두면 **소자 값 라벨과 겹친다**("2.5[H]"처럼 값이 길 때).
+  한 칸 더 바깥 열(+132)로 밀고 `_labelOverlap.mjs`로 16 케이스 겹침 0을 단언한다.
+- 검증: tsc 0 / `scripts/smokeSwitchedCapShortRl.mjs` **25/25**(실측 요약 포함 라우팅 4 + 형제 양보 6 +
+  원본 물리 6 + 생성물 48개 독립 재검산 + 값 품질 + 렌더 7(접지 1개·라벨 겹침 0)) /
+  `smokeOriginalRouting` **58/58** / 형제 무회귀(switchedRlcSourceFree 19/19·switchedRlcDualSwitch 22/22·
+  rlcStateEquation 19/19) / **원본 이미지 E2E 양모드 issues=0**(analyze가 곧바로 전용 유형으로 분류,
+  유사 30V·6Ω → i_L(t)=5(1−e^(−3t)), 변형 v_L(t)=10e^(−2t) — 손검산 일치) / 헤드리스 Chrome 시각검증.
+
+## ★★ 스위치 표기 범용 규칙 — **동작 방향 화살표 + 동작 시각** (2026-08-12 사용자 지정)
+
+스위치를 그리는 **모든 회로**에 적용한다. 공용 모듈 `lib/renderers/_switchSymbol.ts`(`switchH`·`switchV`).
+
+- **닫힘(closing)** = 열린 arm + **arm 자유단에서 접점으로 내려가는 짧은 직선 화살표(↓)**
+- **열림(opening)** = 닫힌 arm(직선) + **접점에서 멀어지는 ↑**
+- `action` 미지정이면 화살표 없이 열린 arm만 — 기존 그림과 동일(형제 무영향).
+- **동작 시각(t=0 등) 라벨을 항상 함께** 표기한다.
+- ★ 삽질 기록: 처음엔 arm을 따라 도는 **곡선 화살표**로 그렸는데 "SW₁이 열리는 그림처럼 보인다"는
+  신고가 났다 — 곡선은 방향이 한눈에 안 읽힌다. 교과서 표기대로 **짧은 직선**으로 확정.
+- ⚠️ 아직 공용 모듈로 **이관되지 않은** 렌더러: `switchedRlcSourceFree`·`switchedCapShortRl`·
+  `switchedRlcDualSwitch`·`supermeshSwitchedDependent`·`inductorRamp`·`bjtTwoStageSwitched`·
+  `switchedRcDc`·`switchedRlSourceSwitch`·`acDcSuperposition(+Dual)`. 각자 로컬 스위치 심볼을 갖고 있다.
+
+## 전류원 RL + 스위치 2개가 t=0에 **소자를 단락** (임용 17번 — `switched_rl_dual_short`) 전용 archetype
+
+- 원본(확대 확정 — [[feedback_verify_wiring_by_zoom]]): 하단 접지 rail 위에
+  `I_s(↑) → 마디 A`, `R_a: A↓접지`, `A ─ [SW₁ ∥ R_b] ─ B`, `B ─ [SW₂ ∥ L₁] ─ C`, `R_c: C↓접지`, `L₂: B↓접지(i(t))`.
+  ★ **SW₁은 가로 저항과 병렬, SW₂는 인덕터와 병렬** — 닫히면 각각 그 소자를 **단락**시킨다.
+- ★ 닫힌형(GPT 없음): [t<0] 인덕터 단락 → V_B=0 → L₁·R_c 가지 전류 0 → **i(0⁻) = I_s·R_a/(R_a+R_b)**.
+  [t>0] 두 소자가 단락돼 세 마디가 하나 → **R_eq = R_a∥R_c**, **τ = L₂/R_eq**, **i(∞) = I_s**.
+  원본(2A·4·4·4·1H·2H) → i(0⁻)=1 · R_eq=2 · τ=1 → **i(t) = 2 − e^(−t)** (보기 ③).
+- ★★ **L₁은 답에 관여하지 않는다** — t<0엔 전류 0, t>0엔 SW₂에 단락. 원본의 distractor이자 채점 포인트
+  (보기 ②가 L₁·R_c를 끼워 넣은 함정). 풀이에 이 점을 명시한다.
+- ★ 오분류: generic **`switched_rl`(medium)** — 그 경로는 단일 전압원 직렬 RL만 만들어 전류원·스위치 2개·
+  병렬 구조를 잃는다. 형제도 재현 불가(2전압원 SPDT·종속전원·RLC). → 0-PRE + route 안전망.
+  구조 시그니처: **전류원≥1 + 인덕터≥2 + 스위치≥2 + C=0 + 종속원=0**, 또는 텍스트(스위치 2개·닫힘·인덕터 전류).
+  커패시터·종속전원·교류·SPDT 낱말이면 양보.
+- 모드: **exam_similar**=i(t) / **exam_variant**=**구하는 양 교환**(인덕터 양단 전압 v(t)). 값 풀은 절반씩 분리.
+- ★ 값은 규칙 열거+필터: i(0⁻)·R_eq·τ·v_L(0⁺)이 모두 0.5 배수, τ∈[0.25,4], i(0⁻)≠i(∞), L₁≠L₂. **원본 튜플 제외**.
+- 파일: `lib/generation/topologies/switchedRlDualShort.ts`·`lib/pipeline/runSwitchedRlDualShortPipeline.ts`
+  (+`detectSwitchedRlDualShort`)·`lib/renderers/switchedRlDualShortCircuitRenderer.ts`(공용 스위치 심볼 사용).
+  circuitType `switched_rl_dual_short`, diagramType `switched_rl_dual_short_circuit`.
+- 검증: tsc 0 · eslint 0 / `scripts/smokeSwitchedRlDualShort.mjs` **62/62**(라우팅 3종×3과목 + 형제 양보 6종 +
+  원본 물리 + **생성물 48개를 RK4 수치적분으로 재검산** + v_L(0⁺) 미분 확인 + 원본 튜플 미생성 +
+  3단계·보기 없음 + 렌더 구조) / `smokeOriginalRouting` **61/61** / 형제 무회귀(switchedRlcSourceFree 19/19·
+  switchedRlcDualSwitch 22/22·rlcStateEquation 19/19·switchedCapShortRl·switchedRcStale 6/6·viThevenin 13/13) /
+  `smokeAll` 40/40 / 헤드리스 Chrome 시각검증.
+
+## ★ 접지 기호는 **하나만** (2026-08-10 사용자 지정, 회로이론)
+
+- generic netlist 렌더러는 GND에 붙은 **핀마다 접지 기호를 따로** 찍었다("분산 GND" — 단일 위치까지 긴
+  wire를 끄는 것을 피하려던 설계). 그런데 접지는 **같은 전위의 한 노드**라 기호가 여러 개면 서로 다른
+  접지처럼 읽힌다.
+- ✅ `renderDistributedGroundSymbols`가 각 GND 핀을 짧은 세로 도선으로 **공통 rail**에 모으고
+  기호는 rail 중앙에 **하나만** 그린다(접속점엔 junction dot — 규칙 #4). 긴 wire를 끌지 않으므로
+  원래 피하려던 문제도 생기지 않는다. 핀이 하나뿐이면 rail 없이 그 자리에 기호 하나 — **기존 그림과 동일**.
+  캔버스 높이도 rail 여유(`GROUND_RAIL_EXTENT`)만큼 늘려 잘리지 않게 한다.
+- ✅ 전용 렌더러 중 한 그림에 접지를 둘 그리던 `acTheveninTwoBoxCircuitRenderer`도 하나로 —
+  단자 b와 d는 **우측에서 이어진 같은 노드**다.
+- ※ **전자회로(OPAMP·BJT) 렌더러는 그대로 둔다** (사용자 재확인 2026-08-10). 그쪽은 접지가 회로 곳곳에
+  흩어져 있어(입력단·되먹임·부하) 한 rail로 묶으면 **세로 도선이 소자와 OPAMP 본체를 관통**한다
+  (규칙 #1 위반 — 병합 전/후를 헤드리스 Chrome으로 나란히 렌더해 확인했다). 다중 접지 기호는 전자회로 관례다.
+- 검증: `scripts/smokeSingleGroundSymbol.mjs` **6/6**(핀 3개→기호 1개·캔버스 안·핀 1개 무회귀·GND 없음) /
+  `smokeAcTheveninTwoBox` 37/37 · `smokeOriginalRouting` 58/58 무회귀.
+
+## 직류 V원·I원 RLC → **상태 방정식 행렬 A·B** (임용 6번 회로이론 — `rlc_state_equation`) 전용 archetype
+
+- 원본: `V₁ ─ R₁(1Ω) ─ L(1/5H, 전류 i) ─ 마디 A`, 마디 A에 `C(1/2F, 전압 v) ∥ R₂(2Ω) ∥ I₁(↑ 유입)`.
+  상태벡터 x=[i, v]ᵀ·입력 u=[V₁, I₁]ᵀ로 `[di/dt, dv/dt]ᵀ = A·x + B·u` 의 **A·B**를 3단계로 구한다.
+- ★ 물리(닫힌형): · KVL `V₁ = R₁i + L·di/dt + v` → **di/dt = (−R₁i − v + V₁)/L**
+  · KCL(마디 A) `i + I₁ = C·dv/dt + v/R₂` → **dv/dt = (i − v/R₂ + I₁)/C**
+  ⇒ **A = [[−R₁/L, −1/L], [1/C, −1/(R₂C)]]**, **B = [[1/L, 0], [0, 1/C]]**.
+  원본 → **A=[[−5,−5],[2,−1]], B=[[5,0],[0,2]]** (RK4로 원회로 직접 적분과 9자리까지 일치 확인).
+- ★★ **오분류(수정됨)**: 실측 dispatch가 `ac_superposition`이라 **교류 중첩** 문제가 생성됐다(사용자 신고).
+  Vision 요약(topic="RLC 회로의 상태 방정식")도 topicKey(rlc_response)도 인벤토리도 **전부 정확했는데**,
+  분류기가 **V=1·I=1·L=1·C=1이라는 구성만 보고** AC 중첩으로 넘겼다 — **요구(무엇을 구하는가)를 안 봤다**.
+  ⇒ 교훈: 소자 구성이 같아도 **요구가 다르면 다른 유형**이다. "상태 방정식"은 다른 어떤 유형도 쓰지 않는
+  고유 요구이므로 0-PRE로 `ac_superposition` **앞**에 둔다(페이저·테브난·공진·스위치 과도면 형제에 양보).
+- ★ 값은 규칙 열거: **L=1/k, C=1/m** 로 두면 A·B 성분이 전부 정수. 추가로 `m/R₂`가 정수여야 A₂₂도 정수.
+  **원본 튜플(1, 1/5, 1/2, 2) 제외**, 유사·변형은 풀을 절반씩 나눠 값이 겹치지 않는다.
+  exam_similar=소자 값 → A·B(원본) / exam_variant=**구하는 양 교환**(A·B 주어짐 → **소자 값 역산**;
+  B₁₁=1/L, B₂₂=1/C로 L·C를 먼저 잡고 A₁₁·A₂₂로 R₁·R₂를 푸는 자연스러운 역문제).
+- 파일: `lib/generation/topologies/rlcStateEquation.ts`·`lib/pipeline/runRlcStateEquationPipeline.ts`
+  (+`detectRlcStateEquation`)·`lib/renderers/rlcStateEquationCircuitRenderer.ts`(전용 fixed-slot:
+  V₁ 세로 → R₁ → L(i 화살표) → 마디 A ∥ C(+v−) ∥ R₂ ∥ I₁(↑)). circuitType `rlc_state_equation`,
+  diagramType `rlc_state_equation_circuit`. types(payload)·renderers/index·validateProblem·
+  classifier(0-PRE)·route(dispatch+semantic+topology 우회)·`smokeOriginalRouting`(+1줄) 등록.
+- ★ 렌더 gotcha: 커패시터 **극판 반폭이 16**이라 값 라벨을 +14에 두면 앞글자가 가려진다 → **+22**부터.
+- 검증: tsc 0 / `scripts/smokeRlcStateEquation.mjs` **19/19**(실측 오분류 회차 재현 + 표현 변형 3 +
+  형제 양보 4(교류 중첩·스위치 과도·테브난·상태방정식 미언급) + 생성물 24개 재검산(**닫힌형·RK4 수치적분·
+  성분 정수성**) + 원본 값 + 원본 튜플 미생성 + 유사/변형 풀 비중첩 + 렌더 6) / `smokeOriginalRouting` **46/46** /
+  형제 무회귀(switchedRlcDualSwitch 22/22·acTheveninDependent 24/24·acTheveninTwoBox 37/37·
+  acSupSourceDesign 28/28·dcWheatstone 38/38) / **원본 이미지 E2E 양모드 정상**
+  (유사 R₁=1·L=1/3·C=1/8·R₂=4 → A=[[−3,−3],[8,−2]]·B=[[3,0],[0,8]] RK4 교차검증 일치,
+  변형 A·B → R₁=4·L=1/6·C=1/4·R₂=1) / Edge 시각검증(원본 배치 재현·겹침 0).
+
+## 무한히 긴 **원통 도체의 내부 인덕턴스** (임용 10번 전자기학 — `cylinder_internal_inductance`) EM 레지스트리 항목
+
+- 원본: 반지름 r[m]·z축으로 무한히 긴 원통형 도체에 직류 10[A]가 **균일하게** 흐른다(표피 효과 무시, μ_r=50).
+  [1] 중심 O에서 a(0<a<r) 떨어진 점 P의 |H|·|B| [2] 길이 1m당 도체 **내부**를 쇄교하는 자속수 λ
+  [3] 길이 1m당 **내부 인덕턴스 L**. 계산식의 π는 그대로 둔다.
+- ★ 물리(닫힌형, 수치적분 교차검증): 균일 전류밀도 → 쇄교 전류 = I·a²/r² →
+  **H = I·a/(2πr²)**, **B = μ_rμ₀Ia/(2πr²)**. 내부 자속은 **쇄교 비율 a²/r²** 를 곱해 적분:
+  **λ = ∫₀^r (a²/r²)·B·1·da = μ_rμ₀I/(8π)** → **L = λ/I = μ_rμ₀/(8π)**.
+  ★★ **L은 r·I 어느 쪽에도 의존하지 않는다**(r⁴이 약분된다) — 이게 이 문제의 채점 포인트다.
+  μ₀=4π×10⁻⁷ 대입 시 **λ=(μ_r·I/2)×10⁻⁷**, **L=(μ_r/2)×10⁻⁷**. 원본(50,10): λ=2.5×10⁻⁵[Wb], **L=2.5×10⁻⁶[H/m]**.
+- ★ **오분류(수정됨)**: 레지스트리에 이 유형이 **아예 없어서** bare "인덕턴스" 낱말로
+  **솔레노이드 인덕턴스(L=μ₀N²A/l)** 문제가 생성됐다(사용자 신고). Vision 요약은 정확했다
+  (topic="무한 원통 도체의 내부 인덕턴스 계산") — **받아 줄 항목이 없던 것**이 원인이다.
+  ⇒ 분류가 정확한데 엉뚱한 문제가 나오면 **감지기가 아니라 레지스트리 부재**를 먼저 의심할 것.
+- ★ 형제와 구분: `cylinder_conductor_current_field`는 **도전율 σ·전위차 → 외부 자계**,
+  `coax_line_magnetic_field`는 **동축 두 도체**, 솔레노이드/상호 인덕턴스는 권선 코일. 감지기가 모두 양보한다.
+  판별선 = **원통 도체 문맥 + (내부 인덕턴스 | 쇄교 자속 | 표피 효과 | 도체 내부 자계)**.
+- ★ 값은 규칙 열거: μ_r μ₀/(8π)=(μ_r/2)×10⁻⁷ 이므로 **μ_r 짝수**·(μ_r·I) 짝수면 계수가 전부 정수.
+  **원본 튜플(μ_r=50, I=10) 제외**. exam_similar=L 도출(원본) /
+  exam_variant=**구하는 양 교환**(목표 L 주어짐 → **비투자율 μ_r 역산**, L이 r·I 무관이라 곧바로 풀린다).
+- 파일: `electromagnetics.ts`(`cylinderInternalInductance` + `CYL_INDUCT_SPACE`)·
+  `emFieldRenderer.ts`(`renderCylinderInternalInductance`, geometry `cylinder_internal_inductance` —
+  원본처럼 **수평(좌하→우상) 원통** + 좌측 단면에 O·P·a·r + 1[m] 치수 + 전류 화살표 + x↑·z↗·y↘ 축).
+  classifyElectromagnetics(`detectCylinderInternalInductance`)·runElectromagneticsPipeline 강제 체인 **최상단(0-0)**·
+  `smokeOriginalRouting`(+1줄) 등록.
+- ★ 스모크 gotcha: `[단계 3]` 문장이 원본처럼 "**[단계 2]에서 구한 결과를** 이용하여"를 포함하므로
+  `[단계 N]` 마커 **총 개수는 4**다 — 단언은 **서로 다른 마커 3종**으로 셀 것. 또 `texToPlain`은
+  `1\,[\mathrm{m}]`를 **"1 [m]"(공백 포함)** 으로 렌더한다.
+- 검증: tsc 0 / `scripts/smokeCylinderInternalInductance.mjs` **27/27**(감지 3 + 형제 양보 7(솔레노이드·상호·
+  도전율·동축·정전계) + 생성물 28개 재검산(닫힌형·수치적분·**r 무관**) + 원본 값 + 원본 튜플 미생성 +
+  발문·렌더 구조) / `smokeOriginalRouting` **45/45** / EM 형제 무회귀(bentWire 27/27·twoWires 22/22·
+  curl 34/34·sheetRing 10/10·fluxLoop 10/10·twoPointCharges 13/13·sheetLine 8/8·pointLineNull 25/25) /
+  **원본 이미지 E2E 양모드 정상**(유사 μ_r=60·I=5 → λ=150×10⁻⁷·L=30×10⁻⁷, 변형 L=8×10⁻⁷ → μ_r=16 —
+  둘 다 수치적분 교차검증 일치).
+
+## 원점에서 꺾인 **반무한 직선 도선** 합성 자계 → 전류 I (임용 11번 전자기학 — `bent_semi_infinite_wires`) EM 레지스트리 항목
+
+- 원본: 선전류 I가 **무한히 먼 곳 → y축(−a_y) → 원점 O → x축(+a_x) → 무한히 먼 곳**으로 흐르는 하나의 꺾인 도선.
+  점 P(3,4,0)에서 [1] H₁ [2] H₂ [3] 합성 **H₃ = (1/π)a_z** 가 되는 **전류 I**.
+- ★ 물리(닫힌형, 수치적분으로 교차검증): 반무한 직선의 자계 `|H| = I/(4πρ)·(1 + ℓ/√(ρ²+ℓ²))`.
+  P(a,b,0), c=√(a²+b²) 에 대해 · **H₁ = I(c+b)/(4πac)·a_z** · **H₂ = I(c+a)/(4πbc)·a_z**
+  · 두 기여가 **모두 +a_z**라 합이 깔끔하게 정리된다 → **H₃ = I(a+b+c)/(4πab)·a_z**,
+  목표 (k/π)a_z 이면 **I = 4k·ab/(a+b+c)**. 원본(3,4,5·k=1): H₁=3I/20π · H₂=I/10π · **I = 4[A]**.
+- ★ 값은 규칙 열거 — **피타고라스 삼조**(c 정수)로 두면 계수와 I가 모두 유리수/정수로 떨어진다.
+  (a,b) 순서를 바꾸면 H₁·H₂ 배분이 달라져 다른 문제가 된다. **원본 튜플(3,4,k=1) 제외**.
+  exam_similar=목표 H₃ → I 도출(원본) / exam_variant=**구하는 양 교환**(I given → H₃ 도출).
+- ★★ **오분류(수정됨) — Vision이 본문을 "두 원형 루프"로 바꿔 썼다**: 실측 dispatch가
+  `circular_loop_axis_field`(두 원형 전류 루프 축상 자계)라 전혀 다른 문제가 생성됐다(사용자 신고).
+  더 나쁜 것은 **회차마다 요약이 무너지는 정도가 다르다**는 점이다 —
+  · 1차: topic만 "두 원형 루프의 합성 자계", 본문 구조는 살아 있음("y축을 따라"·"무한히 먼 곳")
+  · 2차: **구조 서술까지** "두 원형 전류 루프가 각각 전류를 흐르고"로 바뀜 → 낱말 조건이 전부 미발화
+  ⇒ 감지기를 **3단 구조 신호**로 짰다. 가장 강한 것은 **서로 다른 두 좌표축이 각각 전류를 갖는다**
+  (`"y축의 전류에 의한 자계"` + `"x축의 전류에 의한 자계"`) — 원형 루프 문제는 전류를 축이 아니라
+  루프(C₁·C₂)에 붙이므로 이 표현이 나올 수 없다. 2차 회차에서도 이 문구만은 남았다.
+  · 보조: `축을 따라` + `무한히 먼 곳|반무한|원점 O|꺾`
+  · **원형 루프 양보 가드(반지름)는 축-전류 신호가 있으면 적용하지 않는다** — 그러면 오요약 회차를 또 놓친다.
+- 파일: `electromagnetics.ts`(`bentSemiInfiniteWires` + `BENT_WIRE_SPACE`, 분수는 공용 `fracTex` 재사용)·
+  `emFieldRenderer.ts`(`renderBentWireAxes`, geometry `bent_wire_axes` — z↑·y→·x↙ 축 + 꺾인 굵은 도선 +
+  구간별 전류 화살표 + 점 P와 점선 보조선). classifyElectromagnetics(`detectBentSemiInfiniteWires`)·
+  runElectromagneticsPipeline **강제 체인 최상단(0-1)**·analyzeImage 규칙(짧게 1항목)·
+  `smokeOriginalRouting`(+1줄, 실측 오요약 요약문 그대로) 등록.
+- 검증: tsc 0 / `scripts/smokeBentSemiInfiniteWires.mjs` **27/27**(감지 4종(최악 회차 포함) + 형제 양보 6 +
+  생성물 28개 독립 재검산 + 원본 값 + 원본 튜플 미생성 + 발문·렌더 구조) / `smokeOriginalRouting` **44/44** /
+  EM 형제 무회귀(twoWires 22/22·curl 34/34·sheetRing 10/10·fluxLoop 10/10·twoPointCharges 13/13·
+  sheetLine 8/8·pointLineNull 25/25) / **원본 이미지 E2E 양모드 정상**(유사 P(4,3,0)·I=12, 변형 P(5,12,0)·I=32→H₃=4/π —
+  둘 다 수치적분 교차검증 일치).
+
+## ★ 리액티브 소자도 **값 기준 정규화** — 타입 문자를 믿지 마라 (2026-08-03 실측 오분류)
+
+사용자 신고: 임용 6번(종속전원 테브난 + 최대전력) 원본이 `ac_superposition`으로 분류돼 generic
+`analog_netlist` figure가 나왔다. 서버 로그의 인벤토리는 `{R:3, I:1, dep:1, L:0, C:0}` —
+**Vision이 `j[Ω]`·`−j½[Ω]`를 저항(R)으로 추출**해 0-PRE의 "리액티브" 조건이 통째로 미발화했다.
+(재현률: 3회 중 1회 실패.)
+
+- ✅ `lib/analysis/reactiveValue.ts` — **값이 순허수면 리액티브**로 본다. 부호가 곧 종류다
+  (`+j`→L, `−j`→C). `effectiveComponentType`이 타입 문자를 교정하고, `bumpCount`·
+  `aggregateComponentCounts`(inventory·branch 맵 **둘 다**)·`detectAcTheveninDependent`가 이를 쓴다.
+- ✅ **적용 범위는 수동 소자(R·L·C·Z)뿐** — 전원(V·I) 값에는 `1+j2 V` 같은 직교 페이저가 올 수 있어
+  전원까지 교정하면 독립원을 소자로 오인한다. 또 순허수(`-j1/2`)만 인정하고 혼합(`2+j3`)은 건드리지 않는다.
+- ★ 이건 `lib/analysis/dependentSource.ts`(다이아몬드 종속전원을 값으로 판별)와 **같은 패턴**이다.
+  Vision 출력 형식이 흔들리면 **분류 로직·프롬프트를 고치기 전에 정규화 층에서 흡수**할 것
+  ([[feedback_gpt_format_normalization]]). 한쪽 맵만 정규화하면 같은 소자가 R과 L로 따로 세어진다.
+- 검증: `scripts/smokeReactiveNormalization.mjs` **29/29**(값 판정 16 + 타입 교정 7 +
+  실측 오분류 회차 재현 3 + 순저항 형제 회귀 2) / `smokeOriginalRouting` **43/43** /
+  형제 무회귀(acTheveninDependent 24/24·acTheveninTwoBox 37/37·acSupSourceDesign 28/28·
+  dcWheatstone 38/38·switchedRlcDualSwitch 22/22) / tsc 0 · eslint 0 /
+  **원본 이미지 E2E 라우팅 4/4** `ac_thevenin_dependent`(리액티브를 R로 읽은 회차 포함).
+
+## C언어 지문 — 분량 하한 + **실행 검증**(2026-08-03 사용자 신고 "너무 짧고 쉬워")
+
+원본 기출(함수 1개 + 단일 for, 실질 17줄)을 그대로 흉내 내 **10줄짜리 생성물**이 나왔다. 임용 실전 난이도로
+확장하면서 생긴 부작용까지 함께 처리한 3층 구조 — 모두 `lib/pipeline/runCLanguagePipeline.ts`.
+
+1. **난이도·분량 규칙(프롬프트)** — 실질 24줄(`MIN_CODE_LINES`) 이상(권장 30~55), main 외 함수 2개 이상·호출 깊이 2단계,
+   문법 요소 3종 이상, 단일 패스 금지, 출력 2줄 이상, **소문항 2개 이상**, content↔question 중복 금지.
+   ★ 난이도는 **제어 흐름**으로 올리고 **산술 크기로 올리지 않는다**(|값| ≤ 200, 한 수식에 곱셈 1개) —
+   큰 수는 변별력을 못 올리고 오답만 만든다. 재귀는 **호출될 수 있는 모든 인자**에 대해 종료해야 한다.
+2. **분량 게이트(결정론)** — `countEffectiveCodeLines`(주석·빈 줄 제외)로 하한 미달이면 **1회만** 재요청하고
+   문항별로 **더 긴 쪽 채택**(재요청이 나빠도 퇴보 없음). 실측: 1차 생성이 16~23줄로 자주 미달 →
+   재요청 후 25~34줄. 프롬프트만으로는 부족하다는 증거.
+3. ★★ **실행 검증(핵심)** — 코드가 길어지자 **생성 모델의 손 추적이 자주 틀렸다**(실측: 44를 5로, 102를 50으로,
+   50을 28로 — 심지어 solution에 "문제상의 착오"라고 써 놓고 제출). 이 환경엔 **C 컴파일러가 없으므로**
+   지문 코드를 **JavaScript로 번역시켜 `node:vm`에서 실제로 실행**해 표준출력을 얻는다(번역은 추적보다
+   훨씬 쉬운 작업이고, 실행은 결정론이라 산술 오류가 원천 소멸).
+   - 소문항 [1]은 출력에 안 나오는 중간값을 묻는 경우가 많다 → 번역 시 **`probe(값)`** 를 소문항 순서대로
+     남기게 하고, `findProbeMismatch`가 **정답의 해당 소문항 칸**에서만 값을 찾는다
+     (정답 전체에서 찾으면 [1]이 틀려도 그 값이 [2] 출력줄에 있어 통과한다 — 실측).
+   - 불일치·자기모순(`hasSelfContradiction`)이면 **복구 호출**로 answer·solution만 다시 쓴다.
+   - **무한 재귀·무한 루프·폭주 출력**(`NON_TERMINATING`)은 번역 버그가 아니라 **지문 코드의 결함**이다.
+     정답이 존재하지 않으므로 손 추적으로 메우지 말고 **문항을 폐기**하고 1회 보충 생성한다
+     (실측: `n -= 2`인데 `n == 0`에서만 멈추는 재귀가 홀수 인자로 무한 재귀 → fallback이 답을 지어냈다).
+   - vm은 **호스트 객체를 하나도 주입하지 않는다** — `out`·`probe`·버퍼까지 vm 안에서 정의하고 결과만 읽는다
+     (호스트 함수를 넘기면 `fn.constructor.constructor`로 realm 탈출 여지). 식별자 블랙리스트는 쓰지 마라 —
+     C에 흔한 `process`라는 함수명이 오탐으로 걸린다(실측).
+   - ★ 복구 호출에 **생성용 system 프롬프트를 재사용하지 마라** — 그 안의 `{"problems":[...]}` 스키마를 따라
+     답이 배열로 감싸여 오고 평평한 객체를 기대하는 호출부가 조용히 null을 냈다(실측). 필드가 문자열이 아닌
+     회차도 있어 `asText`로 강제 변환한다.
+4. **figure caption 중복** — `codeCaption`을 figure label과 `diagram.caption` **둘 다**에 넣어 화면에
+   "[프로그램]"이 두 번 찍혔다 → label에만 둔다.
+5. ★★ **개념 범위 규칙 — 원본에 없는 문법을 끌어오지 않는다** (사용자 신고 2026-08-05
+   "생성된 문제가 재귀함수에 관한거야. 본문과 관련된 내용만 문제에 내줬으면 좋겠어"):
+   원본(임용 4번)은 `포인터로 배열 합계 + sizeof + 정수 나눗셈`인데 생성물이 **재귀 함수** 문제였다.
+   · 원인은 **프롬프트 자신**이었다 — 위 1~3의 난이도 규칙이 "그중 하나는 다른 함수를 호출하거나 **재귀**여야",
+     문법 요소 목록에 **재귀**, 그리고 변형 모드 예시에 "**반복↔재귀**"까지 적혀 있었다. 모델은 "깊게"를
+     요구받으면 가장 쉬운 방법으로 재귀를 집어넣는다. (절대규칙 0 위반 — 같은 학습목표를 시험하지 못한다.)
+   · ✅ **규칙 우선 해결**([[feedback_fix_vs_rule]]): 원본 분석 텍스트에서 `detectConcepts`로 개념을
+     결정론 추출해 **허용 목록**을 만들고, 프롬프트에 `[개념 범위 규칙 — 위반 시 폐기]`로 주입한다
+     (원본에 재귀가 없으면 "재귀 함수 금지" 명시). 난이도 규칙 2·3과 변형 모드 예시에서 재귀 유도 문구 제거.
+   · ✅ **결정론 게이트**(프롬프트만으론 부족 — 분량 게이트와 같은 교훈): `detectSelfRecursion`이
+     **낱말이 아니라 호출 구조**(함수 정의 본문에서 자기 이름 호출)로 판정하고, 걸리면 **1회 재요청** 후
+     문항별로 **재귀 없는 쪽 채택**(퇴보 방지). 둘 다 재귀면 경고만 남긴다(여기서 폐기하면 "생성 실패"가 뜬다).
+   · ※ 한계: **간접 재귀(a→b→a)** 는 이 검출기가 못 잡는다 — 프롬프트 규칙이 1차 방어다(스모크에 명시).
+   · 검증: `scripts/smokeCLanguageConceptScope.mjs` **8/8**(원본 개념 추출 · 재귀 검출 · **프로토타입 선언
+     오탐 없음** · 다른 함수 호출을 재귀로 오탐하지 않음 · 분량 계수 무회귀 · 재귀 원본은 허용) /
+     `smokeCLanguageLength` 42/42 무회귀 / tsc 0 / **원본 이미지 E2E 양모드**: 유사·변형 모두 재귀 없이
+     포인터·배열·sizeof·정수 나눗셈 범위 유지(유사 15·11, 변형 48·12 — 직접 실행 검산 일치).
+- 검증: `node --experimental-strip-types --import ./scripts/_aliasHook.mjs scripts/smokeCLanguageLength.mjs`
+  **42/42**(계수·신고 재현·정규화·자기모순·probe 칸 대조·asText·결함 판정) / tsc 0 · eslint 0 /
+  **E2E 8문항을 직접 재실행해 대조 — 8/8 일치**(그중 6문항은 생성 단계에선 오답이었고 실행 검증이 교정).
+
+6. ★★ **원본의 제어 흐름(switch fall-through)을 보존한다** (사용자 신고 2026-08-13, 임용 33번):
+   원본은 `case 2`에 **break가 없어 `default`로 이어지는** 프로그램이고(정답 ④ 9, 9) 그 fall-through가 채점
+   포인트인데, 생성물이 **모든 case에 break를 넣어** 학습목표가 통째로 사라졌다(절대규칙 0 위반).
+   - ★★ **실행 검증은 이 실패를 못 잡는다** — `verifyAndRepairOutputs`가 보는 것은 *"정답이 그 코드의 실행
+     결과와 맞는가"*이지 *"그 코드가 원본 구조를 지켰는가"*가 아니다. break를 다 넣은 코드도 자체로는
+     일관되므로 `totalIssues=0`으로 **조용히 통과**했다(로그에 mismatch·discard가 하나도 없었다).
+     이 저장소가 반복해 겪은 "generic 경로는 실패해도 validator를 통과한다"와 같은 패턴이다.
+   - **진짜 원인은 [난이도·분량 규칙]이었다**: "최소 24줄(권장 30~55)·사용자 정의 함수 2개 이상·호출 깊이
+     2단계·단일 패스 금지"가 원본(`main` 하나, ~20줄)을 통째로 재작성하게 만들고, 그 과정에서 모델이
+     `switch`를 **관용적으로**(모든 case에 break) 쓴다. 재현: 컨텍스트에 "break가 없어 default로 이어져"를
+     **명시했는데도 2회 중 1회 소실**.
+   - ✅ 3겹 조치: ① `analyzeImage`의 C 규칙에 **"break가 어느 라벨에 있고 어느 라벨에 없는지 글자 그대로
+     보존"** 추가(관용적 뭉뚱그림 금지) ② 프롬프트 `[제어 흐름 보존 규칙]`을 **[난이도·분량 규칙]보다 뒤에**
+     주입(앞에 두면 재작성에 묻힌다 — `STEP_QUESTION_RULE`과 같은 교훈) ③ **결정론 게이트**
+     `enforceFallThrough`(1회 재요청 + 구조를 지킨 쪽 채택, 재귀·분량 게이트와 같은 형태).
+   - ★ 판정은 낱말이 아니라 **구조**다: `hasSwitchFallThrough`가 주석·문자열을 지우고(`stripCNoise`)
+     중괄호 깊이로 **최상위 `case`/`default` 라벨**을 갈라, 라벨 사이 구간에 `break|return|continue|goto|exit`가
+     하나도 없고 내용이 비어 있지 않으면 fall-through로 본다. `case 1: case 2:`(빈 연속 라벨=묶음 표기)와
+     마지막 라벨은 제외. **보수적으로 판정** — 중첩 반복문 안의 break도 종료로 세므로 놓칠지언정 오탐하지 않는다.
+   - `detectFallThroughIntent`는 **구조 우선**(컨텍스트에 원본 코드가 보존돼 있으면 직접 파싱) + 낱말 보조.
+     ※ 낱말 정규식은 **조사(가·이·을·를)** 까지 받아야 한다 — "break**를** 생략했기"를 놓쳐 스모크가 잡았다.
+   - ★★★ **"존재"만 보는 게이트는 부족하다** (같은 날 2차 신고 — "핵심 2가지를 담고 있지 않은데?"):
+     1차 수정이 fall-through **존재**만 검사하자, 형식만 갖춘 **장식**이 그대로 통과했다(실측 생성물):
+     · `default: printf("Default operation.\n"); break;` — 흘러가지만 **상태를 안 바꿔** 답이 그대로다.
+     · `int score[10] = {3,5,7,2};` 로 부분 초기화해 놓고 **`getSum(score, 4)`** — 초기화 개수를 크기로 넘겨
+       **0 구간을 아예 지나가지 않는다**. 원본은 `for(i=3;i<10;i++)`로 0을 반드시 더해서 답이 9가 된다.
+     · 게다가 `// No break, fall through` 주석이 코드에 박혀 **답을 알려 줬다**(원본엔 없다).
+     ⇒ 원본의 핵심은 **두 가지**이고 **둘 다 정답에 실제로 관여**해야 한다:
+       **(1) fall-through** + **(2) 배열 부분 초기화(뒤쪽 0)**.
+   - ✅ 게이트를 "관여"까지 보도록 강화했다(`enforceFallThrough`가 결함 목록을 만든다):
+     · `fallThroughIsConsequential` — 흘러 들어간 **다음 라벨이 상태를 바꾸는가**(printf만이면 불합격).
+     · `findPartialArrays` + `zeroTailIsDecorative` — `T a[N]={v1..vk}` (k<N)가 있는가, 그리고
+       **초기화 개수 k가 그 배열의 순회 상한·크기 인자로 쓰이지 않았는가**(쓰였으면 0 구간 미사용 = 불합격).
+     · `stripGiveawayComments` — 흐름을 설명하는 주석은 **재요청 없이 제거**(실행에 영향 없음).
+     · 재요청 후에는 **결함 수가 더 적은 쪽**을 문항별로 채택(퇴보 방지).
+   - 검증: `scripts/smokeCLanguageFallThrough.mjs` **33/33**(원본 감지 + 신고 형태 미감지 + 경계 7종
+     (빈 연속 라벨·마지막 라벨·return/goto·중첩 루프 break·문자열/주석 속 break) + 의도 감지 6종 +
+     **★2차 신고 생성물을 그대로 넣어 두 검사 모두 불합격 확인** + 원본은 두 검사 모두 합격 + 형제 무회귀) /
+     `smokeCLanguageLength` 42/42 · `smokeCLanguageConceptScope` 8/8 무회귀 / tsc 0 · eslint 0 /
+     **생성 API 재현**: fall-through 보존 4/4(수정 전 1/2) → **두 핵심 모두 관여 4/4**(1차 수정 후 0/4).
+   - ⚠️ 남은 한계: `zeroTailIsDecorative`는 **정적 근사**다(함수 인자로 크기가 전달되면 추적 못 하는 경로가
+     있다) — "초기화 개수를 상한으로 쓴 흔적"이라는 안티패턴으로 잡는다. 다른 제어 흐름 특징
+     (`static` 상태 유지 등)은 여전히 개념 규칙이 일부만 담당한다.
+   - ★★ 일반화 교훈: **구조 게이트는 "있는가"가 아니라 "정답을 가르는가"를 물어야 한다.**
+     존재만 확인하면 모델이 형식을 흉내 내 통과시킨다 — 이 저장소의 "장식용 통과"는 이번이 처음이 아니다.
+   - ★★★ **그리고 그것으로도 부족했다 (3차 신고: "스위치 문이 없어. 그냥 배열문제로 생성돼")**:
+     게이트 전체가 `detectFallThroughIntent(ctx)`에 걸려 있었는데, **실제 Vision 요약이 약하면 false**가 되어
+     프롬프트 규칙도 게이트도 **통째로 꺼졌다**. 실측 회차의 요약은 `topic="C언어 switch문 실행 결과"` 한 줄이
+     전부였다(내 재현 테스트는 내가 직접 fall-through 문장을 써 넣어서 켜졌던 것 — **테스트가 실제 입력보다
+     친절하면 게이트가 켜진 채로만 검증된다**). 게다가 `CONCEPT_RULES`의 `branch`가 `if|else|switch`를 모두
+     매치해 **`if`만 써도 "분기 개념 유지"로 통과** — switch를 요구하는 규칙 자체가 없었다.
+     · 부분 조치: `REQUIRED_CONSTRUCTS`(switch·구조체·static·비트연산) — 원본이 쓰는 **핵심 구조를 요구**한다
+       (기존 개념 규칙은 "없는 것 금지" 한 방향뿐이었다). `detectRequiredConstructs`/`missingConstructs`.
+     · **근본 조치는 전용 archetype**(아래) — 사용자 지정: "생성해내기 힘들면 archetype을 만들어".
+
+## Wien bridge 발진회로 **수치 설계형** (임용 30번 — `wien_bridge_design`) ★결정론 archetype★
+
+- 원본: 비반전 OPAMP + 정귀환 RC망(직렬 R·C ‖ 병렬 R·C, 둘 다 **50kΩ·16nF**), 음귀환 `R_1`(V⁻→접지)·`R_2`(V⁻→V_o).
+  "발진기가 **안정적이고 지속적으로** 동작하기 위한 R₁, R₂와 공진주파수 f₀" 객관식(π=3.14).
+  **정답 ② R₁=10kΩ · R₂=22kΩ · f₀≈200Hz**.
+- ★ 물리(닫힌형): R·C가 같으면 공진에서 **β = 1/3** → 바크하우젠 **A_v = 1 + R₂/R₁ ≥ 3**, 즉 **R₂ ≥ 2R₁**.
+  ★★ "**지속**"이 채점 포인트다 — 정확히 3이면 임계라 소자 오차로 사그라든다. 그래서 원본이 **R₂/R₁ = 2.2**
+  (22/10)를 답으로 둔다. **f₀ = 1/(2πRC)**; 원본 RC = 800µs → f₀ = 199.04 ≈ 200Hz.
+- ★ 형제 `WIEN_BRIDGE_OSCILLATOR`(`lib/generation/analog/wienBridgeOscillator.ts`)는 **기호형**이다 —
+  수치 없이 `K=1+R₃/R₁` → `β(s)` 표준형 → **비 R₃/R₁=2**를 구한다. 이 원본은 **수치 설계**(R₁·R₂의 값과 f₀[Hz])라
+  묻는 것이 다르다. 판별선 = **수치·단위(kΩ·nF)·"적절한 값" 요구**. 양보: 전달특성·블록도·위상천이·함수발생기·루프이득.
+- ★★ **회로 figure는 공유한다** — 기존 파일에서 `buildWienBridgeNetlist`를 **export로 뽑아** 두 경로가 함께 쓴다
+  (복제하면 한쪽만 고쳐져 드리프트한다). 음귀환 저항 라벨만 `feedbackLabel`로 바꾼다(원본 30번은 `R_2`, 기호형은 `R_3`).
+- ★ 값은 규칙 열거 + 필터: R·C는 **정수만**(곱이 그대로 RC[µs]) · f₀가 깔끔한 값에 **오차 1.5% 이내** ·
+  (R₁,R₂)는 **비 2.1~2.4의 E-계열 쌍**(이득이 3보다 약간 큼). **원본 튜플 제외**, 유사/변형 풀 절반 분리.
+- 발문은 **〈해석 절차〉 3단계 서술형**(객관식 원본 → 3단계): [1] β와 A_v 조건 [2] R₂ 결정 + **그 이유**
+  (3보다 약간 커야 지속) [3] f₀ 계산.
+- ★★★ **표기 gotcha — 전역 분수 변환기(1-4-3)가 답을 뭉갠다**(실측 3건):
+  `f_0 ≈ 796.2` → **3981/5**, `A_v = 3.2` → **16/5**, `π = 3.14` → **157/50**.
+  변환기 동작을 직접 조사한 결과 **평문 `[Hz]`가 바로 붙은 숫자만 보호**된다 —
+  `[\mathrm{Hz}]`·`[배]`·`[V/V]`는 **보호되지 않는다**. ⇒ 세 가지로 막았다:
+  ① 주파수는 **LaTeX 밖에서** `995.2[Hz]`로 쓴다 ② 무차원 이득은 **소수를 아예 쓰지 않고**
+  `A_v = 1 + 55/25 = 16/5` 처럼 **분수식**으로 남긴다 ③ 풀이에서 **π는 기호로** 두고
+  "π=3.14로 계산"이라는 지시는 **조건·발문에만** 넣는다(그쪽은 변환기가 건드리지 않는다).
+  ★ 회귀 방지: 스모크가 `fractionizeText(answer) === answer`와 **단위 없는 소수 0개**를 단언한다.
+- 파일: `lib/generation/topologies/wienBridgeDesign.ts`(생성기 + 공용 매처)·
+  `lib/pipeline/runWienBridgeDesignPipeline.ts`(3단계 + `detectWienBridgeDesign`). 렌더러 없음(`analog_netlist` 재사용).
+  route는 **analog archetype dispatch 앞**에 둔다(뒤에 두면 기호형이 가져간다).
+- 검증: tsc 0 · eslint 0(신규) / `scripts/smokeWienBridgeDesign.mjs` **397/397**
+  (**원본 물리 재현**(f₀=199.04→200Hz·보기 ①④가 A_v<3로 발진 못 함) + 라우팅 3종 + 형제 양보 6종 +
+  값 공간·원본 튜플 미생성 + **생성물 48개 독립 재검산**(f₀·이득·R₂≥2R₁·반올림 오차) +
+  **Wien 망 검증기(`validateWienNetwork`) 통과** + 3단계·보기 없음 + **분수 변환기 불변** +
+  **형제 기호형 5회 무회귀**(R_3 라벨 유지)) / `smokeOriginalRouting` 69/69 · `smokeAll` 40/40 /
+  **생성 API E2E 양모드 issues=0**.
+  ※ `smokeAll`이 한 번 39/40로 나왔으나 재실행에서 40/40 — GPT 비결정이지 이 변경과 무관하다.
+
+## switch **fall-through + 배열 부분 초기화** 출력 예측 (임용 33번 — `c_switch_fall_through`) ★결정론 archetype★
+
+- 원본: `int score[10] = {1,2,3,4,5}; op=2;` / `case 1`(break) · **`case 2`(break 없음)** · `default`(break),
+  각 라벨은 서로 다른 시작 인덱스로 배열을 끝까지 더해 출력. 보기 ①~⑤ 객관식, **정답 ④ (9, 9)**.
+  채점 포인트는 정확히 두 가지 — **(1) fall-through** **(2) 뒤쪽 5개가 0**(둘이 겹쳐 두 출력이 같아진다).
+- ★★ **C 도메인 최초의 결정론 archetype**이다. GPT 경로(`runCLanguagePipeline`)가 이 원본의 핵심을
+  **네 가지 방식으로 반복해서 잃었고**(모든 case에 break / 출력만 하는 라벨로 흘러가는 장식 /
+  초기화 개수를 크기로 넘겨 0 구간 미순회 / **switch 자체가 없는 배열 문제**), 프롬프트·게이트를 두 번
+  보강해도 안정화되지 않았다. 근본 원인은 [난이도·분량 규칙](24줄 이상·함수 2개 이상·호출 깊이 2단계)이
+  **원본(main 하나, ~20줄)을 통째로 재작성하게 만드는 것**이라 프롬프트로는 이길 수 없었다.
+  ⇒ [[feedback_universal_path]]의 예외("generic 경로로 흡수 불가")로 전용 archetype이 정당하다.
+- ★ 값은 규칙 열거 + 필터: 배열 크기 N∈{8,10} · 초기화 개수 k∈{4,5} · 등차 초기값(base·step) ·
+  두 시작 인덱스. 필터 — **case 2는 초기화 구간과 0 구간에 걸친다**(a2 < k, 0을 실제로 더한다) ·
+  default 구간은 **원소 2개 이상**(한 번만 도는 반복문 배제) · 출력 상한. 풀 유사 1632·변형 1672.
+  ★ **원본 배열값(`{1,2,3,4,5}`)은 통째로 제외** — 시작 인덱스만 달라도 첫 출력이 9로 같아 베낀 문항이 된다
+  (실측으로 잡았다, `viTheveninMaxPower`의 "도출량 충돌 제외"와 같은 처리).
+- 모드: **exam_similar**=default가 **0 구간에서 시작** → 두 출력이 같다(원본의 성질) /
+  **exam_variant**=default가 **초기화 구간까지 거슬러** → 두 출력이 달라진다(누적이 유지됨이 더 드러난다).
+- 발문은 **〈해석 절차〉 3단계 서술형**(객관식 원본 → 3단계, 절대원칙):
+  [1] 배열 전 원소 + 진입 레이블 [2] 첫 출력 [3] break 유무 근거 + 둘째 출력. figure는 `code_block` 하나.
+- 라우팅: `matchesCSwitchFallThrough` = `switch + (C 문맥|배열) + 출력 예측`, 양보 = 포인터·재귀·구조체·
+  비트연산·문자열·동적할당(그쪽은 generic GPT 경로). route에서 **`subjectKey === "c_language"` 분기보다 앞**에
+  dispatch한다(뒤에 두면 generic이 먼저 가져간다). ★ 낱말을 넓게 잡았다 — 실측 요약이 topic 한 줄뿐이었다.
+- 파일: `lib/generation/topologies/cSwitchFallThrough.ts`(생성기 + 공용 매처)·
+  `lib/pipeline/runCSwitchFallThroughPipeline.ts`(3단계 텍스트 + `detectCSwitchFallThrough`). 렌더러 없음(`code_block` 재사용).
+- 검증: tsc 0 · eslint 0 / `scripts/smokeCSwitchFallThrough.mjs` **549/549**
+  (라우팅 4종 + 형제 양보 6종 + 값 공간·원본 튜플 미생성 + **원본 값 재현(9,9)** +
+  **생성물 48개를 지문 코드에서 되파싱해 독립 시뮬레이션으로 재검산** + 두 핵심 구조 보장
+  (`hasSwitchFallThrough`·`fallThroughIsConsequential`·`findPartialArrays`·`zeroTailIsDecorative`로 교차 확인) +
+  모드별 성질(유사=두 출력 같음·변형=다름) + 3단계·보기 없음·노출 주석 0) /
+  `smokeCLanguageFallThrough` 33/33 · `smokeCLanguageLength` 42/42 · `smokeCLanguageConceptScope` 8/8 ·
+  `smokeOriginalRouting` 69/69 무회귀 / **생성 API E2E**: **약한 Vision 요약**(topic 한 줄, fall-through 미언급)
+  으로도 양모드 dispatch·issues=0.
+- ★ 교훈: **테스트 입력이 실제 입력보다 친절하면 게이트는 켜진 채로만 검증된다.** 이번 3차 신고의 원인이
+  정확히 그것이었다 — 재현 스크립트에 내가 fall-through 문장을 써 넣어 게이트가 항상 켜져 있었다.
 
 # Important Notes
 1. **AI 모델**: OpenAI GPT-4o (`lib/openai.ts` 싱글톤, `DEFAULT_MODEL`)
@@ -1218,7 +2929,20 @@ system prompt에도 동일 규칙 박힘: `lib/prompts/system.ts`의 `[LOGIC_DAG
 ## 두 유전체 평판 커패시터 — 배치(직렬 적층 / 병렬 나란히)는 mode와 직교 (`dielectric_two_region_cap`)
 - 임용 10번(직렬 적층: 유전체가 위아래로 쌓임, E_1·E_2 각각, 두께비, 극판간격 2d) vs 임용 11번(병렬 나란히: 좌우, E 하나, 부피비). **같은 공식 레지스트리 항목**이 둘 다 처리.
 - ★ **버그(수정됨)**: build가 배치를 mode로 하드코딩(유사=병렬·변형=직렬)해서, 원본이 직렬(10번)이어도 유사유형이 병렬로 나옴 → **절대규칙 0(exam_similar=topology 보존) 위반**. 배치는 mode가 아니라 **원본의 구조적 속성**이다.
-- ★ **수정**: `detectDielectricArrangement(analysis)`(classifyElectromagnetics.ts)가 텍스트에서 series(적층·위아래·직렬·두께비·E_1&E_2)/parallel(나란히·병렬·부피비) 감지 → `EmBuildHints.dielectricArrangement`로 전달. build는 **유사=원본 배치 유지, 변형=반대 배치(직렬↔병렬 dual)**. 감지 실패 시 기본 병렬(임용 11번 호환).
+- ★ **수정**: `detectDielectricArrangement(analysis)`(classifyElectromagnetics.ts)가 텍스트에서 series(적층·위아래·직렬·두께비·E_1&E_2)/parallel(나란히·병렬·부피비) 감지 → `EmBuildHints.dielectricArrangement`로 전달. 감지 실패 시 기본 병렬(임용 11번 호환).
+- ★★ **배치는 유사·변형 모두 원본 유지, 값만 변경** (사용자 지정 2026-08-02): 이전에는 변형이 직렬↔병렬
+  **쌍대로 배치를 뒤집어**, 원본이 병렬(나란히)인데 변형에서 적층 문제가 나왔다. 이제 `useSeries`는
+  mode와 무관하게 `originalArrangement === "series"`이고, 대신 **값 풀을 절반씩 분리**(`sliceFor`)해
+  유사와 변형이 서로 다른 수치를 쓴다(DIEL_SPACE·DIEL_SERIES_SPACE 모두).
+  회귀 방지: `scripts/smokeDielectricArrangementKeep.mjs` **10/10**(병렬·직렬 각 24개 배치 유지 +
+  유사/변형 값 겹침 0 + 기본값 병렬 + 전위분포 하위구조 무영향 + 아래 라우팅 2종).
+- ★★ **경계 굴절 감지기가 이 유형을 가로채던 버그** (실측 2026-08-02): Vision이 `relatedConcepts`에
+  개념 태그 **"정전 에너지"** 를 붙이자 `detectDielectricBoundary`의 boundarySignal이 발화해 강제 체인
+  1번에서 통째로 가져갔고, 커패시터 문제 대신 **"경계면 전계 굴절 + 에너지 밀도"** 문제가 생성됐다.
+  → 그 감지기에 **평판 커패시터 문맥 양보 가드**(정전용량·커패시터·극판·평판 도체·부피비) 추가.
+  경계 굴절 유형은 정전용량·전위차 V_d를 묻지 않으므로 안전한 판별선이다.
+  ★ 교훈은 CLAUDE.md의 "Mealy 머신 태그" 사례와 같다 — **개념 태그는 구조적 사실이 아니다**.
+  보강 후 원본 이미지 유사 모드 라우팅 **3/3**.
 - analyzeImage EM 규칙에 "적층(직렬) vs 나란히(병렬) 구분·보존"(위아래·2d·E_1/E_2 각각 ↔ 나란히·부피비) 강제 — Vision이 배치를 뒤바꿔 요약 금지. 렌더러(emFieldRenderer `renderDielectricSlab`)는 series/parallel 둘 다 그림(split 라벨).
 - ★ **단계 구조도 배치별로 원본과 일치** (그림 아님·발문 구조): 두 원본의 해석 절차가 다르므로 배치별로 다른 단계 구조 재현.
   - **직렬(적층)=임용 10번 구조**: ★수치·d 역산★. 각 유전체 두께 d(동일, 총 2d)·전하 ±Q[nC]·면적 S=s·π·ε₀=1/(36π)×10⁻⁹ given. [1] \|E₁\|,\|E₂\| **각각(수치)** [2] V=(\|E₁\|+\|E₂\|)d **관계식** [3] 정전용량=C_t[nF] 되는 **두께 d 구하기(역문제)**. |E_k|=36Q/(s·ε_rk). `DIEL_SERIES_SPACE`(규칙 열거+정수/0.5배수 필터, 원본 18π·6nC·500nF 제외).
@@ -1263,6 +2987,48 @@ system prompt에도 동일 규칙 박힘: `lib/prompts/system.ts`의 `[LOGIC_DAG
 - ★ **키워드 잠식 금지**: bare "점전하"(→ point_charge_field)·"두 점전하"(→ coulomb_force)는 keywords/strong 어디에도 두지 않는다 — 실측에서 이 항목이 쿨롱 힘 문제를 뺏었다. strong은 "두 점전하에 의한 전계/전위" 같은 **조합**만. 대신 구조 감지기 `detectTwoPointCharges`(점전하 + 두 전하 표기 + 전계/전위, 힘·면전하·선전하·자계면 양보)를 강제 체인 8번째에 둔다.
 - 파일: `electromagnetics.ts`(entry + `TWO_CHARGE_SPACE` + geometry `two_charges_axes`)·`emFieldRenderer.ts`(`renderTwoChargesAxes` — z↑·y→·x↙ 좌표축 + A(y축)·B(z축)·P + 점선 보조선). ★ 캔버스는 **W=560·H=300 고정** — 좌표가 밖으로 나가면 라벨·축이 잘린다(실측).
 - 검증: `scripts/smokeTwoPointCharges.mjs` **13/13**(표현 변형 3종 + 형제 회귀 3종(단일 점전하·쿨롱 힘·면선전하) + 생성물 16개 |E|·V_P 재검산 + figure/발문 구조) / EM 스모크 무회귀(sheetLine 8/8·sheetRing 10/10·curl 34/34·flux 10/10) / 원본 E2E 양모드 issues=0 / smokeAll 40/40 / Edge 시각검증.
+
+## 두 무한 직선 도선(전류 반대) 합성 자계 → 위치 a 도출 → 단위 길이당 힘 (임용 11번 전자기학 — `two_wires_field_force`) EM 레지스트리 항목
+- 원본: x=0·y=1에 도선 A(+a_z, 2A), x=0·y=a에 도선 B(−a_z, 2A). [1] O(0,0,0)·P(0,2,0)의 합성 자계를 **a가 포함된 식**으로 [2] |H_O|:|H_P|=3:5 되는 a (단, a>2) [3] **B에 작용하는 단위 길이당 힘**. 답: **a=5, F=μ₀/(2π)a_y(척력)**.
+- ★ 물리(닫힌형, GPT 없음): z축과 나란한 도선(y=y₀, +I a_z)은 y축 위 점에서 **H(y) = −I/(2π(y−y₀))a_x** (−a_z면 부호 반전). 따라서
+  H_O=(I/2π)(1/y_A−1/a)a_x, H_P=−(I/2π)(1/(y_P−y_A)+1/(a−y_P))a_x. ★ **비를 잡으면 (a−y_A)가 항상 약분**되어
+  |H_O|:|H_P| = (y_P−y_A)(a−y_P) : y_A·a → **a = n·g·y_P/(n·g − m·y_A)** (g=y_P−y_A). 힘은 반대 방향이라 **척력** F=μ₀I_AI_B/(2π(a−y_A))·(+a_y).
+- ★ **오분류(수정됨)**: 실측 dispatch가 **`straight_wire_B`(단일 도선 B=μ₀I/2πr)** — 도선 1개짜리 단순 계산 문제로 변질됐고 **validator는 issues=0으로 통과**했다. 형제 어느 것도 재현 불가(`force_on_wire`=F=BIL, `sheet_line_superposition`=면전류+선전류, `circular_loop_axis_field`=원형 루프).
+- ★ **분류**: strong 키워드는 **"단위 길이당 힘"·"두 무한 도선"** 만 — bare "자계"·"합성 자계"는 형제(면전류+선전류·원형 루프)를 점수로 잠식하므로 금지. 라우팅 보증은 구조 감지기 `detectTwoWiresFieldForce`(**도선이 2개** + 자계 + (단위 길이당 힘|합성 자계|크기 비), 면전류·선전류·원형·동축·솔레노이드·전하·자속/회전·시변 유도는 양보)가 맡고 파이프라인 강제 체인 **맨 앞**에 둔다.
+- 모드: **exam_similar**=두 전류 크기 같음, **a가 미지**(원본 구조) / **exam_variant**=**구하는 양 교환** — a는 주어지고 **도선 B의 전류 세기 I가 미지**.
+- ★ 값은 규칙 열거+필터: a 정수(y_P<a≤24)·힘 계수 μ₀/π 분모≤4·(변형)비 m:n ≤12 정수비·I 정수. **원본 조합 (y_A,y_P,m,n)=(1,2,3,5) 통째로 제외**(전류만 바꾸면 a=5가 그대로 나와 "값만 바꾼 복사"가 된다).
+- 파일: `electromagnetics.ts`(`twoWiresFieldForce` + `TWO_WIRE_SPACE`·`TWO_WIRE_VARIANT_SPACE` + `redFrac`/`mu0OverPiTex`)·`emFieldRenderer.ts`(`renderTwoWiresAxes` — z↑·y→·x↙ 좌표축 + 무한 도선 2개(⋮) + 전류 화살표(↑/↓) + O·P). geometry `two_wires_axes`, topicKey=magnetostatics. classifyElectromagnetics(감지기)·runElectromagneticsPipeline(체인 0-2)·analyzeImage 규칙·`smokeOriginalRouting`(+1줄) 등록.
+- ★ 렌더 gotcha: 도선 이름 라벨을 **아래**에 두면 하단 캡션과 겹친다 → 위쪽(y=42). y축 위치 라벨도 수직선과 겹치지 않게 좌측 정렬.
+- 검증: tsc 0 / `scripts/smokeTwoWiresFieldForce.mjs` **22/22**(실측 요약 + 표현 변형 4종 + 형제 회귀 7종 + 생성물 24개 독립 재검산 + 원본 값(a=5·F=μ₀/2π) + 원본 조합 미생성 + 렌더 구조) / `smokeOriginalRouting` **33/33** / EM 형제 스모크 무회귀(sheetLine 8/8·sheetRing 10/10·curl 34/34·fluxLoop 10/10·twoPointCharges 13/13·dielectric 4/4) / **원본 이미지 E2E 라우팅 3/3**·양모드 issues=0(유사 a=9·F=4μ₀/3π, 변형 I=3·F=3μ₀/4π 수기검산 일치).
+
+## 점전하 + x축 무한 선전하 → 전계 크기가 같아지는 Q_A → 전계가 0이 되는 위치 k (임용 9번 전자기학 — `point_line_null_field`) EM 레지스트리 항목
+- 원본: 자유 공간 직각 좌표계. 점전하 Q_A가 **P₁(0,3,2)**, **x축**에 선전하 ρ_L=4[µC/m]. 〈해석 절차〉
+  [1] **P₂(0,0,2)**에서 선전하에 의한 E₁과 점전하에 의한 E₂, [2] **|E₁|=|E₂|가 되는 Q_A**,
+  [3] 그 Q_A를 갖는 A가 **(0,0,k)로 이동**했을 때 **|E₁+E₃|=0이 되는 k**.
+- ★ 물리(닫힌형, GPT 없음) — 일반화: 점전하 P₁(0,d,h), 측정점 P₂(0,0,h).
+  · |E₁| = ρ_L/(2πε₀h) = 18ρ_L/h [kV/m] (+a_z) · |E₂| = Q_A/(4πε₀d²) (−a_y)
+  · [2] **Q_A = 2ρ_L d²/h [µC]** · [3] (k−h)² = d² 이고 **k > h**여야 상쇄되므로 **k = h + d**
+    (k < h면 E₃도 +a_z라 상쇄 불가 — 해가 하나뿐인 이유이자 채점 포인트).
+  원본 검산: |E₁|=36 kV/m, **Q_A = 36 µC**, **k = 5**.
+- ★ 형제 `point_line_charge_force`(2023 전기 A-10)와 다르다 — 저쪽은 선전하가 **z축 평행**, 미지가
+  **선전하밀도**, 3단계가 **힘 F**다. 그리고 그 감지기는 **"점전하+선전하+전계"면 무조건 true**를 내므로
+  강제 체인에서 반드시 **그보다 앞(6.45)**에 두고 그쪽에 양보 가드를 달아야 한다(안 하면 통째로 삼킨다).
+- ★★ **감지는 낱말이 아니라 구조로** (실측 2026-08-02): 첫 E2E에서 Vision이 "크기가 같다"도 "0이 되는"도
+  쓰지 않고 *"전기장을 이용해 전하량 Q_A를 구한다 / 전하가 (0,0,k)로 이동할 때"* 로만 요약해(선 방향도
+  z축으로 오독) 감지기가 미발화 → 형제가 가져가 **크기 비·힘 문제**가 생성됐다. ⇒ 요구 신호를 4개로 확장:
+  `크기 일치` OR `전계 0/상쇄` OR **`미지가 전하량`** OR **`(0,0,k)로 이동 + k를 구함`**. "크기 비"는 양보(형제 고유).
+- 모드: **exam_similar**=ρ_L 주어짐 → Q_A 도출(원본) / **exam_variant**=**구하는 양 교환**(Q_A 주어짐 → ρ_L 도출). 3단계는 동일.
+- ★ 값은 규칙 열거+필터: |E₁|=18ρ_L/h와 Q_A=2ρ_L d²/h가 **모두 정수**, 범위 제한, d≠h. **원본 튜플(4,3,2) 제외**.
+- 파일: `electromagnetics.ts`(`pointLineNullField` + `PT_LINE_NULL_SPACE` + `__ptLineNullSpace`)·
+  `emFieldRenderer.ts`(`renderPointLineNullAxes`, geometry `point_line_null_axes` — z↑·y→·x↙ 축, **선전하가 x축과 겹쳐**
+  좌하–우상으로 무한히 뻗고 P₂는 z축 위·P₁은 +y로 d만큼). classifyElectromagnetics(`detectPointLineNullField`
+  + 형제 양보 가드)·runElectromagneticsPipeline(체인 6.45)·`smokeOriginalRouting`(+1줄) 등록.
+- ★ 렌더 gotcha: `texToPlain`에 **`\rho`가 없어 "rho_L"이 그대로 찍혔다** → ρ·φ·θ·⇒ 추가. 또 x축 라벨을
+  캔버스(H=300) 밖에 두면 잘리고, 선전하 라벨을 선 아래 두면 하단 캡션과 겹친다(규칙 #6).
+- 검증: tsc 0 / `scripts/smokePointLineNullField.mjs` **25/25**(실측 요약 포함 감지 4종 + 형제 양보 5종 +
+  형제 감지기 회귀 4 + 원본 물리 5 + 생성물 24개 독립 재검산 + 렌더) / `smokeOriginalRouting` **39/39** /
+  EM 형제 무회귀(sheetLine 8/8·sheetRing 10/10·curl 34/34·fluxLoop 10/10·twoPointCharges 13/13·twoWires 22/22·dielectric 4/4) /
+  **원본 이미지 E2E 양모드 issues=0**(유사 ρ_L=9·d=4·h=1 → Q_A=288µC·k=5, 변형 Q_A=200µC·d=5·h=1 → ρ_L=4µC/m·k=6 — 수기검산 일치).
 
 ## 무한 면전하 + 무한 선전하 합성 전계 → E=0 조건 ρ_l 도출 (임용 11번 전자기학 — `sheet_line_efield_superposition`) EM 레지스트리 항목
 - 원본: 면전하 ρ_s(z=0 평면) + 선전하 ρ_l(선 (0,0,z_L)·y축 나란). 점 P(선 아래)에서 [1]E_1P·E_2P [2]합성 E_P=0 되는 **ρ_l 도출** [3]점 Q(선 위)에서 합성 E_Q. 원본(ρ_s4·z_L2·P(0,0,1)·Q(0,0,3))→E_1P=2/ε₀·**ρ_l=4π**·E_Q=4/ε₀. 답은 ε₀·π 그대로(기호식).

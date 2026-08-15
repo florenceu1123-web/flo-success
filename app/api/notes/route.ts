@@ -6,7 +6,8 @@ import {
   deleteNote,
   reorderNotes,
   countNotesBySubject,
-  isSubjectKey,
+  searchNotes,
+  isNoteAlbum,
   isNoteId,
   type IncomingNote,
 } from "@/lib/noteStore";
@@ -14,7 +15,9 @@ import {
   NOTE_MIME_EXT,
   NOTE_MAX_BYTES,
   NOTE_MAX_FILES_PER_UPLOAD,
+  NOTE_TITLE_MAX,
   NOTE_ROTATIONS,
+  noteSearchTokens,
   type NoteRotation,
 } from "@/types/notes";
 import { createLogger } from "@/lib/logger";
@@ -24,15 +27,24 @@ const log = createLogger("api/notes");
 // 파일 시스템 접근 — 항상 동적 실행 (캐시 금지).
 export const dynamic = "force-dynamic";
 
-/** GET /api/notes?subject=... — 해당 과목 사진 목록 + 전 과목 장수 집계. */
+/**
+ * GET /api/notes?subject=...[&q=제목검색어] — 해당 앨범 사진 목록 + 전 앨범 장수 집계.
+ *
+ * `q`를 주면 **모든 앨범**에서 제목이 맞는 사진을 함께 돌려준다(`hits`).
+ * 검색을 별도 라우트로 빼지 않은 이유 — 목록·집계와 같은 인덱스 파일 한 번 읽기로 끝나고,
+ * 화면도 "검색 중에는 결과 목록을 대신 보여준다"라 항상 같이 필요하다.
+ */
 export async function GET(req: NextRequest) {
   const subject = req.nextUrl.searchParams.get("subject");
-  if (!isSubjectKey(subject)) {
-    return NextResponse.json({ error: "유효한 subject가 필요합니다." }, { status: 400 });
+  if (!isNoteAlbum(subject)) {
+    return NextResponse.json({ error: "유효한 앨범(subject)이 필요합니다." }, { status: 400 });
   }
+  const tokens = noteSearchTokens(req.nextUrl.searchParams.get("q"));
   try {
     const [notes, counts] = await Promise.all([listNotes(subject), countNotesBySubject()]);
-    return NextResponse.json({ notes, counts });
+    if (tokens.length === 0) return NextResponse.json({ notes, counts });
+    const { hits, truncated } = await searchNotes(tokens);
+    return NextResponse.json({ notes, counts, hits, truncated });
   } catch (e) {
     log.error("목록 조회 실패", { error: String(e) });
     return NextResponse.json({ error: "조회 중 오류가 발생했습니다." }, { status: 500 });
@@ -50,9 +62,14 @@ export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
     const subject = form.get("subject");
-    if (!isSubjectKey(subject)) {
-      return NextResponse.json({ error: "유효한 subject가 필요합니다." }, { status: 400 });
+    if (!isNoteAlbum(subject)) {
+      return NextResponse.json({ error: "유효한 앨범(subject)이 필요합니다." }, { status: 400 });
     }
+
+    // 제목은 이번 업로드 묶음 전체에 붙는다. 여러 장이면 "제목 (2)"처럼 번호를 이어 붙여
+    // 썸네일 캡션이 전부 같은 글자가 되지 않게 한다.
+    const rawTitle = form.get("title");
+    const title = typeof rawTitle === "string" ? rawTitle.trim().slice(0, NOTE_TITLE_MAX) : "";
 
     const entries = form.getAll("files").filter((f): f is File => f instanceof File);
     if (entries.length === 0) {
@@ -82,6 +99,7 @@ export async function POST(req: NextRequest) {
         fileName: file.name,
         mime: file.type,
         data: new Uint8Array(await file.arrayBuffer()),
+        ...(title ? { title: entries.length > 1 ? `${title} (${accepted.length + 1})` : title } : {}),
       });
     }
 
@@ -92,8 +110,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const notes = await addNotes(subject, accepted);
-    return NextResponse.json({ notes, added: accepted.length, rejected });
+    // 같은 앨범에 이미 있는 제목은 저장소가 걸러낸다(판정 규칙은 addNotes 주석 참고).
+    // 형식·용량 위반과 같은 자리에 담아 화면이 "제외 N장 — 이유"로 한 번에 보여 준다.
+    const { notes, added, duplicates } = await addNotes(subject, accepted);
+    for (const d of duplicates) {
+      rejected.push(`${d.fileName}: 같은 제목이 이미 있음("${d.title}")`);
+    }
+    // 전부 중복이어도 오류가 아니다 — 400으로 던지면 화면에 "업로드 실패"만 뜨고
+    // 왜 안 올라갔는지(이미 있는 제목)가 묻힌다.
+    return NextResponse.json({ notes, added: added.length, rejected, duplicates: duplicates.length });
   } catch (e) {
     log.error("업로드 실패", { error: String(e) });
     return NextResponse.json({ error: "업로드 중 오류가 발생했습니다." }, { status: 500 });
@@ -110,11 +135,12 @@ export async function PATCH(req: NextRequest) {
       subject?: string;
       id?: string;
       memo?: string;
+      title?: string;
       rotation?: unknown;
     };
     const { subject, id } = body;
-    if (!isSubjectKey(subject)) {
-      return NextResponse.json({ error: "유효한 subject가 필요합니다." }, { status: 400 });
+    if (!isNoteAlbum(subject)) {
+      return NextResponse.json({ error: "유효한 앨범(subject)이 필요합니다." }, { status: 400 });
     }
     if (!isNoteId(id)) {
       return NextResponse.json({ error: "유효한 id가 필요합니다." }, { status: 400 });
@@ -125,12 +151,13 @@ export async function PATCH(req: NextRequest) {
         { status: 400 },
       );
     }
-    if (body.memo === undefined && body.rotation === undefined) {
+    if (body.memo === undefined && body.rotation === undefined && body.title === undefined) {
       return NextResponse.json({ error: "수정할 항목이 없습니다." }, { status: 400 });
     }
 
     const note = await updateNote(subject, id, {
       memo: typeof body.memo === "string" ? body.memo : undefined,
+      title: typeof body.title === "string" ? body.title.trim().slice(0, NOTE_TITLE_MAX) : undefined,
       rotation: body.rotation as NoteRotation | undefined,
     });
     if (!note) {
@@ -151,8 +178,8 @@ export async function PUT(req: NextRequest) {
   try {
     const body = (await req.json()) as { subject?: string; order?: unknown };
     const { subject } = body;
-    if (!isSubjectKey(subject)) {
-      return NextResponse.json({ error: "유효한 subject가 필요합니다." }, { status: 400 });
+    if (!isNoteAlbum(subject)) {
+      return NextResponse.json({ error: "유효한 앨범(subject)이 필요합니다." }, { status: 400 });
     }
     const order = body.order;
     if (!Array.isArray(order) || !order.every(isNoteId)) {
@@ -179,8 +206,8 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const subject = req.nextUrl.searchParams.get("subject");
   const id = req.nextUrl.searchParams.get("id");
-  if (!isSubjectKey(subject)) {
-    return NextResponse.json({ error: "유효한 subject가 필요합니다." }, { status: 400 });
+  if (!isNoteAlbum(subject)) {
+    return NextResponse.json({ error: "유효한 앨범(subject)이 필요합니다." }, { status: 400 });
   }
   if (!isNoteId(id)) {
     return NextResponse.json({ error: "유효한 id가 필요합니다." }, { status: 400 });

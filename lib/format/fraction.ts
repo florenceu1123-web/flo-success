@@ -59,6 +59,14 @@ export function fractionText(x: number, maxDen = 20): string {
  */
 export function fractionizeText(text: string, maxDen = 400): string {
   if (!text) return text;
+  // ★ GPT 경로가 answer·solution을 **배열/객체로** 돌려주는 회차가 있다(실측: switched_dc가 500,
+  //   `text.replace is not a function`). 여기는 route의 마지막 공통 지점이라 한 번만 막으면 된다
+  //   — 유형마다 방어를 흩뿌리지 않는다. (C언어 파이프라인의 `asText`와 같은 처리.)
+  if (typeof text !== "string") {
+    const t = text as unknown;
+    const flat = Array.isArray(t) ? t.map((x) => String(x ?? "")).join("\n") : String(t ?? "");
+    return fractionizeText(flat, maxDen);
+  }
   // ★ 각도(158.199°)는 제외 — 페이저 위상은 소수 표기가 관례이고 분수로 바꾸면 오히려 읽기 어렵다.
   return text.replace(
     /(?<![\d.])(-?\d+\.\d+)(?![\d.])(\s*°)?/g,

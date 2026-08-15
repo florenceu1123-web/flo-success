@@ -47,6 +47,10 @@ const CRITICAL_RULES = new Set<string>([
   //   경고로 두면 그대로 화면까지 나간다(실측 신고: "ㅁ이 없어" → 이후 "②가 없다").
   //   critical로 올려 재생성 트리거로 만든다.
   "blank_marker_missing",
+  // ★ 발문·정답·풀이의 단계 라벨 불일치 (사용자 신고 2026-08-12: "해설은 단계별인데 문제는 단계별이 아니야").
+  //   두 방향 모두 단계별 채점을 불가능하게 만들고 **GPT 경로에서만** 반복되므로(결정론 archetype은
+  //   코드로 세 곳을 함께 만든다) critical로 올려 재생성시킨다.
+  "question_not_step_wise",
   // ★ OPAMP 결선 결함(출력→입력 피드백 없음) — 렌더링도 불가능한 회로라 재생성 대상.
   "opamp_wiring_invalid",
   // ★ 빈 concept_diagram — 화면에 raw 에러 텍스트가 그려지므로 재생성 대상.

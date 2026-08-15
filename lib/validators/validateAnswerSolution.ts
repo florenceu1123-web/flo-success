@@ -19,6 +19,13 @@ export function validateAnswerSolution(args: {
 
   // answer 검사
   const ans = String(args.answer ?? "").trim();
+
+  // ★ **빈칸 채우기형은 수치 답이 아닐 수 있다** — 정답이 용어·수식인 문항이 정상이다
+  //   (개념 빈칸 archetype: maxwell·number_repr·bjt_early·jfet_depletion …).
+  //   유형 목록으로 예외를 두면 새 빈칸형이 추가될 때마다 빠지므로 **형식으로 판정**한다:
+  //   정답이 ㉠~㉪ 마커를 3개 이상 달고 있으면 빈칸 응답표로 보고 수치 요구를 면제한다
+  //   (`number_repr_fill_blank`의 3단계 계약 판정과 같은 방식).
+  const isFillBlankAnswer = (ans.match(/[㉠-㉪]/g) ?? []).length >= 3;
   if (ans.length < 3) {
     issues.push({ rule: "answer_empty", message: `${tag}answer가 비어있거나 너무 짧음` });
   } else {
@@ -26,11 +33,11 @@ export function validateAnswerSolution(args: {
       issues.push({ rule: "answer_placeholder", message: `${tag}answer에 "..." placeholder 포함 — 실제 계산 수치로 채울 것` });
     }
     // 숫자가 하나도 없으면 의심 (회로 문제는 보통 수치 답)
-    if (!/[0-9]/.test(ans)) {
+    if (!isFillBlankAnswer && !/[0-9]/.test(ans)) {
       issues.push({ rule: "answer_no_digit", message: `${tag}answer에 숫자가 없음 — 실제 수치 답이어야 함` });
     }
     // "값" "결과" 같은 추상 단어만으로 끝나면 의심
-    if (/^[가-힣\s]+$/.test(ans) && ans.length < 20) {
+    if (!isFillBlankAnswer && /^[가-힣\s]+$/.test(ans) && ans.length < 20) {
       issues.push({ rule: "answer_too_abstract", message: `${tag}answer가 추상적 한국어 텍스트만 — 수치 포함 필요` });
     }
   }
@@ -44,7 +51,7 @@ export function validateAnswerSolution(args: {
     if (/\.{3}/.test(sol)) {
       issues.push({ rule: "solution_placeholder", message: `${tag}solution에 "..." placeholder 포함` });
     }
-    if (!/[0-9]/.test(sol)) {
+    if (!isFillBlankAnswer && !/[0-9]/.test(sol)) {
       issues.push({ rule: "solution_no_digit", message: `${tag}solution에 숫자가 없음 — 방정식·수치 풀이 단계 필요` });
     }
 

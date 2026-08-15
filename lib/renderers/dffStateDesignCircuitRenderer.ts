@@ -19,6 +19,7 @@ const Q_OUT_X = FF_L + FF_W + 26;
 const FB_A_Y = 60, FB_B_Y = 380;   // 피드백 lane
 const CLK_RAIL_Y = 410;
 const IN_X = 120;                   // Q_A·Q_B 입력 트렁크
+const EXT_X = 62;                   // 외부 입력(X) 트렁크 — externalInput이 있을 때만 그린다
 
 type D = DffStateDesignCircuitDiagram;
 
@@ -26,6 +27,9 @@ export function renderDffStateDesignCircuit(d: D): string {
   const w: string[] = [];
   const s: string[] = [];
   const t: string[] = [];
+
+  /** 게이트 입력 탭 좌표 — 트렁크(세로선) 길이를 여기서 역산한다. */
+  const taps: Array<{ x: number; y: number }> = [];
 
   const rows = [
     { sym: d.gateASym ?? "㉮", gateCy: FF_A_CY, ffCy: FF_A_CY, ffId: "FF_A", qLabel: "Q_A",
@@ -39,11 +43,20 @@ export function renderDffStateDesignCircuit(d: D): string {
     const gx = GATE_X, gy = gateCy - GATE_H / 2;
     s.push(`<rect x="${gx}" y="${gy}" width="${GATE_W}" height="${GATE_H}" rx="4" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}" stroke-dasharray="5 3"/>`);
     t.push(text(gx + GATE_W / 2, gateCy + 6, sym, { size: 16, weight: 700, fill: ACCENT }));
-    // 게이트 입력 2개 (Q_A·Q_B 트렁크에서)
-    w.push(line(IN_X, gateCy - 10, gx, gateCy - 10));
-    w.push(line(IN_X + 24, gateCy + 10, gx, gateCy + 10));
-    t.push(text(gx - 6, gateCy - 13, "Q_A", { size: 9, anchor: "end", fill: MUTED }));
-    t.push(text(gx - 6, gateCy + 20, "Q_B", { size: 9, anchor: "end", fill: MUTED }));
+    // 게이트 입력 — 기본 Q_A·Q_B, payload에 gateXInputs가 있으면 그대로 사용(외부 입력 X 포함 가능).
+    //   ★ 입력 개수만큼 y로 분리해 그린다(레인 규칙 #3) — 3입력(임용 12번 X 포함 상태기계)도 지원.
+    const gIns = (sym === (d.gateASym ?? "㉮") ? d.gateAInputs : d.gateBInputs) ?? ["Q_A", "Q_B"];
+    const nIn = Math.max(2, Math.min(gIns.length, 3));
+    const step = GATE_H / (nIn + 1);
+    gIns.slice(0, 3).forEach((name, gi) => {
+      const y = gateCy - GATE_H / 2 + step * (gi + 1);
+      const fromX = name === (d.externalInput ?? "X") ? EXT_X : gi === 0 ? IN_X : IN_X + 24;
+      w.push(line(fromX, y, gx, y));
+      t.push(text(gx - 6, y - 4, name, { size: 9, anchor: "end", fill: MUTED }));
+      // ★ 트렁크 길이는 이 탭 좌표에서 역산한다 — 상수로 박으면 입력 수가 바뀔 때
+      //   위아래로 삐져나오거나(dangling) 반대로 탭에 못 닿는다(실측 신고 2026-08-02).
+      taps.push({ x: fromX, y });
+    });
     // 게이트 출력 → 입력 핀(D 또는 T)
     w.push(line(gx + GATE_W, gateCy, FF_L, ffCy));
     t.push(text((gx + GATE_W + FF_L) / 2, ffCy - 6, inputName, { size: 10, weight: 600, fill: "#dc2626" }));
@@ -61,21 +74,41 @@ export function renderDffStateDesignCircuit(d: D): string {
     t.push(text(Q_OUT_X + 8, ffCy - 8, qLabel, { size: 13, weight: 700, fill: ACCENT, anchor: "start" }));
   }
 
-  // ── Q_A·Q_B 피드백 → 입력 트렁크 (IN_X / IN_X+24 세로) ──
-  // Q_A 출력 → 위 lane → IN_X 트렁크
-  w.push(line(Q_OUT_X, FF_A_CY - 12, Q_OUT_X, FB_A_Y));
-  w.push(line(Q_OUT_X, FB_A_Y, IN_X, FB_A_Y));
-  w.push(line(IN_X, FB_A_Y, IN_X, FF_B_CY + 10));
-  // Q_B 출력 → 아래 lane → IN_X+24 트렁크
-  w.push(line(Q_OUT_X, FF_B_CY - 12, Q_OUT_X + 14, FF_B_CY - 12));
-  w.push(line(Q_OUT_X + 14, FF_B_CY - 12, Q_OUT_X + 14, FB_B_Y));
-  w.push(line(Q_OUT_X + 14, FB_B_Y, IN_X + 24, FB_B_Y));
-  w.push(line(IN_X + 24, FB_B_Y, IN_X + 24, FF_A_CY + 10));
-  // 트렁크에서 각 게이트로 가는 tap은 위 루프의 line(IN_X..)이 담당.
-  // 트렁크 라벨
-  t.push(text(IN_X - 4, (FB_A_Y + FF_B_CY) / 2, "Q_A", { size: 10, weight: 700, fill: ACCENT, anchor: "end" }));
-  t.push(text(IN_X + 28, (FB_B_Y + FF_A_CY) / 2, "Q_B", { size: 10, weight: 700, fill: ACCENT, anchor: "start" }));
-  s.push(dot(IN_X, FB_A_Y)); s.push(dot(IN_X + 24, FB_B_Y));
+  // ── 입력 트렁크 — 길이는 **실제 탭 좌표**에서 역산한다 (삐져나옴·미도달 방지) ──
+  const tapsAt = (x: number) => taps.filter((p) => p.x === x).map((p) => p.y);
+  const spanOf = (x: number, ...extra: number[]) => {
+    const ys = [...tapsAt(x), ...extra];
+    return ys.length ? { top: Math.min(...ys), bot: Math.max(...ys) } : null;
+  };
+
+  // Q_A 출력 → 위 lane(FB_A_Y) → IN_X 트렁크 (아래 끝 = Q_A 탭 중 가장 아래)
+  const qaSpan = spanOf(IN_X, FB_A_Y);
+  if (qaSpan) {
+    w.push(line(Q_OUT_X, FF_A_CY - 12, Q_OUT_X, FB_A_Y));
+    w.push(line(Q_OUT_X, FB_A_Y, IN_X, FB_A_Y));
+    w.push(line(IN_X, qaSpan.top, IN_X, qaSpan.bot));
+    s.push(dot(IN_X, FB_A_Y));
+    t.push(text(IN_X - 4, (qaSpan.top + qaSpan.bot) / 2, "Q_A", { size: 10, weight: 700, fill: ACCENT, anchor: "end" }));
+  }
+  // Q_B 출력 → 아래 lane(FB_B_Y) → IN_X+24 트렁크 (위 끝 = Q_B 탭 중 가장 위)
+  const qbSpan = spanOf(IN_X + 24, FB_B_Y);
+  if (qbSpan) {
+    w.push(line(Q_OUT_X, FF_B_CY - 12, Q_OUT_X + 14, FF_B_CY - 12));
+    w.push(line(Q_OUT_X + 14, FF_B_CY - 12, Q_OUT_X + 14, FB_B_Y));
+    w.push(line(Q_OUT_X + 14, FB_B_Y, IN_X + 24, FB_B_Y));
+    w.push(line(IN_X + 24, qbSpan.top, IN_X + 24, qbSpan.bot));
+    s.push(dot(IN_X + 24, FB_B_Y));
+    t.push(text(IN_X + 28, (qbSpan.top + qbSpan.bot) / 2, "Q_B", { size: 10, weight: 700, fill: ACCENT, anchor: "start" }));
+  }
+
+  // ── 외부 입력 X (있을 때만) — 트렁크는 X 탭 사이만, 인입 stub은 **첫 탭 높이**로 ──
+  const xSpan = d.externalInput ? spanOf(EXT_X) : null;
+  if (d.externalInput && xSpan) {
+    w.push(line(EXT_X, xSpan.top, EXT_X, xSpan.bot));
+    w.push(line(EXT_X - 26, xSpan.top, EXT_X, xSpan.top));
+    t.push(text(EXT_X - 30, xSpan.top + 4, d.externalInput, { size: 12, weight: 700, fill: ACCENT, anchor: "end" }));
+    s.push(dot(EXT_X, xSpan.top));
+  }
 
   // ── CLK 공통 ──
   t.push(text(40, CLK_RAIL_Y + 4, "CLK", { size: 12, weight: 600, anchor: "end" }));

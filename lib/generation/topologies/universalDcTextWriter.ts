@@ -5,6 +5,7 @@ import type { GenerationMode } from "@/types";
 import type { DcQueryResult } from "@/lib/solver/universalDc";
 import type { DcConceptLead } from "../topologyDriven/inferDcQueries";
 import type { TopologyDrivenGeneration } from "../topologyDriven/buildFromTopology";
+import { displayValueOf } from "@/lib/renderers/netlistEdgeRenderer";
 
 const log = createLogger("lib/generation/topologies/universalDcTextWriter");
 
@@ -45,7 +46,10 @@ export async function writeUniversalDcText(args: {
   const { generation, queryResults, mode, topicLabel, contextHint, conceptLead } = args;
 
   // 단계별 query 분류
-  const stage1 = queryResults.filter((q) => q.query.kind === "nodeVoltage" || q.query.kind === "branchCurrent");
+  // ★ resistorCurrent("4[kΩ]에 흐르는 전류 I₁")는 stage1(해석으로 바로 구하는 양)에 속한다.
+  const stage1 = queryResults.filter(
+    (q) => q.query.kind === "nodeVoltage" || q.query.kind === "branchCurrent" || q.query.kind === "resistorCurrent",
+  );
   const stage2 = queryResults.filter((q) => q.query.kind === "totalPower" || q.query.kind === "resistorPower");
   const stage3 = queryResults.filter((q) => q.query.kind === "inverseR");
 
@@ -69,8 +73,25 @@ export async function writeUniversalDcText(args: {
   };
   const hasResistorPower = stage2.some((q) => q.query.kind === "resistorPower");
 
+  /** 발문용 표현 — resistorCurrent는 "4kΩ 저항에 흐르는 전류 I_1"처럼 대상 저항을 지목한다. */
+  const askOf = (q: DcQueryResult): string => {
+    if (q.query.kind !== "resistorCurrent") return q.query.label;
+    const rid = q.query.resistorId;
+    const comp = generation.netlistOpen.components.find((c) => c.id === rid);
+    // ★ 그림과 **같은 표기**를 써야 학생이 대상을 찾는다 (그림은 5kΩ인데 발문이 5000Ω이면 어긋난다).
+    const val = comp?.value ? displayValueOf(comp.value) : "";
+    return val ? `${val} 저항에 흐르는 전류 ${q.query.label}` : `${q.query.label}`;
+  };
+
   const fmt = (v: number, unit: string, meta?: Record<string, unknown>) => {
     if (!Number.isFinite(v)) return `(NaN)${unit}`;
+    // ★ kΩ급 회로의 전류는 A로 쓰면 0.006A처럼 읽기 나쁘다 → |I| < 0.1A면 mA로 환산해 표기.
+    //   (임용 관례: kΩ·mA 조합. 값 자체는 그대로이고 표기 단위만 바꾼다.)
+    if (unit === "A" && v !== 0 && Math.abs(v) < 0.1) {
+      const mA = v * 1000;
+      const body = Number.isInteger(mA) ? `${mA}` : `${Number(mA.toFixed(3))}`;
+      return `${body}mA`;
+    }
     const base = Number.isInteger(v) ? `${v}${unit}` : `${Number(v.toFixed(3))}${unit}`;
     // inverseR이 수렴 실패면 표시
     if (meta && meta.converged === false) {
@@ -106,8 +127,10 @@ export async function writeUniversalDcText(args: {
   const solLines: string[] = [];
   // ★ 내부 component id(R_leg3_1 등)를 GPT에 노출하면 본문/질문에 그대로 새어 나온다.
   //   type+value만 전달하고, id 사용 금지 규칙도 프롬프트에 명시한다.
+  //   ★ 값 표기도 그림과 통일한다(6kΩ) — 원시 문자열("6000Ω")을 주면 GPT가 그대로 발문에 써서
+  //     그림(6kΩ)과 발문(6000Ω)이 어긋난다(실측).
   const components = generation.netlistOpen.components
-    .map((c) => `${c.type}${c.value ? `=${c.value}` : ""}`)
+    .map((c) => `${c.type}${c.value ? `=${displayValueOf(c.value)}` : ""}`)
     .join(", ");
   if (conceptLead) {
     solLines.push(
@@ -151,7 +174,7 @@ export async function writeUniversalDcText(args: {
     conceptLead && step(key) === 1 ? "(2) " : "";
   if (stage1.length > 0) {
     questionParts.push(
-      `${leadPrefix("solve")}[단계 ${step("solve")}] ${stage1.map((q) => q.query.label).join("·")}을(를) 구한다.`,
+      `${leadPrefix("solve")}[단계 ${step("solve")}] ${stage1.map(askOf).join("와(과) ")}을(를) 구한다.`,
     );
   }
   if (stage2.length > 0) {

@@ -35,6 +35,8 @@ function texToPlain(s: string | undefined): string {
   t = t.replace(/\\varepsilon_0/g, "ε₀").replace(/\\varepsilon_r/g, "εᵣ").replace(/\\varepsilon/g, "ε");
   t = t.replace(/\\mu/g, "μ");
   t = t.replace(/\\lambda/g, "λ").replace(/\\sigma/g, "σ").replace(/\\Omega/g, "Ω");
+  // ★ \rho는 \rho_L(선전하밀도)·\rho_s(면전하밀도)로 자주 쓰인다 — 없으면 "rho_L"이 그대로 찍힌다.
+  t = t.replace(/\\rho/g, "ρ").replace(/\\phi/g, "φ").replace(/\\theta/g, "θ").replace(/\\Rightarrow/g, "⇒");
   t = t.replace(/\\nabla/g, "∇").replace(/\\ell/g, "ℓ").replace(/\\oint/g, "∮").replace(/\\partial/g, "∂");
   t = t.replace(/\\times/g, "×").replace(/\\cdot/g, "·");
   t = t.replace(/\\,/g, " ");
@@ -1246,6 +1248,54 @@ function renderCoaxCurrent(d: EmFieldDiagram): string {
  *  ★ 고정 슬롯: 점전하 P는 좌상단, 선전하는 원점 오른쪽에 z축과 나란한 세로 직선.
  *    (실제 좌표는 회차마다 달라지지만 그림은 결정론 — 라벨만 payload에서 받는다.)
  */
+/**
+ * x축 위의 무한 선전하 + 점전하 P₁(0,d,h) + 측정점 P₂(0,0,h) — 직각 좌표계 3D 도식 (임용 9번).
+ *  ★ 원본 배치: z 위 · y 오른쪽 · x 좌하 사선이고, **선전하는 x축과 겹쳐** 좌하–우상으로 무한히 뻗는다.
+ *  ★ 캔버스 W=560·H=300 고정 — 좌표가 밖으로 나가면 라벨이 잘린다(형제 렌더러 실측).
+ */
+function renderPointLineNullAxes(d: EmFieldDiagram): string {
+  const L = d.labels;
+  const O = { x: 250, y: 215 };
+  let s = "";
+
+  // 좌표축
+  s += arrow(O.x, O.y, O.x, 52, MUTED, "emArrowD", 1.5);
+  s += arrow(O.x, O.y, 500, O.y, MUTED, "emArrowD", 1.5);
+  s += label(O.x + 8, 50, "z", { anchor: "start", fill: MUTED, size: 11 });
+  s += label(504, O.y + 4, "y", { anchor: "start", fill: MUTED, size: 11 });
+  // O 라벨은 선전하(=x축)가 원점을 지나므로 **왼쪽 위**에 둔다(선 위에 겹치지 않게).
+  s += label(O.x - 12, O.y - 8, "O(0,0,0)", { anchor: "end", fill: STROKE, size: 11, weight: 700 });
+
+  // ── 무한 선전하 = x축 (좌하 ↔ 우상 사선, 양끝 무한 표시) ──────────
+  const x1 = 146, y1 = 268, x2 = 352, y2 = 138;   // x축 방향 사선
+  s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${ACCENT}" stroke-width="2.6"/>`;
+  s += `<line x1="${x1}" y1="${y1}" x2="${x1 - 16}" y2="${y1 + 10}" stroke="${ACCENT}" stroke-width="1.4" stroke-dasharray="3 3"/>`;
+  s += `<line x1="${x2}" y1="${y2}" x2="${x2 + 16}" y2="${y2 - 10}" stroke="${ACCENT}" stroke-width="1.4" stroke-dasharray="3 3"/>`;
+  s += label(x1 - 22, y1 + 22, "x", { anchor: "end", fill: MUTED, size: 11 });
+  // 선전하밀도 라벨 — 선 **위쪽**에 둬야 하단 캡션과 겹치지 않는다(규칙 #6).
+  s += label(x1 + 26, y1 - 10, L.lineDensity ?? "\\rho_L", { anchor: "start", fill: ACCENT, size: 11.5, weight: 600 });
+
+  // ── 측정점 P₂(0,0,h) — z축 위 ───────────────────────────────────
+  const P2 = { x: O.x, y: 128 };
+  s += `<circle cx="${P2.x}" cy="${P2.y}" r="4" fill="${STROKE}"/>`;
+  s += label(P2.x - 10, P2.y - 8, L.pointQ ?? "\\mathrm{P}_2", { anchor: "end", fill: STROKE, size: 11.5, weight: 700 });
+  // O → P₂ 거리 h (선전하까지의 수직거리)
+  s += `<line x1="${O.x}" y1="${O.y}" x2="${P2.x}" y2="${P2.y}" stroke="${MUTED}" stroke-width="1.2" stroke-dasharray="4 3"/>`;
+  s += label(P2.x - 10, (O.y + P2.y) / 2 + 4, `${L.distB ?? "h"}`, { anchor: "end", fill: MUTED, size: 11 });
+
+  // ── 점전하 P₁(0,d,h) — P₂에서 +y 방향 ────────────────────────────
+  const P1 = { x: 418, y: P2.y };
+  s += `<circle cx="${P1.x}" cy="${P1.y}" r="4.5" fill="${FIELD}"/>`;
+  s += label(P1.x + 9, P1.y - 8, L.pointP ?? "\\mathrm{P}_1", { anchor: "start", fill: STROKE, size: 11.5, weight: 700 });
+  s += label(P1.x + 9, P1.y + 12, L.charge ?? "Q_\\mathrm{A}", { anchor: "start", fill: FIELD, size: 11.5, weight: 600 });
+  // P₂ ↔ P₁ 거리 d
+  s += `<line x1="${P2.x}" y1="${P2.y}" x2="${P1.x}" y2="${P1.y}" stroke="${MUTED}" stroke-width="1.2" stroke-dasharray="4 3"/>`;
+  s += label((P1.x + P2.x) / 2, P2.y - 8, `${L.distA ?? "d"}`, { anchor: "middle", fill: MUTED, size: 11 });
+
+  s += label(W / 2, 292, "P₂에서 선전하에 의한 E₁(+a_z)과 점전하에 의한 E₂(−a_y)", { anchor: "middle", fill: MUTED, size: 10 });
+  return svgWrap(s, d.title);
+}
+
 function renderPointLineChargeAxes(d: EmFieldDiagram): string {
   const L = d.labels;
   const O = { x: 250, y: 205 };
@@ -1338,9 +1388,63 @@ function renderSheetCurrentsPlanes(d: EmFieldDiagram): string {
   return svgWrap(s, d.title);
 }
 
+/**
+ * z축과 나란한 무한 직선 도선 2개(전류 반대 방향) + 측정점 O·P — 직각 좌표계 도식 (임용 11번 형식).
+ *  ★ 캔버스 W=560·H=300 고정. y축 위 세 위치(도선 A · 점 P · 도선 B)는 값이 아니라 **고정 슬롯**에
+ *    배치한다(y_A<y_P<a는 생성기가 보장하므로 순서만 맞으면 된다).
+ */
+function renderTwoWiresAxes(d: EmFieldDiagram): string {
+  const L = d.labels;
+  const O = { x: 150, y: 208 };
+  const xA = 250, xP = 320, xB = 430;   // 도선 A · 점 P · 도선 B 의 고정 슬롯
+  const top = 66, bot = 256;            // 도선(수직선)의 위·아래 끝
+  let s = "";
+
+  // 좌표축 — z 위 · y 오른쪽 · x 좌하 사선 (원본 그림 배치)
+  s += arrow(O.x, O.y, O.x, 46, MUTED, "emArrowD", 1.5);
+  s += arrow(O.x, O.y, 520, O.y, MUTED, "emArrowD", 1.5);
+  s += arrow(O.x, O.y, 78, 272, MUTED, "emArrowD", 1.5);
+  s += label(O.x + 8, 44, "z[m]", { anchor: "start", fill: MUTED, size: 11 });
+  s += label(524, O.y + 4, "y[m]", { anchor: "start", fill: MUTED, size: 11 });
+  s += label(74, 284, "x[m]", { anchor: "end", fill: MUTED, size: 11 });
+  s += label(O.x - 10, O.y + 16, "O", { anchor: "end", fill: STROKE, size: 12, weight: 700 });
+
+  // ── 무한 도선 2개 (z축과 나란한 수직선, 위·아래로 무한) ───────────
+  //  ★ 라벨 배치 주의(규칙 #6): 도선 이름을 아래(bot 근처)에 두면 하단 캡션과 겹친다 → **위쪽**에 둔다.
+  //    y축 위치 라벨도 도선 수직선과 겹치지 않게 왼쪽으로 밀어 쓴다.
+  const wire = (x: number, up: boolean, name: string, cur: string, pos: string) => {
+    let w = `<line x1="${x}" y1="${top}" x2="${x}" y2="${bot}" stroke="${STROKE}" stroke-width="2.2"/>`;
+    w += label(x, 42, name, { anchor: "middle", fill: STROKE, size: 11.5, weight: 700 });
+    w += label(x, top - 4, "⋮", { anchor: "middle", fill: MUTED, size: 12 });
+    w += label(x, bot + 16, "⋮", { anchor: "middle", fill: MUTED, size: 12 });
+    // 전류 방향 화살표 — +a_z(위) 또는 −a_z(아래)
+    w += up
+      ? arrow(x + 12, O.y - 20, x + 12, top + 24, ACCENT, "emArrowR", 1.8)
+      : arrow(x + 12, top + 24, x + 12, O.y - 20, ACCENT, "emArrowR", 1.8);
+    w += label(x + 18, top + 52, cur, { anchor: "start", fill: ACCENT, size: 11.5, weight: 600 });
+    // y축과 만나는 점 + 위치 라벨(수직선 왼쪽)
+    w += `<circle cx="${x}" cy="${O.y}" r="3" fill="${STROKE}"/>`;
+    w += label(x - 7, O.y + 17, pos, { anchor: "end", fill: MUTED, size: 11 });
+    return w;
+  };
+  s += wire(xA, true, L.wireA ?? "도선 A", L.currentA ?? "I", L.posA ?? "1");
+  s += wire(xB, false, L.wireB ?? "도선 B", L.currentB ?? "I", L.posB ?? "a");
+
+  // ── 측정점 P (y축 위, 두 도선 사이) ───────────────────────────────
+  s += `<circle cx="${xP}" cy="${O.y}" r="4" fill="${FIELD}"/>`;
+  s += label(xP, O.y - 10, "P", { anchor: "middle", fill: FIELD, size: 12, weight: 700 });
+  s += label(xP + 6, O.y + 17, L.pointP ?? "2", { anchor: "start", fill: MUTED, size: 11 });
+
+  s += label(W / 2, 292, texToPlain(L.target ?? "O와 P에서의 합성 자계와 도선 B에 작용하는 단위 길이당 힘"),
+    { anchor: "middle", fill: MUTED, size: 10 });
+  return svgWrap(s, d.title);
+}
+
 const RENDERERS: Record<EmGeometryKind, (d: EmFieldDiagram) => string> = {
+  two_wires_axes: renderTwoWiresAxes,
   sheet_currents_planes: renderSheetCurrentsPlanes,
   point_line_charge_axes: renderPointLineChargeAxes,
+  point_line_null_axes: renderPointLineNullAxes,
   two_charges_axes: renderTwoChargesAxes,
   cylinder_conductor: renderCylinderConductor,
   coax_current: renderCoaxCurrent,
@@ -1370,7 +1474,219 @@ const RENDERERS: Record<EmGeometryKind, (d: EmFieldDiagram) => string> = {
   coax_two_dielectric: renderCoaxTwoDielectric,
   sheet_ring_efield: renderSheetRingEfield,
   square_loop_curl: renderSquareLoopCurl,
+  bent_wire_axes: renderBentWireAxes,
+  cylinder_internal_inductance: renderCylinderInternalInductance,
+  sheet_line_vector_axes: renderSheetLineVectorAxes,
 };
+
+/**
+ * 원점에서 꺾인 반무한 직선 도선 — y축(−a_y로 유입) → O → x축(+a_x로 유출) + 측정점 P.
+ *
+ * 원본 배치 그대로: z 위 · y 오른쪽 · x 좌하 사선. 도선은 y축 양의 방향 먼 곳에서 O로 들어와
+ * x축 사선 방향으로 빠져나간다(그림에서는 좌하로 뻗는 굵은 선). P는 xy평면 위의 점이라
+ * 두 축 사이 영역에 찍고 점선 보조선으로 x·y 좌표를 표시한다.
+ *
+ * ★ 라벨 gotcha: 전류 라벨을 도선 위에 얹으면 축 라벨과 겹친다(규칙 #6) → 도선 바깥쪽으로 띄운다.
+ */
+function renderBentWireAxes(d: EmFieldDiagram): string {
+  const L = d.labels;
+  const O = { x: 236, y: 132 };
+  const yEnd = { x: 470, y: O.y };   // +y 방향 도선 끝 (무한히 먼 곳)
+  const xEnd = { x: 92, y: 264 };    // +x 방향 도선 끝 (좌하 사선)
+  let s = "";
+
+  // ── 좌표축 (원본 배치: z↑ · y→ · x↙) ─────────────────────────────
+  s += arrow(O.x, O.y, O.x, 40, MUTED, "emArrowD", 1.4);
+  s += arrow(O.x, O.y, 512, O.y, MUTED, "emArrowD", 1.4);
+  s += arrow(O.x, O.y, 70, 286, MUTED, "emArrowD", 1.4);
+  s += label(O.x + 8, 38, "z", { anchor: "start", fill: MUTED, size: 12 });
+  s += label(516, O.y + 4, "y", { anchor: "start", fill: MUTED, size: 12 });
+  s += label(66, 296, "x", { anchor: "end", fill: MUTED, size: 12 });
+  s += label(O.x - 6, O.y - 8, "O", { anchor: "end", fill: STROKE, size: 12, weight: 700 });
+
+  // ── 꺾인 도선 (굵게) — y축 구간 + x축 구간 ────────────────────────
+  s += `<line x1="${O.x}" y1="${O.y}" x2="${yEnd.x}" y2="${yEnd.y}" stroke="${STROKE}" stroke-width="3.4"/>`;
+  s += `<line x1="${O.x}" y1="${O.y}" x2="${xEnd.x}" y2="${xEnd.y}" stroke="${STROKE}" stroke-width="3.4"/>`;
+  s += `<circle cx="${O.x}" cy="${O.y}" r="3.4" fill="${STROKE}"/>`;
+
+  // 전류 방향 화살표 — y축은 먼 곳→O(−a_y), x축은 O→먼 곳(+a_x)
+  const cur = texToPlain(L.current ?? "I[A]");
+  s += arrow(yEnd.x - 24, O.y - 12, O.x + 40, O.y - 12, ACCENT, "emArrowR", 2);
+  s += label((O.x + yEnd.x) / 2, O.y - 20, cur, { anchor: "middle", fill: ACCENT, size: 11.5, weight: 600 });
+  s += arrow(O.x - 34, O.y + 22, xEnd.x + 34, xEnd.y - 12, ACCENT, "emArrowR", 2);
+  s += label((O.x + xEnd.x) / 2 - 26, (O.y + xEnd.y) / 2 - 6, cur, { anchor: "end", fill: ACCENT, size: 11.5, weight: 600 });
+
+  // ── 측정점 P (xy평면 위) + 좌표 보조선 ────────────────────────────
+  const P = { x: 348, y: 226 };
+  const footY = { x: 348, y: O.y };                     // y축 위의 수선의 발(같은 y좌표)
+  const footX = { x: O.x - (P.y - O.y) * 0.62, y: P.y }; // x축 사선 위의 대응점
+  s += `<line x1="${P.x}" y1="${P.y}" x2="${footY.x}" y2="${footY.y}" stroke="${MUTED}" stroke-width="1" stroke-dasharray="4 3"/>`;
+  s += `<line x1="${P.x}" y1="${P.y}" x2="${footX.x}" y2="${footX.y}" stroke="${MUTED}" stroke-width="1" stroke-dasharray="4 3"/>`;
+  s += `<circle cx="${P.x}" cy="${P.y}" r="4" fill="${FIELD}"/>`;
+  s += label(P.x + 8, P.y + 5, texToPlain(L.pointP ?? "P(3,4,0)"), { anchor: "start", fill: FIELD, size: 11.5, weight: 700 });
+
+  s += label(W / 2, 296, texToPlain(L.target ?? ""), { anchor: "middle", fill: MUTED, size: 10 });
+  return svgWrap(s, d.title);
+}
+
+/**
+ * z축으로 무한히 긴 **수평** 원통 도체 + 내부 점 P(중심 O에서 a) + 길이 1[m] 구간.
+ *
+ * 원본 배치 그대로: x축 위 · z축 오른쪽 위 사선(원통 축) · y축 오른쪽 아래 사선.
+ * 원통은 좌하 → 우상 사선으로 눕고, **좌측 단면(타원)** 에 O·P·a·r을 표기한다.
+ *
+ * ★ 라벨 gotcha: 반지름 r을 단면 안쪽에 두면 P·a 라벨과 겹친다 → 단면 왼쪽 아래 바깥에 둔다.
+ */
+function renderCylinderInternalInductance(d: EmFieldDiagram): string {
+  const L = d.labels;
+  let s = "";
+
+  // ── 기준 벡터 — 원통 축은 **z축 그 자체**다(따로 기울이면 축과 어긋나 보인다) ──
+  const O = { x: 152, y: 196 };                 // 원점 = 앞쪽 단면 중심
+  const u = { x: 0.952, y: -0.306 };            // z축(원통 축) 단위 벡터
+  const n = { x: -u.y, y: u.x };                // 축에 수직(단면 방향)
+  const RAD = 40;                               // 단면 반지름(화면상 장축)
+  const DEPTH = 14;                             // 원근에 의한 타원 단축
+  const LEN = 248;                              // 그려지는 원통 길이
+  const at = (t: number, k = 0) => ({ x: O.x + u.x * t + n.x * k, y: O.y + u.y * t + n.y * k });
+  const far = at(LEN);
+  const tilt = (Math.atan2(u.y, u.x) * 180) / Math.PI; // 타원 회전각(=축 기울기)
+  const ell = (c: { x: number; y: number }, fill: string, op: number) =>
+    `<ellipse cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" rx="${DEPTH}" ry="${RAD}" ` +
+    `transform="rotate(${tilt.toFixed(2)} ${c.x.toFixed(1)} ${c.y.toFixed(1)})" ` +
+    `fill="${fill}" fill-opacity="${op}" stroke="${STROKE}" stroke-width="1.4"/>`;
+
+  // ── z축 — 원통 **바깥 구간만** 그린다(몸통을 관통해 그리면 지저분하다) ──────
+  const back = at(-70);
+  s += `<line x1="${back.x.toFixed(1)}" y1="${back.y.toFixed(1)}" x2="${O.x}" y2="${O.y}" stroke="${MUTED}" stroke-width="1.3" stroke-dasharray="6 4"/>`;
+  s += label(back.x - 6, back.y + 12, "−∞", { anchor: "end", fill: MUTED, size: 11 });
+  const zTip = at(LEN + 108);
+  s += arrow(far.x, far.y, zTip.x, zTip.y, MUTED, "emArrowD", 1.4);
+  s += label(zTip.x + 7, zTip.y + 4, "z", { anchor: "start", fill: MUTED, size: 12 });
+  const infTip = at(LEN + 66, -14);
+  s += label(infTip.x, infTip.y, "+∞", { anchor: "middle", fill: MUTED, size: 11 });
+
+  // ── 원통 (뒤 단면 → 몸통 → 앞 단면 순서로 겹쳐 그린다) ───────────────────
+  s += ell(far, "#f1f5f9", 0.7);
+  const p1 = at(0, -RAD), p2 = at(LEN, -RAD), p3 = at(LEN, RAD), p4 = at(0, RAD);
+  s += `<polygon points="${p1.x.toFixed(1)},${p1.y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)} ${p3.x.toFixed(1)},${p3.y.toFixed(1)} ${p4.x.toFixed(1)},${p4.y.toFixed(1)}" fill="#e2e8f0" fill-opacity="0.55" stroke="none"/>`;
+  s += `<line x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}" stroke="${STROKE}" stroke-width="1.4"/>`;
+  s += `<line x1="${p4.x.toFixed(1)}" y1="${p4.y.toFixed(1)}" x2="${p3.x.toFixed(1)}" y2="${p3.y.toFixed(1)}" stroke="${STROKE}" stroke-width="1.4"/>`;
+  s += ell(O, "#cbd5e1", 0.9);
+
+  // ── 전류 화살표 (축과 나란히, 몸통 안) ────────────────────────────────────
+  const cA = at(64), cB = at(176);
+  s += arrow(cA.x, cA.y, cB.x, cB.y, ACCENT, "emArrowR", 2.2);
+  const cLab = at(120, 22);
+  s += label(cLab.x, cLab.y + 4, texToPlain(L.current ?? "10[A]"), { anchor: "middle", fill: ACCENT, size: 11.5, weight: 600 });
+
+  // ── 1[m] 치수선 — 원통 **위쪽 바깥**에 축과 나란히, 양 끝 눈금 ───────────
+  const off = -(RAD + 22);
+  const m1 = at(56, off), m2 = at(172, off);
+  const tick = (p: { x: number; y: number }) =>
+    `<line x1="${(p.x - n.x * 6).toFixed(1)}" y1="${(p.y - n.y * 6).toFixed(1)}" x2="${(p.x + n.x * 6).toFixed(1)}" y2="${(p.y + n.y * 6).toFixed(1)}" stroke="${MUTED}" stroke-width="1.2"/>`;
+  s += `<line x1="${m1.x.toFixed(1)}" y1="${m1.y.toFixed(1)}" x2="${m2.x.toFixed(1)}" y2="${m2.y.toFixed(1)}" stroke="${MUTED}" stroke-width="1.1" stroke-dasharray="4 3"/>`;
+  s += tick(m1) + tick(m2);
+  const mLab = at(114, off - 12);
+  s += label(mLab.x, mLab.y, texToPlain(L.length ?? "1[m]"), { anchor: "middle", fill: STROKE, size: 11.5 });
+
+  // ── x축(위) · y축(앞쪽 아래) — 원점에서 뻗는다 ───────────────────────────
+  s += arrow(O.x, O.y, O.x, 46, MUTED, "emArrowD", 1.4);
+  s += label(O.x + 8, 46, "x", { anchor: "start", fill: MUTED, size: 12 });
+  s += arrow(O.x, O.y, 286, 278, MUTED, "emArrowD", 1.4);
+  s += label(292, 284, "y", { anchor: "start", fill: MUTED, size: 12 });
+
+  // ── 중심 O · 내부 점 P · 거리 a · 반지름 r ───────────────────────────────
+  //  ★ 라벨 배치(규칙 #6): 단면은 지름 80px 남짓인데 P·a·O·r 넷이 몰려 "P a[m]"처럼
+  //    한 덩어리로 읽혔다(실측). 넷을 **서로 다른 방향**으로 흩는다 —
+  //    P는 선 바깥 위쪽, a는 O–P 선에서 축(+u) 방향으로, O는 축 반대(−u) 아래, r는 단면 바깥 아래.
+  //    O 라벨은 y축 선·타원 면과 겹치므로 **흰 테두리(paint-order)** 로 가독성을 확보한다.
+  const halo = (x: number, y: number, text: string, opts: { anchor?: string; fill?: string; size?: number }) =>
+    `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${opts.anchor ?? "middle"}" font-size="${opts.size ?? 12}" ` +
+    `font-weight="700" fill="${opts.fill ?? STROKE}" stroke="#ffffff" stroke-width="3.2" paint-order="stroke" ` +
+    `stroke-linejoin="round">${esc(texToPlain(text))}</text>`;
+
+  const P = at(0, -26);
+  s += `<line x1="${O.x}" y1="${O.y}" x2="${P.x.toFixed(1)}" y2="${P.y.toFixed(1)}" stroke="${ACCENT}" stroke-width="1.6"/>`;
+  // a[m] — O–P 선 중점에서 축(+u) 쪽으로 밀어 P 라벨과 분리
+  const aLab = at(20, -13);
+  s += halo(aLab.x + 4, aLab.y + 4, L.pointP ?? "a[m]", { anchor: "start", fill: ACCENT, size: 11.5 });
+  // P — 선 바깥(위·왼쪽)
+  s += `<circle cx="${P.x.toFixed(1)}" cy="${P.y.toFixed(1)}" r="3.8" fill="${FIELD}"/>`;
+  s += halo(P.x - 10, P.y - 4, "P", { anchor: "end", fill: FIELD, size: 12.5 });
+  // O — 축 반대쪽(−u) 아래, 흰 테두리로 y축 선 위에서도 읽히게
+  const oLab = at(-16, 16);
+  s += `<circle cx="${O.x}" cy="${O.y}" r="3.4" fill="${STROKE}"/>`;
+  s += halo(oLab.x - 2, oLab.y + 4, "O", { anchor: "end", fill: STROKE, size: 12.5 });
+  // r[m] — 단면 **바깥** 아래(반지름 선 연장 방향)
+  const rEnd = at(0, RAD);
+  const rLab = at(0, RAD + 16);
+  s += `<line x1="${O.x}" y1="${O.y}" x2="${rEnd.x.toFixed(1)}" y2="${rEnd.y.toFixed(1)}" stroke="${MUTED}" stroke-width="1.2" stroke-dasharray="3 3"/>`;
+  s += halo(rLab.x + 6, rLab.y + 6, L.radius ?? "r[m]", { anchor: "start", fill: MUTED, size: 11.5 });
+
+  return svgWrap(s, d.title);
+}
+
+/**
+ * x=x_p 무한 면전하 평면 + (x=0, z=z_L) 무한 선전하(y축 나란) + **축 밖의** 점 P.
+ *
+ * 원본 배치: z 위 · y 오른쪽 · x 좌하 사선. 면전하 ㉠는 x=x_p 에서 **빗금 평행사변형**,
+ * 선전하 ㉡는 z=z_L 높이에서 y축과 나란한 굵은 선, 점 P는 그 사이에 찍고 좌표를 라벨로 단다.
+ *
+ * ★ 라벨 gotcha: 평면 라벨을 평면 위쪽 안에 두면 선전하 선과 겹친다 → 평면 **바깥 위**로.
+ */
+function renderSheetLineVectorAxes(d: EmFieldDiagram): string {
+  const L = d.labels;
+  const O = { x: 268, y: 170 };
+  const yLine = O.y - 54;              // 선전하 높이 (z = z_L)
+  let s = "";
+
+  // ── 좌표축 (z↑ · y→ · x↙) ───────────────────────────────────────
+  s += arrow(O.x, O.y, O.x, 48, MUTED, "emArrowD", 1.4);
+  s += label(O.x + 8, 46, "z", { anchor: "start", fill: MUTED, size: 12 });
+  s += arrow(O.x, O.y, 500, O.y, MUTED, "emArrowD", 1.4);
+  s += label(506, O.y + 4, "y", { anchor: "start", fill: MUTED, size: 12 });
+  s += arrow(O.x, O.y, 108, 286, MUTED, "emArrowD", 1.4);
+  s += label(104, 294, "x", { anchor: "end", fill: MUTED, size: 12 });
+  s += label(O.x - 8, O.y - 8, "O", { anchor: "end", fill: STROKE, size: 12, weight: 700 });
+
+  // ── ㉠ 무한 면전하 평면 (x = x_p, yz면과 나란) — 빗금 평행사변형 ──
+  const sx = 128, sy = 264, wPl = 150, hPl = 76, skew = 20;
+  const corners = [
+    [sx, sy],
+    [sx + wPl, sy],
+    [sx + wPl - skew, sy - hPl],
+    [sx - skew, sy - hPl],
+  ];
+  s += "<polygon points=\"" + corners.map((q) => q[0] + "," + q[1]).join(" ") +
+    "\" fill=\"#cbd5e1\" fill-opacity=\"0.5\" stroke=\"" + STROKE + "\" stroke-width=\"1.3\"/>";
+  for (let i = 1; i < 8; i++) {
+    const x0 = sx + (wPl / 8) * i;
+    s += "<line x1=\"" + x0 + "\" y1=\"" + sy + "\" x2=\"" + (x0 - skew) + "\" y2=\"" + (sy - hPl) +
+      "\" stroke=\"" + MUTED + "\" stroke-width=\"0.7\"/>";
+  }
+  s += label(sx + wPl / 2 - skew / 2, sy - hPl / 2 + 5, texToPlain(L.sigma ?? "C_1"),
+    { anchor: "middle", fill: STROKE, size: 13, weight: 700 });
+  s += label(sx - skew - 4, sy - hPl - 8, texToPlain(L.sheet ?? "x = 4"),
+    { anchor: "start", fill: STROKE, size: 11.5, weight: 600 });
+
+  // ── ㉡ 무한 선전하 (z = z_L, y축과 나란) ──────────────────────────
+  s += "<line x1=\"" + (O.x - 128) + "\" y1=\"" + yLine + "\" x2=\"474\" y2=\"" + yLine +
+    "\" stroke=\"" + STROKE + "\" stroke-width=\"2.6\"/>";
+  s += label(O.x - 134, yLine + 4, "⋯", { anchor: "end", fill: MUTED, size: 12 });
+  s += label(480, yLine + 4, "⋯", { anchor: "start", fill: MUTED, size: 12 });
+  s += label(O.x - 78, yLine - 9, texToPlain(L.lambda ?? "C_2"), { anchor: "middle", fill: STROKE, size: 13, weight: 700 });
+  s += label(392, yLine - 9, texToPlain(L.line ?? "x = 0, z = 1"), { anchor: "middle", fill: STROKE, size: 11.5, weight: 600 });
+
+  // ── 점 P (축 밖) + 선전하까지의 수직 보조선 ──────────────────────
+  const P = { x: 352, y: 218 };
+  s += "<line x1=\"" + P.x + "\" y1=\"" + P.y + "\" x2=\"" + P.x + "\" y2=\"" + yLine +
+    "\" stroke=\"" + MUTED + "\" stroke-width=\"1\" stroke-dasharray=\"4 3\"/>";
+  s += "<circle cx=\"" + P.x + "\" cy=\"" + P.y + "\" r=\"4\" fill=\"" + FIELD + "\"/>";
+  s += label(P.x + 9, P.y + 5, texToPlain(L.pointP ?? "P(1, 2, -1)"), { anchor: "start", fill: FIELD, size: 11.5, weight: 700 });
+
+  return svgWrap(s, d.title);
+}
 
 /** 메인 진입점 — diagram.geometry로 dispatch. */
 export function renderEmFieldDiagram(diagram: EmFieldDiagram | undefined | null): string {

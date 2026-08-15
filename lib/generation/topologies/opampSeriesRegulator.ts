@@ -39,7 +39,9 @@ export type OpampSeriesRegulatorGeneration = {
 
 type Tuple = { Vz: number; Rb: number; k: number; Vdd: number; RL: number };
 
-const V_Z_SET = [2, 2.5, 3, 4, 5];
+// ★ 정수만 — 소수 제너전압(2.5)이 있으면 조건에는 "2.5V"로, 정답·풀이에는 전역 분수 변환기(1-4-3)가
+//   바꾼 "5/2"로 찍혀 한 문항 안에서 표기가 갈린다(실측). 값 공간에서 소수를 없애는 쪽이 근본 해결.
+const V_Z_SET = [2, 3, 4, 5];
 const RB_SET = [10, 20]; // kΩ
 const K_SET = [1, 2, 3]; // Ra/Rb 비 (소자 비율)
 const VDD_SET = [12, 15, 18, 24];

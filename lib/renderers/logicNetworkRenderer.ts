@@ -104,7 +104,7 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
   }
 
   const levels = levelizeLogicGates(diagram);
-  const nodes = layoutLogicGates(levels);
+  const nodes = layoutLogicGates(levels, diagram.sizeHints);
   const signalPos = new Map<string, Point>();
 
   // 피드백 신호 식별 — FF의 Q 출력이면서 다른 게이트의 입력으로도 쓰이는 신호.
@@ -235,10 +235,14 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
       const ff = ffNodeByOutput.get(sig);
       const consumers = fbConsumers.get(sig) ?? [];
       if (!ff || consumers.length === 0) return null;
-      return { src: getGateOutputPoint(ff), consumers, topY: fbTopY.get(sig) ?? FB_TOP_BASE_Y };
+      // ★★ 순방향(소비자가 모두 오른쪽) FF 출력은 **아래로** 우회한다 (사용자 지정 2026-08-13).
+      //   회로 위쪽은 입력 배선으로 붐비고, 소자와 CLK 버스 사이 아래쪽은 대체로 비어 있다.
+      const src = getGateOutputPoint(ff);
+      const below = diagram.routeForwardBelow === true && consumers.every((c) => c.x > src.x + 4);
+      return { src, consumers, topY: fbTopY.get(sig) ?? FB_TOP_BASE_Y, below };
     })
-    .filter((r): r is { src: Point; consumers: Point[]; topY: number } => r !== null);
-  svg += renderFeedbackWires(fbRoutes);
+    .filter((r): r is { src: Point; consumers: Point[]; topY: number; below: boolean } => r !== null);
+  svg += renderFeedbackWires(fbRoutes, obstacles, yLanes);
 
   const feedbackSet = new Set(feedbackSignals);
   const routes = buildSignalRoutes(diagram, nodes, signalPos, feedbackSet, true);
@@ -306,7 +310,14 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
     const pinY = ff.y + ff.height - 6;
     // FF 박스 아래 채널 (다른 wire와 안 겹치도록 yLane 할당)
     const naturalChannelY = ff.y + ff.height + 16 + ffIdx * 8;
-    const channelY = yLanes ? yLanes.assign(naturalChannelY) : naturalChannelY;
+    // ★ 이 경로는 장애물 회피를 전혀 하지 않아 **게이트 몸통을 관통**했다(감사 도구로 특정, 2026-08-04).
+    //   실측 사례: CLK 버스(60,362) → FF1 ▷핀(542,142) 경로가 y=164 채널로 g1_b·g1_f를 그대로 지났다.
+    const channelY = safeChannelY(
+      naturalChannelY,
+      obstacles,
+      [Math.min(src.x, pinX), Math.max(src.x, pinX)],
+      yLanes,
+    );
     // source 분기점 dot (signal이 ▷ 핀과 다른 곳 둘 다로 가는 경우 분기점 표시)
     svg += `<circle cx="${src.x}" cy="${src.y}" r="3" fill="black"/>`;
     svg += `<path d="M ${src.x} ${src.y} L ${src.x} ${channelY} L ${pinX} ${channelY} L ${pinX} ${pinY}" stroke="black" fill="none" stroke-width="2"/>`;
@@ -324,9 +335,17 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
 
   // blank lookup — gate.id → 전체-치환 / pinIndex별 핀 빈칸
   const blankIdx = buildBlankMap(diagram.blanks ?? []);
+  // 이름 있는 신호 = 외부 입력 + 플립플롭 출력 → 게이트 입력 핀에 라벨을 붙일 대상.
+  const namedSignals = new Set<string>([...diagram.inputs, ...ffNodeByOutput.keys()]);
+  // ★ hideContents 점선 영역의 **게이트만** 그리지 않는다 — 배선(노드)은 그대로 보여야
+  //   학생이 어떤 신호가 들어오고 나가는지 알고 회로를 도시할 수 있다(사용자 지정 2026-08-04).
+  const hiddenGateIds = new Set<string>(
+    (diagram.dashedRegions ?? []).filter((r) => r.hideContents).flatMap((r) => r.gateIds),
+  );
   for (const node of nodes) {
+    if (hiddenGateIds.has(node.gate.id)) continue;
     svg += renderGateNode(node, blankIdx);
-    svg += renderGatePins(node, usedSignals, diagram.signalLabels);
+    svg += renderGatePins(node, usedSignals, diagram.signalLabels, blankIdx.whole.has(node.gate.id), namedSignals);
     // MUX의 경우 핀 옆 신호 라벨(또는 ㄱ/ㄴ/ㄷ/ㄹ 빈칸 박스)을 추가로 그린다.
     // 단, gate 전체가 whole-blank로 치환된 경우는 핀 라벨 생략.
     if (isMux(node.type) && !blankIdx.whole.has(node.gate.id)) {
@@ -338,12 +357,21 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
     }
   }
 
-  // 점선 박스 영역 (임용 5번 [단계 3]) — 지정 게이트 묶음을 dashed rect로 감싸고 라벨.
-  //   게이트는 그대로 보이며, 학생은 점선 영역의 게이트 종류를 도출(식별)한다.
+  // 점선 박스 영역 — 지정 게이트 묶음을 dashed rect로 감싼다.
+  //   · 기본(hideContents 미설정): 게이트가 그대로 보이며 학생은 게이트 **종류를 식별**한다(임용 5번).
+  //   · hideContents=true: **게이트만** 그리지 않고 **배선은 그대로 둔다**(위 hiddenGateIds).
+  //     학생이 [단계 N]에서 직접 **도시**해야 하는 유형(임용 12번)은 답(게이트 종류·결선)이
+  //     노출되면 안 되지만, 어떤 신호가 드나드는지는 보여야 한다(사용자 지정 2026-08-04).
+  //     ★ 따라서 박스는 **투명**하게 둔다 — 흰색으로 덮으면 배선까지 사라진다(직전 사용자 신고).
   for (const region of diagram.dashedRegions ?? []) {
     const rnodes = nodes.filter((n) => region.gateIds.includes(n.gate.id));
     if (rnodes.length === 0) continue;
-    const pad = 16;
+    // ★★ 박스는 **숨긴 게이트가 실제로 있던 자리**를 덮어야 한다 (사용자 신고 2026-08-04:
+    //   "빈 네모칸의 위치가 잘못된 것 같아" + "배선이 끊겨 있어").
+    //   한때 크기를 상한(132×104)으로 강제 축소했더니, 배선이 끝나는 지점(원래 게이트 핀 자리)이
+    //   박스 **밖**에 남아 선이 허공에서 끊긴 것처럼 보였다. ⇒ 실제 bbox + 여백만 쓴다.
+    //   (핀 stub이 게이트 밖 12px까지 나오므로 여백은 그보다 넉넉히 잡아 선이 박스 안에서 끝나게 한다.)
+    const pad = 22;
     const x1 = Math.min(...rnodes.map((n) => n.x)) - pad;
     const y1 = Math.min(...rnodes.map((n) => n.y)) - pad;
     const x2 = Math.max(...rnodes.map((n) => n.x + n.width)) + pad;
@@ -371,6 +399,15 @@ export function renderLogicNetworkSVG(diagram: LogicNetworkDiagram): string {
   for (const [sig, label] of Object.entries(diagram.signalLabels ?? {})) {
     const node = nodeByOutput.get(sig);
     if (!node) continue;
+    // ★★ 플립플롭은 박스가 크고(70×80) 그 위에 D/T·Q 표기가 이미 있어, 라벨을 박스 **위**에 두면
+    //   테두리에 걸쳐 취소선처럼 보인다(사용자 신고 2026-08-13 — Q_A·Q_B가 박스에 겹침).
+    //   FF는 **출력 핀 오른쪽 위**에 적어 배선·박스 어느 것과도 부딪히지 않게 한다.
+    if (isFlipFlop(node.type)) {
+      const px = node.x + node.width + PIN_STUB + 4;
+      const py = node.y + node.height / 2 - 8;
+      svg += `<text x="${px}" y="${py}" text-anchor="start" font-size="13" fill="#1e40af" font-weight="700">${escapeSvg(label)}</text>`;
+      continue;
+    }
     svg += `<text x="${node.x + node.width / 2}" y="${node.y - 6}" text-anchor="middle" font-size="13" fill="#1e40af" font-weight="700">${escapeSvg(label)}</text>`;
   }
 
@@ -453,38 +490,100 @@ function levelizeLogicGates(diagram: LogicNetworkDiagram): LogicGate[][] {
   return levels.filter((l) => l.length);
 }
 
-function layoutLogicGates(levels: LogicGate[][]): GateNode[] {
+/** 크기 배율 힌트 — 미지정이면 기존 그림과 완전히 동일(형제 archetype 무영향). */
+type SizeHints = { gateScale?: number; ffScale?: number } | undefined;
+
+/** 게이트 박스 크기 — 종류·입력 수에 따라 결정. */
+function gateBoxSize(gate: LogicGate, hints?: SizeHints): { width: number; height: number } {
+  const gs = hints?.gateScale ?? 1;
+  const fs = hints?.ffScale ?? 1;
+  const r = (n: number) => Math.round(n);
+  // ★★ 사용자 지정 (2026-08-13) — **디지털 전반에서 플립플롭을 게이트보다 크게 그린다.**
+  //   임용 원본 도면의 관례이고, FF 안에는 D/T/J/K·Q·▷ 표기가 들어가 작으면 읽히지 않는다.
+  //   기본값 자체를 바꾼 것이라 logic_network를 쓰는 형제 archetype 전부에 적용된다.
+  if (isMux(gate.type)) return { width: r(66 * fs), height: r(76 * fs) };
+  if (isFlipFlop(gate.type)) return { width: r(70 * fs), height: r(80 * fs) };
+  const inputCount = Math.max(1, gate.inputs.length);
+  // ★ per-input 32 = 입력 wire 간격 그대로 유지. base/min만 줄여 박스 축소.
+  //   gateScale은 폭·높이에만 곱하고 **입력 간격(32)은 건드리지 않는다** — 배선이 겹치지 않게.
+  return { width: r(36 * gs), height: Math.max(r(36 * gs), inputCount * 32 + 14) };
+}
+
+/**
+ * levels → 좌표.
+ *
+ * ★★ **같은 FF에 들어가는 게이트는 그 FF 바로 왼쪽의 좁은 세로 밴드에 쌓는다** (사용자 지정 2026-08-04).
+ *   이전에는 의존 단계마다 전역 column을 새로 만들어(levelGap 138) 한 FF의 입력 게이트들이 좌우로
+ *   멀리 벌어졌고, 그 사이를 배선이 길게 우회해 그림이 지저분했다(사용자 신고).
+ *   이제 한 FF의 입력망은 **세로로 연속 배치**하고 의존 단계만 `BAND_STAGGER`만큼 살짝 우측으로 민다
+ *   — 원본 (가) 그림의 배치와 같다.
+ *
+ * ※ **조합 전용 회로(FF 없음)는 기존 배치를 그대로 유지**한다 — kmap/조합논리 archetype 회귀 방지.
+ */
+function layoutLogicGates(levels: LogicGate[][], hints?: SizeHints): GateNode[] {
   const nodes: GateNode[] = [];
   const baseX = 180;
   const levelGap = 138;
   const rowGap = 144;   // 게이트 크기 축소에 맞춰 행 간격도 비례 축소 (겹침 방지 유지)
+  const TOP_Y = 90;
 
-  levels.forEach((level, li) => {
-    level.forEach((gate, ri) => {
-      let width = 44;   // 게이트 박스 추가 축소 (사용자 요청). wire 간격(per-input 32)은 유지.
-      let height: number;
-      if (isMux(gate.type)) {
-        width = 56;
-        height = 64;
-      } else if (isFlipFlop(gate.type)) {
-        width = 50;
-        height = 58;
-      } else {
-        const inputCount = Math.max(1, gate.inputs.length);
-        // ★ per-input 32 = 입력 wire 간격 그대로 유지. base/min만 줄여 박스 축소.
-        height = Math.max(44, inputCount * 32 + 14);
-      }
-      nodes.push({
-        id: gate.id,
-        type: gate.type,
-        gate,
-        x: baseX + li * levelGap,
-        y: 90 + ri * rowGap,
-        width,
-        height,
+  // ⚠️ 세로 밴드 배치는 **배선이 끊기는 회귀**를 냈다(사용자 신고 2026-08-04: ONE·Ā 출력이 게이트에
+  //   닿지 않음). 라우터가 밴드 안의 좁은 통로에서 경로를 완성하지 못한 것으로, 레이아웃만으로는
+  //   해결되지 않는다 → 일단 **기존(레벨 column) 배치로 되돌린다**.
+  const USE_FF_BAND_LAYOUT = false;
+  const hasFF = USE_FF_BAND_LAYOUT && levels.some((lv) => lv.some((g) => isFlipFlop(g.type)));
+  if (!hasFF) {
+    levels.forEach((level, li) => {
+      level.forEach((gate, ri) => {
+        const { width, height } = gateBoxSize(gate, hints);
+        nodes.push({ id: gate.id, type: gate.type, gate, x: baseX + li * levelGap, y: TOP_Y + ri * rowGap, width, height });
       });
     });
-  });
+    return nodes;
+  }
+
+  // ★ 밴드가 넓으면 배선이 길게 우회한다 — 겹침 0을 유지하는 선에서 촘촘하게 잡는다.
+  const BAND_STAGGER = 46;   // 밴드 안에서 의존 단계당 우측 이동 (원본처럼 살짝만)
+  const BAND_ROW_GAP = 30;   // 밴드 안 세로 여백 (게이트 높이에 더해짐 — 라벨 겹침 방지)
+  const FF_GAP = 116;        // 밴드 오른쪽 끝 → FF 간격
+
+  let x = baseX;
+  let i = 0;
+  while (i < levels.length) {
+    // ① 이 스테이지(= 다음 FF)의 조합 레벨들을 모은다.
+    const band: LogicGate[][] = [];
+    while (i < levels.length && !levels[i].some((g) => isFlipFlop(g.type))) band.push(levels[i++]);
+
+    // ② 밴드 — 세로로 연속 쌓고, 의존 단계만 살짝 우측으로.
+    let cursorY = TOP_Y;
+    let bandRight = x;
+    band.forEach((level, j) => {
+      const lx = x + j * BAND_STAGGER;
+      for (const gate of level) {
+        const { width, height } = gateBoxSize(gate, hints);
+        nodes.push({ id: gate.id, type: gate.type, gate, x: lx, y: cursorY, width, height });
+        cursorY += height + BAND_ROW_GAP;
+        bandRight = Math.max(bandRight, lx + width);
+      }
+    });
+    const bandBottom = Math.max(TOP_Y, cursorY - BAND_ROW_GAP);
+
+    // ③ FF — 밴드 오른쪽에, 밴드의 세로 중앙에 맞춘다.
+    if (i < levels.length) {
+      const ffLevel = levels[i++];
+      const fx = band.length ? bandRight + FF_GAP : x;
+      const center = band.length ? (TOP_Y + bandBottom) / 2 : TOP_Y;
+      ffLevel.forEach((gate, ri) => {
+        const { width, height } = gateBoxSize(gate, hints);
+        const y = band.length
+          ? Math.max(TOP_Y, center - height / 2 + ri * rowGap)
+          : TOP_Y + ri * rowGap;
+        nodes.push({ id: gate.id, type: gate.type, gate, x: fx, y, width, height });
+        bandRight = Math.max(bandRight, fx + width);
+      });
+    }
+    x = bandRight + levelGap;
+  }
   return nodes;
 }
 
@@ -558,7 +657,7 @@ function getGateOutputPoint(node: GateNode): Point {
  *  output 신호가 어디에도 사용되지 않으면(usedSignals에 없으면) output 핀 stub은 그리지 않음 → dangling 방지.
  *  MUX의 경우 좌측 두 핀(I0, I1) + 하단 한 핀(S)으로 분리 처리.
  */
-function renderGatePins(node: GateNode, usedSignals?: Set<string>, signalLabels?: Record<string, string>): string {
+function renderGatePins(node: GateNode, usedSignals?: Set<string>, signalLabels?: Record<string, string>, emphasizeInputs = false, namedSignals?: Set<string>): string {
   const inputCount = Math.max(1, node.gate.inputs?.length ?? 0);
   let svg = "";
 
@@ -602,10 +701,28 @@ function renderGatePins(node: GateNode, usedSignals?: Set<string>, signalLabels?
       if (inputCount >= 2 && inputs[i]) {
         const sig = inputs[i];
         const labeled = signalLabels?.[sig];
-        const isPrimary = /^[A-Za-z](_n)?$/.test(sig);
-        const text = labeled ?? (isPrimary ? formatSignalLabel(sig) : "");
+        // ★ 이름 있는 신호(외부 입력·플립플롭 출력)는 **모두** 라벨을 붙인다.
+        //   이전엔 한 글자 신호만 붙어 Q₀ 같은 FF 출력이 이름 없이 들어가 "어느 입력인지 구분이
+        //   안 된다"는 신고가 났다(2026-08-04). 내부 조합게이트 출력은 clutter라 signalLabels에 있을 때만.
+        const named = namedSignals?.has(sig) === true || /^[A-Za-z](_n)?$/.test(sig);
+        // ★★ 사용자 지정 (2026-08-12) — **게이트 입력 옆의 신호 부호(A / A′)는 표시하지 않는다.**
+        //   어느 변수가 반전되어 들어가는지는 **인버터 심볼과 배선**이 이미 말해 준다. 라벨을 덧붙이면
+        //   원본 임용 도면에 없는 표기가 되고 배선이 지저분해진다. 디지털 회로 전반에 적용.
+        //   ※ 예외는 **빈칸 게이트뿐** — 학생이 채워야 할 게이트는 어느 신호가 어느 입력인지 보여야
+        //     문제가 성립한다(2026-08-04 신고로 추가된 흰 배경 칩).
+        const text = emphasizeInputs ? (labeled ?? (named ? formatSignalLabel(sig) : "")) : "";
         if (text) {
-          svg += `<text x="${startX + 4}" y="${py - 4}" font-size="10" fill="#1e3a8a">${escapeSvg(text)}</text>`;
+          if (emphasizeInputs) {
+            // ★ 빈칸(학생이 채울) 게이트는 **어떤 신호가 어느 입력으로 들어가는지**가 문제의 핵심이다.
+            //   10px 라벨은 교차 배선에 묻혀 구분이 안 된다(사용자 신고 2026-08-04) →
+            //   stub 끝 왼쪽에 **흰 배경 칩 + 굵은 글씨**로 또렷하게 찍는다.
+            const w = Math.max(16, text.length * 8 + 8);
+            const bx = startX - w - 4, by = py - 9;
+            svg += `<rect x="${bx}" y="${by}" width="${w}" height="18" rx="4" fill="white" stroke="#1e3a8a" stroke-width="1"/>`;
+            svg += `<text x="${bx + w / 2}" y="${py + 4}" text-anchor="middle" font-size="12" font-weight="700" fill="#1e3a8a">${escapeSvg(text)}</text>`;
+          } else {
+            svg += `<text x="${startX + 4}" y="${py - 4}" font-size="10" fill="#1e3a8a">${escapeSvg(text)}</text>`;
+          }
         }
       }
     }
@@ -682,6 +799,36 @@ function findFreeY(targetY: number, obstacles: GateBox[], xRange: [number, numbe
 }
 
 /** segment(a→b)가 어떤 obstacle을 가로지르는지. xRange/yRange 둘 다 겹쳐야 가로지름. */
+/**
+ * ★ 수평 채널 y 결정 — **장애물 회피(규칙 #1)가 lane 분리(규칙 #3)보다 우선**이다.
+ *
+ *   실측(2026-08-04, 사용자 신고 "게이트에 가려 노드가 안 보인다"): `findFreeY`로 게이트를 피한 뒤
+ *   `lanes.assign()`이 그 값을 **다시 게이트 위로 되돌렸는데 재검사가 없어** 배선이 게이트 몸통을
+ *   그대로 관통했다(감사 도구로 22케이스 38건 검출).
+ *   ⇒ lane 배정 결과가 장애물을 침범하면 lane을 포기하고 free y를 쓴다.
+ */
+function safeChannelY(
+  target: number,
+  obstacles: GateBox[],
+  xRange: [number, number],
+  lanes?: YLaneManager,
+): number {
+  const free = findFreeY(target, obstacles, xRange);
+  if (!lanes) return free;
+  const laneY = lanes.assign(free);
+  if (!horizontalCrossesAny(laneY, xRange[0], xRange[1], obstacles)) return laneY;
+  return findFreeY(laneY, obstacles, xRange);
+}
+
+/** 세로 선분이 소자 박스를 지나는가 (수평판 `horizontalCrossesAny`의 짝). */
+function verticalCrossesAny(x: number, y1: number, y2: number, obstacles: GateBox[], padding = 4): boolean {
+  const lo = Math.min(y1, y2), hi = Math.max(y1, y2);
+  return obstacles.some((o) =>
+    o.bottom >= lo - padding && o.top <= hi + padding &&
+    x >= o.x - padding && x <= o.right + padding,
+  );
+}
+
 function horizontalCrossesAny(y: number, x1: number, x2: number, obstacles: GateBox[], padding = 4): boolean {
   const lo = Math.min(x1, x2), hi = Math.max(x1, x2);
   return obstacles.some((o) =>
@@ -825,7 +972,7 @@ function routeLogicWires(
     if (route.destinations.length === 1) {
       svg += orthogonalWire(route.source, route.destinations[0], obstacles, stagger, lanes, xLanes);
     } else {
-      svg += renderFanoutRoute(route, obstacles, stagger, xLanes);
+      svg += renderFanoutRoute(route, obstacles, stagger, xLanes, lanes);
     }
     // 분기점 dot
     const srcKey = `${Math.round(route.source.x)},${Math.round(route.source.y)}`;
@@ -837,13 +984,56 @@ function routeLogicWires(
   return svg;
 }
 
+/**
+ * ★★ 우회선 Y도 **lane manager에 예약**한다 (사용자 신고 2026-08-13).
+ *   예전엔 `findFreeY`로 "소자를 안 지나는 y"만 골라, 피드백 트렁크와 **같은 높이로 포개졌다**
+ *   (X 배선과 Q_A 배선이 한 선으로 겹쳤다). 소자 회피(규칙 #1)와 배선 분리(규칙 #3)를
+ *   **함께** 만족시켜야 하므로 두 조건을 번갈아 적용해 수렴시킨다.
+ */
+/** 배선이 캔버스 밖으로 나가면 **잘린 선**으로 보인다 — lane 배정 결과를 이 범위로 가둔다. */
+const LANE_Y_MIN = 12;
+const LANE_Y_MAX = 4000;
+
+function claimLaneY(
+  natural: number, obstacles: GateBox[], xRange: [number, number], lanes?: YLaneManager,
+): number {
+  const clamp = (v: number) => Math.min(LANE_Y_MAX, Math.max(LANE_Y_MIN, v));
+  let y = clamp(findFreeY(natural, obstacles, xRange));
+  for (let guard = 0; guard < 6; guard += 1) {
+    const claimed = clamp(lanes ? lanes.assign(y) : y);
+    const settled = clamp(findFreeY(claimed, obstacles, xRange));
+    y = settled;
+    if (Math.abs(settled - claimed) < 1) break;
+  }
+  // ★★ 실측: lane 배정이 y = -20까지 밀려 배선이 캔버스 위로 나가 **잘려 보였다**(사용자 신고).
+  //   findFreeY·assign 어느 쪽도 경계를 모르므로 여기서 가둔다.
+  return clamp(y);
+}
+
 function renderFanoutRoute(
   route: SignalRoute,
   obstacles: GateBox[] = [],
   stagger = 0,
   xLanes?: XLaneManager,
+  yLanes?: YLaneManager,
 ): string {
   const { source, destinations } = route;
+  // ★★ **자기 목적지 소자는 장애물에서 뺀다** (사용자 신고 2026-08-13 — "직선으로 들어가도 되는데 ㄷ자").
+  //   FF는 핀 stub 때문에 obstacle 패딩이 32로 크다. 그래서 "그 FF의 핀으로 들어가는 배선"조차
+  //   자기 목적지 박스에 막힌 것으로 판정되어 위로 크게 우회했다.
+  //   목적지 핀은 어차피 그 박스 테두리에 붙으므로, 그 박스는 이 경로의 장애물이 아니다.
+  //   ★ 단, **그 목적지로 들어가는 마지막 구간에서만** 뺀다. 경로 전체에서 빼면 그 소자를
+  //   가로질러 다른 목적지로 가는 배선이 생긴다(실측: X→NOT 배선이 T-FF를 관통했다).
+  //   ★★ 소유 박스는 **핀이 붙은 그 박스**여야 한다. ±40으로 느슨하게 찾으면 NOT 게이트 입력의
+  //   소유 박스로 **옆의 T-FF**가 잡혀 T-FF가 장애물에서 빠진다(실측).
+  //   입력 핀은 박스 왼쪽 변 근처, 출력 핀은 오른쪽 변 근처에 있다.
+  const PIN_NEAR = 26;
+  const boxOfInput = (d: Point) => obstacles.find((o) =>
+    d.x <= o.x + PIN_NEAR && d.x >= o.x - PIN_NEAR * 3 && d.y >= o.top && d.y <= o.bottom);
+  const boxOfOutput = (d: Point) => obstacles.find((o) =>
+    d.x >= o.right - PIN_NEAR && d.x <= o.right + PIN_NEAR && d.y >= o.top && d.y <= o.bottom);
+  const without = (b: GateBox | undefined) => (b ? obstacles.filter((o) => o !== b) : obstacles);
+  const sourceObstacles = without(boxOfOutput(source));
   const minTargetX = Math.min(...destinations.map((d) => d.x));
   // trunkX — source 우측 + stagger 기반, 단 destination 직전까지 capped (wire가 destination을 지나가지 않도록).
   // xLane manager로 wire-wire trunk 충돌 방지 (#3 규칙).
@@ -855,10 +1045,15 @@ function renderFanoutRoute(
 
   let svg = "";
   // source → trunk 입구 (이 horizontal도 게이트 회피)
-  if (!horizontalCrossesAny(source.y, source.x, trunkX, obstacles)) {
+  // ★ trunkX가 source.x와 사실상 같으면 수평 구간이 없다 → 우회할 것도 없다.
+  //   예전엔 이때도 우회 경로를 그려, **source.x에 세로선이 두 개 겹쳤다**(실측 겹침 23px).
+  const degenerate = Math.abs(trunkX - source.x) < 6;
+  if (degenerate) {
+    // 수평 이동이 없으므로 아무것도 그리지 않는다(수직 trunk가 이어 준다).
+  } else if (!horizontalCrossesAny(source.y, source.x, trunkX, sourceObstacles)) {
     svg += line(source, { x: trunkX, y: source.y });
   } else {
-    const detourY = findFreeY(source.y, obstacles, [source.x, trunkX]);
+    const detourY = claimLaneY(source.y, sourceObstacles, [source.x, trunkX], yLanes);
     svg += `<path d="M ${source.x} ${source.y} L ${source.x} ${detourY} L ${trunkX} ${detourY} L ${trunkX} ${source.y}" stroke="black" fill="none" stroke-width="2"/>`;
   }
   // 수직 trunk
@@ -872,11 +1067,18 @@ function renderFanoutRoute(
 
   // 각 destination으로 분기 + junction dot
   for (const dst of destinations) {
-    if (!horizontalCrossesAny(dst.y, trunkX, dst.x, obstacles)) {
+    // ★ 이 목적지로 들어가는 마지막 구간에서만 **그 목적지 박스**를 장애물에서 뺀다.
+    const dstObstacles = without(boxOfInput(dst));
+    if (!horizontalCrossesAny(dst.y, trunkX, dst.x, dstObstacles)) {
       svg += line({ x: trunkX, y: dst.y }, dst);
     } else {
-      const detourY = findFreeY(dst.y, obstacles, [trunkX, dst.x]);
-      svg += `<path d="M ${trunkX} ${dst.y} L ${trunkX} ${detourY} L ${dst.x} ${detourY} L ${dst.x} ${dst.y}" stroke="black" fill="none" stroke-width="2"/>`;
+      const detourY = claimLaneY(dst.y, dstObstacles, [trunkX, dst.x], yLanes);
+      // ★★ 우회용 세로선은 **항상** trunkX에서 비켜 세운다 (실측 겹침 23px).
+      //   dst.y는 언제나 trunk 구간 [yMin,yMax] 안에 있으므로, 거기서 구간 **밖**으로 나가는
+      //   세로선은 반드시 trunk와 일부를 공유한다. "detourY가 구간 안일 때만" 비키게 했더니
+      //   detourY가 구간 위(16 < yMin 90)로 나간 경우를 놓쳤다.
+      const riseX = findFreeX(trunkX + 10, obstacles);
+      svg += `<path d="M ${trunkX} ${dst.y} L ${riseX} ${dst.y} L ${riseX} ${detourY} L ${dst.x} ${detourY} L ${dst.x} ${dst.y}" stroke="black" fill="none" stroke-width="2"/>`;
     }
     if (dst.y > yMin + eps && dst.y < yMax - eps) {
       svg += dot({ x: trunkX, y: dst.y });
@@ -898,7 +1100,7 @@ const FB_DESCENT_STEP = 16; // 소비자 하강 수직 채널 간격 (핀 좌측
  *  · 하강 채널은 소비자 y 오름차순(위쪽 핀이 핀에 더 가까운 채널)으로 배정 → 아래 소비자의 수평
  *    진입선이 위쪽 수직선을 관통하지 않는다.
  */
-function renderFeedbackWires(routes: { src: Point; consumers: Point[]; topY: number }[]): string {
+function renderFeedbackWires(routes: { src: Point; consumers: Point[]; topY: number; below?: boolean }[], obstacles: GateBox[] = [], lanes?: YLaneManager): string {
   let svg = "";
   // 하강(descent) 채널을 각 소비자 핀 "바로 좌측"(국소)에 둔다.
   //   ★ 이전엔 전역 minPinX 기준으로 모든 하강선을 한 곳(최좌측 게이트 D_1 입력부)에 몰아
@@ -917,23 +1119,61 @@ function renderFeedbackWires(routes: { src: Point; consumers: Point[]; topY: num
     descentX.set(`${ri}:${c.x}:${c.y}`, c.x - PIN_STUB - 6 - k * FB_DESCENT_STEP);
   }
 
-  routes.forEach(({ src, consumers, topY }, ri) => {
-    // riser — FF 출력 우측 채널(신호별 distinct), 짧은 수평 jog 후 상단으로.
+  // ★★ 사용자 지정 (2026-08-13) — **무조건 상단 trunk로 올리지 않는다.**
+  //   원래는 모든 FF 출력을 회로 최상단 채널로 올려 우회시켜서, 앞쪽 소자로 가는 신호까지
+  //   위로 크게 돌았다(임용 24번의 Q_A가 NOT 게이트 **위를** 넘어갔다).
+  //   이제 **source 높이에서 가장 가까우면서 어떤 소자 body도 지나지 않는 채널**을 고른다.
+  //   · `findFreeY`가 위·아래 중 **가까운 쪽**으로 스냅해 준다 → 자연히 최단 경로가 된다.
+  //   · 장애물이 없으면 `src.y` 그대로 → **직선 연결**(우회 자체가 사라진다).
+  //   · 이미 쓴 trunk와 겹치면 한 칸씩 비켜 **wire끼리도 겹치지 않게** 한다(규칙 #3).
+  routes.forEach(({ src, consumers, below }, ri) => {
     const riserX = src.x + 10 + ri * FB_RISER_STEP;
-    svg += `<circle cx="${src.x}" cy="${src.y}" r="3.5" fill="black"/>`;
-    svg += line(src, { x: riserX, y: src.y });
-    svg += line({ x: riserX, y: src.y }, { x: riserX, y: topY });
     const dxs = consumers.map((c) => descentX.get(`${ri}:${c.x}:${c.y}`)!);
     const minX = Math.min(riserX, ...dxs);
     const maxX = Math.max(riserX, ...dxs);
-    svg += line({ x: minX, y: topY }, { x: maxX, y: topY }); // 상단 trunk
+
+    // ★★ 채널은 **두 조건을 동시에** 만족해야 한다 (사용자 신고 2026-08-13):
+    //   ① 어떤 소자 body도 지나지 않을 것 (`findFreeY` — 규칙 #1)
+    //   ② **다른 배선과 같은 높이에 놓이지 않을 것** (`yLanes.assign` — 규칙 #3)
+    //   예전엔 피드백 배선끼리만 서로 피해서, X 같은 일반 배선과 **같은 y로 겹쳤다**
+    //   (Q_A 트렁크와 X 트렁크가 한 선으로 포개짐). 일반 배선과 **같은 lane manager**를 쓰면
+    //   나중에 그려지는 배선들도 이 y를 피해 간다.
+    // ★ 순방향 신호(소비자가 모두 오른쪽)는 **아래쪽**을 먼저 본다 (사용자 지정 2026-08-13).
+    //   회로 위쪽은 입력 배선으로 붐비고, 소자와 CLK 버스 사이 아래쪽은 대체로 비어 있어
+    //   거기로 지나가면 다른 배선과 부딪히지 않는다.
+    const spanBottom = obstacles
+      .filter((o) => o.right >= minX - 8 && o.x <= maxX + 8)
+      .reduce((m, o) => Math.max(m, o.bottom), src.y);
+    let trunkY = findFreeY(below ? spanBottom + 18 : src.y, obstacles, [minX, maxX]);
+    for (let guard = 0; guard < 6; guard += 1) {
+      const claimed = lanes ? lanes.assign(trunkY) : trunkY;
+      const settled = findFreeY(claimed, obstacles, [minX, maxX]);
+      trunkY = settled;
+      if (Math.abs(settled - claimed) < 1) break;   // lane도 비었고 소자도 안 지난다
+    }
+
+    svg += `<circle cx="${src.x}" cy="${src.y}" r="3.5" fill="black"/>`;
+    const straight = Math.abs(trunkY - src.y) < 1;
+    if (straight) {
+      // 장애물이 없다 → source에서 곧장 수평으로 (riser 없음).
+      svg += line(src, { x: maxX, y: src.y });
+    } else {
+      svg += line(src, { x: riserX, y: src.y });
+      svg += line({ x: riserX, y: src.y }, { x: riserX, y: trunkY });
+      svg += line({ x: minX, y: trunkY }, { x: maxX, y: trunkY });
+    }
+
     consumers.forEach((c) => {
       const dx = descentX.get(`${ri}:${c.x}:${c.y}`)!;
-      svg += line({ x: dx, y: topY }, { x: dx, y: c.y }); // 하강
-      svg += line({ x: dx, y: c.y }, c);                  // 핀으로 수평 진입
-      svg += dot({ x: dx, y: topY });
+      if (straight && Math.abs(c.y - src.y) < 1) {
+        svg += line({ x: dx, y: c.y }, c);           // 같은 높이 → 그대로 직결
+        return;
+      }
+      svg += line({ x: dx, y: trunkY }, { x: dx, y: c.y }); // 채널에서 핀 높이로
+      svg += line({ x: dx, y: c.y }, c);                    // 핀으로 수평 진입
+      svg += dot({ x: dx, y: trunkY });
     });
-    if (riserX > minX + 0.5 && riserX < maxX - 0.5) svg += dot({ x: riserX, y: topY });
+    if (!straight && riserX > minX + 0.5 && riserX < maxX - 0.5) svg += dot({ x: riserX, y: trunkY });
   });
   return svg;
 }
@@ -941,25 +1181,68 @@ function renderFeedbackWires(routes: { src: Point; consumers: Point[]; topY: num
 function orthogonalWire(
   a: Point,
   b: Point,
-  obstacles: GateBox[] = [],
+  allObstacles: GateBox[] = [],
   stagger = 0,
   lanes?: YLaneManager,
   _xLanes?: XLaneManager,
 ): string {
+  // ★★★ **양 끝이 붙어 있는 소자는 이 배선의 장애물이 아니다** (사용자 신고 2026-08-13, 반복).
+  //   FF는 핀 stub 때문에 obstacle 패딩이 32라, 목적지 핀(b)은 언제나 그 FF의 패딩 박스 **안**에 있다.
+  //   그래서 `horizontalCrossesAny(a.y, a.x, b.x, …)`가 항상 true가 되어, 사이에 아무것도 없는
+  //   짧은 연결(예: NAND 출력 → D 플립플롭)까지 전부 V-H-V로 크게 우회했다.
+  //   출발·도착 소자를 빼고 판정하면 "장애물이 있을 때만 우회"가 실제로 성립한다.
+  //   ★ `find`(첫 박스 하나)로는 부족하다 — FF는 패딩이 32라 **인접한 두 FF의 박스가 서로 겹친다**.
+  //     끝점을 품는 박스를 **모두** 빼야 Q₁ → T 처럼 나란히 붙은 FF 사이가 직선이 된다(실측).
+  const owners = (p: Point) => allObstacles.filter(
+    (o) => p.x >= o.x - 30 && p.x <= o.right + 30 && p.y >= o.top - 4 && p.y <= o.bottom + 4);
+  const skip = new Set([...owners(a), ...owners(b)]);
+  const obstacles = skip.size > 0 ? allObstacles.filter((o) => !skip.has(o)) : allObstacles;
+
+  // ★ 단일 L-bend를 **양방향 모두** 시도한다 — H 먼저가 막히면 V 먼저를 본다.
+  //   예전엔 H 먼저만 보고 막히면 곧장 V-H-V 우회로 갔다(불필요한 ㄷ자의 또 다른 원인).
+  const lBend = (): string | null => {
+    if (Math.abs(a.x - b.x) < 1 || Math.abs(a.y - b.y) < 1) return null;
+    // ★★ **세로 먼저 → 가로 나중(ㄴ자)을 우선한다** (사용자 지정 2026-08-13).
+    //   게이트·FF의 입력 핀은 **가로 stub**이므로, 마지막 구간이 가로여야 핀으로 곧게 들어간다.
+    //   가로 먼저(ㄱ자)면 목적지에 **위에서 수직으로** 꽂히는 모양이 되어 어색하다.
+    if (!horizontalCrossesAny(b.y, a.x, b.x, obstacles) && !verticalCrossesAny(a.x, a.y, b.y, obstacles)) {
+      return `<path d="M ${a.x} ${a.y} L ${a.x} ${b.y} L ${b.x} ${b.y}" stroke="black" fill="none" stroke-width="2"/>`;
+    }
+    if (!horizontalCrossesAny(a.y, a.x, b.x, obstacles) && !verticalCrossesAny(b.x, a.y, b.y, obstacles)) {
+      return `<path d="M ${a.x} ${a.y} L ${b.x} ${a.y} L ${b.x} ${b.y}" stroke="black" fill="none" stroke-width="2"/>`;
+    }
+    return null;
+  };
+  const early = lBend();
+  if (early) return early;
+  // ★★ **장애물이 없으면 무조건 직선** (사용자 지정 2026-08-13 — "장애물 있을 때만 우회").
+  //   예전엔 lane 점유 여부를 **먼저** 보고, 이미 쓰인 y라는 이유만으로 V-H-V 우회를 그렸다.
+  //   그래서 NAND 출력 → D 플립플롭처럼 **사이에 아무것도 없는 짧은 연결**까지 위로 크게 돌았다.
+  //   lane 분리는 **긴 평행 배선**을 갈라놓기 위한 장치이지, 인접 핀 사이 직결을 막으라는 게 아니다.
+  if (Math.abs(a.y - b.y) < 1 && !horizontalCrossesAny(a.y, a.x, b.x, obstacles)) return line(a, b);
+
   // 같은 y → 직선이지만 다른 wire와 같은 lane이면 살짝 shift (lane manager로 분산).
   if (Math.abs(a.y - b.y) < 1) {
     const yChan = lanes ? lanes.assign(a.y) : a.y;
     if (Math.abs(yChan - a.y) < 1) {
       // lane이 그대로 → 직선 사용. 단 obstacle 가로지르면 Z-detour.
       if (!horizontalCrossesAny(a.y, a.x, b.x, obstacles)) return line(a, b);
-      const naturalDetour = a.y + (stagger > 0 ? stagger : 30);
-      let detourY = findFreeY(naturalDetour, obstacles, [Math.min(a.x, b.x), Math.max(a.x, b.x)]);
-      if (lanes) detourY = lanes.assign(detourY);
-      if (Math.abs(detourY - a.y) > 80) return line(a, b);
+      const xr: [number, number] = [Math.min(a.x, b.x), Math.max(a.x, b.x)];
+      // ★★ 위·아래 **양쪽**을 시도해 가까운 쪽을 쓴다 (사용자 신고 2026-08-13).
+      //   예전엔 아래쪽만 시도하고 "우회가 200px 넘으면 직선 반환"으로 포기했는데,
+      //   그 직선이 바로 **게이트를 관통하는 선**이었다(주석은 되돌리지 않는다고 적혀 있었지만
+      //   코드는 되돌리고 있었다 — X→NOT 배선이 T-FF를 가로질렀다).
+      const down = safeChannelY(a.y + (stagger > 0 ? stagger : 30), obstacles, xr, lanes);
+      const up = safeChannelY(a.y - (stagger > 0 ? stagger : 30), obstacles, xr, lanes);
+      const detourY = Math.abs(down - a.y) <= Math.abs(up - a.y) ? down : up;
       return `<path d="M ${a.x} ${a.y} L ${a.x} ${detourY} L ${b.x} ${detourY} L ${b.x} ${b.y}" stroke="black" fill="none" stroke-width="2"/>`;
     }
     // lane이 shift됨 → V-H-V로 우회 (양 끝 stub 짧게)
-    return `<path d="M ${a.x} ${a.y} L ${a.x} ${yChan} L ${b.x} ${yChan} L ${b.x} ${b.y}" stroke="black" fill="none" stroke-width="2"/>`;
+    // ★ 이 분기에는 **장애물 검사가 없었다** — lane이 옮긴 y가 게이트 몸통을 그대로 관통했다
+    //   (감사 도구로 검출한 38건의 주범, 2026-08-04). safeChannelY로 보정한다.
+    const xr0: [number, number] = [Math.min(a.x, b.x), Math.max(a.x, b.x)];
+    const safeY = safeChannelY(yChan, obstacles, xr0, undefined);
+    return `<path d="M ${a.x} ${a.y} L ${a.x} ${safeY} L ${b.x} ${safeY} L ${b.x} ${b.y}" stroke="black" fill="none" stroke-width="2"/>`;
   }
   // 같은 x → 직선
   if (Math.abs(a.x - b.x) < 1) return line(a, b);
@@ -973,8 +1256,7 @@ function orthogonalWire(
 
   // H 라인이 막히면 V-H-V로 우회: midY를 row gap으로 snap, stagger로 horizontal channel 분산, lane으로 wire-wire 겹침 회피
   const naturalMidY = (a.y + b.y) / 2 + stagger;
-  let midY = findFreeY(naturalMidY, obstacles, xRange);
-  if (lanes) midY = lanes.assign(midY);
+  const midY = safeChannelY(naturalMidY, obstacles, xRange, lanes);
   return `<path d="M ${a.x} ${a.y} L ${a.x} ${midY} L ${b.x} ${midY} L ${b.x} ${b.y}" stroke="black" fill="none" stroke-width="2"/>`;
 }
 
@@ -1103,20 +1385,12 @@ function renderFlipFlopPinLabels(node: GateNode): string {
   const inputCount = Math.max(1, inputs.length);
   let svg = "";
 
-  // 일반 입력 핀 stub end 옆 — 핀별 stub 길이 다름 (모든 FF에 적용)
-  const gap = h / (inputCount + 1);
-  for (let i = 0; i < inputCount; i++) {
-    const py = y + gap * (i + 1);
-    const sig = inputs[i];
-    const stubEndX = x - getFfPinStub(i, inputCount);
-    svg += `<text x="${stubEndX - 4}" y="${py - 3}" text-anchor="end" font-size="10" fill="#1e40af" font-weight="600">${escapeSvg(formatSignalLabel(sig))}</text>`;
-  }
-  // CLK 핀 (▷ stub end) 옆 — 가장 긴 stub 끝
-  if (node.gate.clockSignal) {
-    const clkY = y + h - 6;
-    const clkStubEndX = x - getFfPinStub("clk", inputCount);
-    svg += `<text x="${clkStubEndX - 4}" y="${clkY + 4}" text-anchor="end" font-size="10" fill="#1e40af" font-weight="600">${escapeSvg(formatSignalLabel(node.gate.clockSignal))}</text>`;
-  }
+  // ★★ 사용자 지정 (2026-08-13) — **플립플롭 입력 핀 옆 신호 기호를 표시하지 않는다.**
+  //   2026-08-12에 "게이트 입력 옆 신호 부호를 쓰지 말라"는 **범용 규칙**을 받았는데 그때
+  //   게이트 쪽(renderGatePins)만 고치고 **FF 입력 핀은 남아 있었다**(사용자 재지적).
+  //   어느 신호가 들어오는지는 **배선**이 이미 말해 준다 — 원본 임용 도면에도 그 표기는 없다.
+  //   ※ 아래 CLK 라벨도 같은 이유로 뺀다(클럭선은 그림에서 명확하다).
+  void inputs; void inputCount; void h;
   return svg;
 }
 
@@ -1245,4 +1519,16 @@ function escapeSvg(v: unknown): string {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+/**
+ * 스모크·감사 전용 — 레이아웃된 게이트 박스를 그대로 노출한다.
+ *   배선이 게이트 몸통을 지나가는지(규칙 #1) 객관적으로 측정하기 위한 훅.
+ */
+export function __debugGateBoxes(diagram: LogicNetworkDiagram): Array<{
+  id: string; type: string; x: number; y: number; width: number; height: number;
+}> {
+  return layoutLogicGates(levelizeLogicGates(diagram)).map((n) => ({
+    id: n.gate.id, type: String(n.type), x: n.x, y: n.y, width: n.width, height: n.height,
+  }));
 }

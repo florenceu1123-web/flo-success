@@ -31,6 +31,17 @@ export function resolveDigitalRules(args: {
   } else if (args.circuitType === "async_preset_ripple_counter") {
     // 비동기 SET/RESET D-FF 응용회로 — (가) 회로 + (나) 파형(클럭·Q, ㉠·㉡ 구간). kmap·구현회로 요구 없음.
     required.push("main_circuit", "waveform");
+  } else if (args.circuitType === "number_repr_fill_blank") {
+    // 임용 27번 — 데이터 표현·산술 연산 빈칸. ★그림 없음★ (logic_condition_sop 선례).
+    //   topicKey 기본 요구(kmap·구현회로)를 명시적으로 우회한다.
+  } else if (args.circuitType === "jk_two_phase_clock") {
+    // 임용 30번 — (가) JK + 2상 클럭발생기 회로 + (나) 파형(Y는 학생이 도시).
+    //   진리표·카르노맵·상태도는 원본에 없다.
+    required.push("main_circuit", "waveform");
+  } else if (args.circuitType === "dff_preset_clear_regions") {
+    // 임용 27번 — (가) D-FF + 비동기 PR·CLR 회로 + (나) CLK·A·B 파형(Q는 학생이 도시).
+    //   진리표·카르노맵·구현회로는 원본에 없다 → 요구하면 missing_figure_variant가 뜬다.
+    required.push("main_circuit", "waveform");
   } else if (args.circuitType === "flipflop_mixed_app") {
     required.push("implementation_circuit", "truth_table", "waveform");
   } else if (args.circuitType === "tff_state_table_blank") {
@@ -53,6 +64,22 @@ export function resolveDigitalRules(args: {
     // 2025 전기 A-8 — (가) 상태 여기표(빈칸 ㉠~㉣) + (나) JK-FF 2개 + 조합논리 ㉲ 회로.
     //   K-map·파형은 풀이 산출물이므로 요구하지 않는다.
     required.push("truth_table", "implementation_circuit");
+  } else if (args.circuitType === "dff_nand_mux_pair") {
+    // 임용 12번 — (가) D-FF 2개 회로 + (나) 입력 파형뿐이다. 원본에 **카르노맵·진리표가 없다** —
+    //   topicKey=flipflop_counter의 기본 요구(kmap)를 그대로 두면 missing_figure_variant가 뜬다(실측).
+    required.push("implementation_circuit", "input_waveform");
+  } else if (args.circuitType === "ff_feedback_z_waveform") {
+    // 임용 26번 — (가) 회로 + (나) 입력 파형뿐. 카르노맵·구현회로가 원본에 없다.
+    required.push("main_circuit", "waveform");
+  } else if (args.circuitType === "ff_reachable_states") {
+    // 임용 24번 — (가) D+T 플립플롭 회로 + (나) 타이밍 도표뿐이다.
+    //   원본에 **카르노맵·구현 회로가 없다** — 요구하면 missing_figure_variant가 뜬다(실측).
+    //   상태 전이표는 풀이 산출물이라 solutionFigures로 보낸다.
+    required.push("main_circuit", "waveform");
+  } else if (args.circuitType === "jk_mealy_state_design") {
+    // 임용 9번 — (가) 상태도 + (나) 상태표뿐이다. **구현 회로 figure가 원본에 없다** —
+    //   요구하면 missing_figure_variant가 뜬다(실측). K-map은 풀이 [단계 3] 산출물.
+    required.push("state_diagram", "truth_table");
   } else if (args.circuitType === "logic_condition_sop") {
     // 동작 조건(말)→최소 SOP (임용 25번). ★그림 없음★ — 조건은 텍스트, 진리표·K-map은 풀이 산출물.
     //   required 없음(figure-less). topicKey=combinational_gate의 kmap/구현회로 요구를 명시적으로 우회.

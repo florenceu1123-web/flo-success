@@ -55,6 +55,16 @@ export async function runActiveLowpassFilterPipeline(args: {
 
     const fmtR = (r: number) => `${r / 1000}kΩ`;
     const fmtC = (c: number) => `${c * 1e9}nF`;
+    // ★ 표기 규칙 (CLAUDE.md 1-4-3) — route의 전역 분수 변환기는 answer·solution에만 걸리고
+    //   **대괄호 단위가 바로 뒤에 붙은 소수만** 보호한다. 그래서 실측에서
+    //     · "398.1 Hz"가 **3981/10**으로, "796.2 Hz"가 **3981/5**로 뭉개졌고
+    //     · 풀이의 "π=3.14 대입"이 **π=157/50**이 됐다.
+    //   ⇒ 주파수는 반드시 `398.1[Hz]` 형태로 쓰고, 풀이의 π는 **기호로** 둔다
+    //     ("π는 3.14로 계산" 지시는 본문·조건에만 — 그쪽은 변환기가 건드리지 않는다).
+    //   음수는 유니코드 마이너스로 통일한다(같은 문항에 `-199`와 `−199`가 섞이지 않게).
+    const hz = (x: number) => `${String(x).replace(/-/g, "−")}[Hz]`;
+    const powC = (c: number) => `${c * 1e9}×10⁻⁹`;
+    const powR = (r: number) => `${r / 1000}×10³`;
 
     let content: string, conditions: string[], question: string, answer: string, solution: string;
 
@@ -62,7 +72,7 @@ export async function runActiveLowpassFilterPipeline(args: {
       // 원본 형식 — C 변경
       content = [
         `그림 (가)는 연산증폭기를 이용한 1차 저역통과 필터 회로이다.`,
-        `커패시터 C를 ${fmtC(v.Cbefore)}에서 ${fmtC(v.Cafter)}으로 바꾸었을 때 대역폭[Hz]의 변화로 옳은 것을 <해석 절차>에 따라 각 단계별 풀이과정과 함께 구하시오.`,
+        `커패시터 C를 ${fmtC(v.Cbefore)}에서 ${fmtC(v.Cafter)}으로 바꾸었을 때 대역폭[Hz]의 변화를 <해석 절차>에 따라 각 단계별 풀이과정과 함께 구하시오.`,
         `(단, π는 3.14로 계산하고, 연산증폭기는 이상적인 조건으로 동작한다.)`,
       ].join(" ");
       conditions = [
@@ -76,24 +86,24 @@ export async function runActiveLowpassFilterPipeline(args: {
       ].join("\n");
       answer = [
         `[단계 1] f_c = 1/(2πRC)`,
-        `[단계 2] f_c(${fmtC(v.Cbefore)}) ≈ ${a.fcBefore} Hz,  f_c(${fmtC(v.Cafter)}) ≈ ${a.fcAfter} Hz`,
-        `[단계 3] Δf ≈ ${a.delta} Hz → 약 ${a.deltaNice} Hz ${a.direction}`,
+        `[단계 2] f_c(${fmtC(v.Cbefore)}) ≈ ${hz(a.fcBefore)},  f_c(${fmtC(v.Cafter)}) ≈ ${hz(a.fcAfter)}`,
+        `[단계 3] Δf ≈ ${hz(a.delta)} → 약 ${hz(a.deltaNice)} ${a.direction}`,
       ].join("\n");
       solution = [
         `[단계 1] 입력단 R-C 저역통과가 대역폭을 결정한다(OPAMP는 이상적 버퍼, 이득은 대역폭 불변).`,
         `  ⇒ 대역폭 = 차단주파수 f_c = 1/(2πRC).`,
-        `[단계 2] R=${fmtR(v.R)}, π=3.14 대입:`,
-        `  f_c(${fmtC(v.Cbefore)}) = 1/(2·3.14·${v.R}·${v.Cbefore}) ≈ ${a.fcBefore} [Hz].`,
-        `  f_c(${fmtC(v.Cafter)}) = 1/(2·3.14·${v.R}·${v.Cafter}) ≈ ${a.fcAfter} [Hz].`,
+        `[단계 2] R=${fmtR(v.R)}를 대입한다(π는 조건대로 계산).`,
+        `  f_c(${fmtC(v.Cbefore)}) = 1/(2π·${powR(v.R)}·${powC(v.Cbefore)}) ≈ ${hz(a.fcBefore)}.`,
+        `  f_c(${fmtC(v.Cafter)}) = 1/(2π·${powR(v.R)}·${powC(v.Cafter)}) ≈ ${hz(a.fcAfter)}.`,
         `  (C가 ${v.Cafter / v.Cbefore}배 → 대역폭은 1/${v.Cafter / v.Cbefore}배.)`,
-        `[단계 3] Δf = f_c(후) − f_c(전) ≈ ${a.fcAfter} − ${a.fcBefore} = ${a.delta} [Hz].`,
-        `  ⇒ 대역폭은 약 ${a.deltaNice} [Hz] ${a.direction}한다.`,
+        `[단계 3] Δf = f_c(후) − f_c(전) ≈ ${hz(a.fcAfter)} − ${hz(a.fcBefore)} = ${hz(a.delta)}.`,
+        `  ⇒ 대역폭은 약 ${hz(a.deltaNice)} ${a.direction}한다.`,
       ].join("\n");
     } else {
       // 변형 — R 변경 (C 고정)
       content = [
         `그림 (가)는 연산증폭기를 이용한 1차 저역통과 필터 회로이다.`,
-        `입력 저항 R을 ${fmtR(v.Rbefore)}에서 ${fmtR(v.Rafter)}으로 바꾸었을 때 대역폭[Hz]의 변화로 옳은 것을 <해석 절차>에 따라 각 단계별 풀이과정과 함께 구하시오.`,
+        `입력 저항 R을 ${fmtR(v.Rbefore)}에서 ${fmtR(v.Rafter)}으로 바꾸었을 때 대역폭[Hz]의 변화를 <해석 절차>에 따라 각 단계별 풀이과정과 함께 구하시오.`,
         `(단, π는 3.14로 계산하고, 연산증폭기는 이상적인 조건으로 동작한다.)`,
       ].join(" ");
       conditions = [
@@ -107,18 +117,18 @@ export async function runActiveLowpassFilterPipeline(args: {
       ].join("\n");
       answer = [
         `[단계 1] f_c = 1/(2πRC)`,
-        `[단계 2] f_c(${fmtR(v.Rbefore)}) ≈ ${a.fcBefore} Hz,  f_c(${fmtR(v.Rafter)}) ≈ ${a.fcAfter} Hz`,
-        `[단계 3] Δf ≈ ${a.delta} Hz → 약 ${a.deltaNice} Hz ${a.direction}`,
+        `[단계 2] f_c(${fmtR(v.Rbefore)}) ≈ ${hz(a.fcBefore)},  f_c(${fmtR(v.Rafter)}) ≈ ${hz(a.fcAfter)}`,
+        `[단계 3] Δf ≈ ${hz(a.delta)} → 약 ${hz(a.deltaNice)} ${a.direction}`,
       ].join("\n");
       solution = [
         `[단계 1] 입력단 R-C 저역통과가 대역폭을 결정한다(OPAMP는 이상적 버퍼).`,
         `  ⇒ 대역폭 = 차단주파수 f_c = 1/(2πRC).`,
-        `[단계 2] C=${fmtC(v.C!)}, π=3.14 대입:`,
-        `  f_c(${fmtR(v.Rbefore)}) = 1/(2·3.14·${v.Rbefore}·${v.C}) ≈ ${a.fcBefore} [Hz].`,
-        `  f_c(${fmtR(v.Rafter)}) = 1/(2·3.14·${v.Rafter}·${v.C}) ≈ ${a.fcAfter} [Hz].`,
+        `[단계 2] C=${fmtC(v.C!)}를 대입한다(π는 조건대로 계산).`,
+        `  f_c(${fmtR(v.Rbefore)}) = 1/(2π·${powR(v.Rbefore)}·${powC(v.C!)}) ≈ ${hz(a.fcBefore)}.`,
+        `  f_c(${fmtR(v.Rafter)}) = 1/(2π·${powR(v.Rafter)}·${powC(v.C!)}) ≈ ${hz(a.fcAfter)}.`,
         `  (R이 1/${v.Rbefore / v.Rafter}배 → 대역폭은 ${v.Rbefore / v.Rafter}배.)`,
-        `[단계 3] Δf = f_c(후) − f_c(전) ≈ ${a.fcAfter} − ${a.fcBefore} = ${a.delta} [Hz].`,
-        `  ⇒ 대역폭은 약 ${a.deltaNice} [Hz] ${a.direction}한다.`,
+        `[단계 3] Δf = f_c(후) − f_c(전) ≈ ${hz(a.fcAfter)} − ${hz(a.fcBefore)} = ${hz(a.delta)}.`,
+        `  ⇒ 대역폭은 약 ${hz(a.deltaNice)} ${a.direction}한다.`,
       ].join("\n");
     }
 

@@ -1,4 +1,5 @@
 import { getOpenAI, DEFAULT_MODEL } from "@/lib/openai";
+import { STEP_QUESTION_RULE } from "@/lib/format/threeStep";
 import { createLogger } from "@/lib/logger";
 import { SYSTEM_PROMPT } from "@/lib/prompts";
 import type { GenerationMode } from "@/types";
@@ -70,6 +71,7 @@ ${contextHint ? `[원본 맥락]\n${contextHint}` : ""}
 }
 
 [규칙]
+${STEP_QUESTION_RULE}
 - answer는 솔버 값 그대로. 다른 값으로 바꾸지 마라.
 - solution은 supermesh 풀이 절차를 명시 (KVL + 보조 전류 조건 결합).
 - 회로 도식 다시 만들지 마라. 코드가 처리.

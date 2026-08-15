@@ -8,9 +8,13 @@ import type {
 } from "@/types";
 import type { RuleSet } from "@/lib/rules";
 import { aliasGroupKey, getAliasGroup, isMainCircuitRole, isStateRole } from "./figureRoleAliases";
+import { countStepMarkers, hasChoiceList, isThreeStepText } from "@/lib/format/threeStep";
 
 const SUPPORTED_DIAGRAM_TYPES: DiagramType[] = [
-  "analog_netlist", "logic_network", "kmap", "waveform", "truth_table",
+  "analog_netlist",
+  "r2r_ladder_dac_circuit",   // 임용 28번 R-2R 사다리형 DAC
+  "jfet_depletion_panels",    // 임용 28번 JFET 공핍층 4패널 (개념 도식)
+  "logic_network", "kmap", "waveform", "truth_table",
   "concept_diagram", "block_diagram", "mixed_circuit", "characteristic_curve",
   "mux_diagram", "mux_gar_circuit", "rlc_resonance_max_power_circuit",
   "imyong_10_dc_nodal", "em_field_diagram",
@@ -18,9 +22,20 @@ const SUPPORTED_DIAGRAM_TYPES: DiagramType[] = [
   "code_block", "comm_diagram",   // C언어·통신 (비회로 subject)
 ];
 
+/**
+ * 파형 figure로 간주되는 diagramType — 범용 "waveform" + archetype 전용 파형 렌더러.
+ *  ★ 전용 archetype이 자체 파형 패널을 그리면 diagramType이 "waveform"이 아니므로
+ *    여기에 등록해야 missing_waveform 오검출을 피한다(실측: diode_clamper).
+ */
+const WAVEFORM_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
+  "waveform",
+  "diode_clamper_waveform",   // 다이오드 클램퍼 (나) v_i·v_o 2단 패널 (임용 2번 전자회로)
+]);
+
 /** 회로 figure로 간주되는 diagramType — analog 계열 + archetype 전용 fixed-slot. */
 const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "analog_netlist",
+  "r2r_ladder_dac_circuit", // 임용 28번 4비트 R-2R 사다리형 DAC = topology figure
   "logic_network",
   "imyong_10_dc_nodal",
   "sr_ff_mux_sequential_circuit", // 임용 10번 정보과 (다) SR-FF + MUX 구현 회로 = topology figure
@@ -49,8 +64,29 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "opamp_three_stage_sum_circuit", // 3-OPAMP 반전+버퍼+가산 (임용 2번 전자) = topology figure
   "ac_bridge_circuit", // AC 휘트스톤 브리지 (가, 임용 7번) = topology figure
   "ac_bridge_thevenin_circuit", // 테브난 등가 (나) = topology figure
+  "ac_delta_wye_bridge_circuit", // 교류 브리지 (가, 임용 2번 Δ-Y) = topology figure
+  "ac_delta_wye_equiv_circuit",  // Δ-Y 변환 등가 (나) = topology figure
+  "ac_two_source_mesh_circuit", // 2전원 RLC 2-메시 회로 (임용 5번) = topology figure
+  "thevenin_dep_graph_circuit", // 종속전원 + 점선 박스 + 계기 (임용 9번) = topology figure
+  "opamp_avg_superposition_circuit", // (+)3입력 평균 + 2단 (임용 8번) = topology figure
+  "oscilloscope_phase_circuit",  // 오실로스코프 측정 대상 회로 (나, 임용 11번) = topology figure
   "ac_thevenin_ladder_circuit", // 단일 AC원 L-C-R 사다리 (가, 임용 7번 회로이론) = topology figure
   "ac_thevenin_equiv_circuit", // 위의 테브난 등가 (나) = topology figure
+  "ac_thevenin_design_ab_circuit", // 교류 테브난 소자값 설계 (임용 7번) = topology figure
+  "zener_shunt_regulator_circuit", // 제너 직렬 션트 정전압 (임용 2번) = topology figure
+  "switched_rlc_source_free_circuit", // t=0 스위치 개방 무전원 직렬 RLC (임용 5번) = topology figure
+  "rlc_state_equation_circuit", // 직류 V·I원 RLC 상태방정식 (임용 6번) = topology figure
+  "switched_rlc_dual_switch_circuit", // SW₁ 닫힘 + SW₂(b→c) 2전압원 RLC (2022 전기 B-5) = topology figure
+  "bjt_thevenin_bias_circuit", // BJT 바이어스 + 테브난 등가 (임용 10번 전자회로) = topology figure
+  "bjt_switch_logic_circuit", // BJT 스위치 응용 회로 (임용 2번) = topology figure
+  "comparator_diode_or_circuit", // 비교기 2개 + 다이오드 결합 (임용 3번) = topology figure
+  "opamp_summer_tfeedback_circuit", // 반전 가산기 + T형 궤환 (임용 7번 전자회로) = topology figure
+  "ac_thevenin_two_box_circuit", // 점선 박스 2개 직렬 테브난 (임용 10번 회로이론) = topology figure
+  "diode_clamper_circuit", // 다이오드 클램퍼 (가, 임용 2번 전자회로) = topology figure
+  "dc_two_source_ladder_circuit", // 전압원+전류원 DC 사다리 (임용 3번 회로이론) = topology figure
+  "opamp_two_stage_rx_circuit", // 2단 OPAMP + R_X 설계 (임용 2번 전자회로) = topology figure
+  "ac_thevenin_dep_circuit", // 종속전원 포함 페이저 회로 (가, 임용 6번 회로이론) = topology figure
+  "ac_thevenin_dep_equiv_circuit", // 위의 테브난 등가 + 부하 Z_L=R+jX (나) = topology figure
   "dc_thevenin_2src_circuit", // 2전압원 병렬가지 (가, 임용 3번 회로이론) = topology figure
   "dc_thevenin_equiv_circuit", // 위의 테브난 등가 (나) = topology figure
   "demux_circuit", // 1→4 디멀티플렉서 (임용 8번 (가)) = topology figure
@@ -60,6 +96,13 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "opamp_rc_t_oscillator_circuit", // OPAMP + T형 RC망 (가)/(나) (임용 9번) = topology figure
   "ac_rl_average_power_circuit", // AC 평균전력 (임용 8번) = topology figure
   "jk_excitation_circuit", // JK-FF 2개 + 조합논리 ㉲ (2025 전기 A-8 (나)) = topology figure
+  "max_power_two_source_circuit", // 전원 크기만 다른 두 회로 최대전력 (임용 17번) = topology figure
+  "jk_two_phase_clock_circuit", // JK₁ + 2상 클럭발생기 + EX-OR (임용 30번) = topology figure
+  "rlc_antiresonance_ladder_circuit", // 병렬 LC 반공진 RLC 사다리 (임용 16번) = topology figure
+  "ac_dc_source_superposition_circuit", // 교류 전압원 + 직류 전류원 RLC (임용 15번) = topology figure
+  "two_source_rl_superposition_circuit", // 전압원 2개 RL/RC 중첩 (임용 4번 (가)(나)(다)) = topology figure
+  "switched_rl_dual_short_circuit", // 전류원 RL + 스위치 2개 단락 (임용 17번) = topology figure
+  "dff_preset_clear_circuit", // D-FF + 비동기 PR·CLR + A·B NAND (임용 27번 (가)) = topology figure
   "ac_superposition_source_design_circuit", // 2전원 페이저 RLC 중첩 (임용 5번 회로이론) = topology figure
   "dc_wheatstone_balance_circuit", // DC 휘트스톤 브리지 평형 (임용 3번 회로이론) = topology figure
   "ac_power_factor_circuit", // AC 역률보정 (임용 9번 회로이론) = topology figure
@@ -68,6 +111,7 @@ const CIRCUIT_FIGURE_TYPES: ReadonlySet<DiagramType> = new Set<DiagramType>([
   "ac_vccs_phasor_circuit", // 종속전류원 2단 구동 페이저 회로 (임용 3번 회로이론) = topology figure
   "switched_rc_dc_circuit", // t=0 스위치 개방 RC (임용 2번) = topology figure
   "switched_rl_dual_src_circuit", // 2전원 SPDT 스위치 RL 과도 (임용 3번 회로이론) = topology figure
+  "switched_cap_short_rl_circuit", // 스위치가 커패시터를 단락 → 1차 RL 계단응답 (임용 7번 회로이론) = topology figure
   "dff_state_design_circuit", // D-FF 2개 + 게이트 구현 (임용 9번 정보과 (다)) = topology figure
   "jk_sync_counter_circuit", // JK 플립플롭 3개 동기식 카운터 (가) = topology figure
   "jk_state_machine_circuit", // JK 카운터 비순환 상태형 (가) = topology figure
@@ -121,10 +165,59 @@ export function validateProblem(args: {
     subject: SubjectKey;
     topicKey?: TopicKey;
     ruleSet: RuleSet;
+    /**
+     * 원본이 객관식(보기 ①~⑤)인가 — true면 생성물은 **3단계 단계별 주관식**이어야 한다
+     * (사용자 지정 2026-08-12, [[lib/format/threeStep]]). route가 분석에서 판정해 넘긴다.
+     */
+    multipleChoiceOriginal?: boolean;
   };
 }): ValidationResult {
   const issues: ValidationIssue[] = [];
   const { problem, expected } = args;
+
+  // 0. ★ 객관식 → 3단계 주관식 계약 (모든 과목 공통, 회로/비회로 무관)
+  //   (a) 생성물이 다시 객관식이면 안 된다 — 어떤 경로(GPT 포함)든 보기를 만들지 않는다.
+  //   (b) 원본이 객관식이면 발문은 [단계 1]~[단계 3]이어야 한다.
+  //   ※ 차단이 아니라 **보고**다 — 조용히 통과해 사용자 화면에서야 드러나는 것을 막는 게 목적.
+  {
+    const body = [problem.content, problem.question, (problem.conditions ?? []).join(" ")].join("\n");
+    if (hasChoiceList(body)) {
+      issues.push({
+        rule: "multiple_choice_output",
+        message: "생성물이 객관식 형태(보기 ①~⑤ 또는 '옳은 것은')다 — 3단계 단계별 주관식으로 출제해야 한다",
+      });
+    }
+    // ★ **빈칸 채우기 형식은 계약을 만족한다** (사용자 지정 2026-08-12).
+    //   계약의 취지는 "보기에서 고르기 → 학생이 직접 산출"이다. ㉠~㉪ 빈칸을 3개 이상 채우게 하는
+    //   문항은 그 취지를 이미 만족하므로 [단계 N] 마커를 강요하지 않는다.
+    //   (유형별 예외 목록이 아니라 **형식 자체**로 판단한다 — 두더지잡기 방지.)
+    const blankMarkers = new Set(problem.question.match(/[㉠-㉪]/g) ?? []);
+    const isFillInBlank = blankMarkers.size >= 3 && /빈칸|채우|들어갈|알맞은/.test(problem.question);
+    if (expected.multipleChoiceOriginal && !isThreeStepText(problem.question) && !isFillInBlank) {
+      issues.push({
+        rule: "missing_three_step_question",
+        message: `원본이 객관식인데 발문이 3단계가 아니다(단계 마커 ${countStepMarkers(problem.question)}개)`,
+      });
+    }
+    // (c) ★ 정답·풀이는 단계별인데 **발문만 단일 물음**인 불일치 (사용자 신고 2026-08-12).
+    //   원본 판정(객관식 여부)과 무관하게 항상 검사한다 — 학생이 무엇을 순서대로 써야 하는지
+    //   발문에 없으면 단계별 답안을 요구할 수 없다. GPT 경로에서 반복되므로 critical로 올려
+    //   재생성 트리거로 쓴다(`lib/generation/_core`의 CRITICAL_RULES).
+    const answerSteps = Math.max(countStepMarkers(problem.answer), countStepMarkers(problem.solution));
+    const questionSteps = countStepMarkers(problem.question);
+    if (answerSteps >= 2 && questionSteps === 0) {
+      issues.push({
+        rule: "question_not_step_wise",
+        message:
+          `정답·풀이는 ${answerSteps}단계인데 발문에 [단계 N]이 없다 — 발문도 [단계 1]~[단계 ${Math.max(3, answerSteps)}]로 쪼갤 것. ` +
+          "묻는 양이 2개뿐이어도 [단계 1]에 정의식·관계식 세우기를 넣어 3단계로 만든다.",
+      });
+    }
+    // ※ 역방향(발문 3단계 + 정답 한 줄)은 **규칙으로 만들지 않는다**: 여러 generic 경로가
+    //   솔버가 확정한 정답을 한 줄로 강제하므로(예: rlcStep의 enforcedAnswer) 정상 동작을
+    //   위반으로 찍는다(실측 smokeAll 29/40). 프롬프트로만 단계 라벨을 권한다.
+    void questionSteps;
+  }
 
   // 1. subject — GeneratedProblem 자체엔 subject가 없으므로 RuleSet의 subject가 expected와 일치 여부만 확인
   if (expected.ruleSet.subject !== expected.subject) {
@@ -207,7 +300,11 @@ export function validateProblem(args: {
     // ★ 수 표현 고리(임용 4번) — 회로가 아니라 **수 체계 도식**이다(2026-07-30 실측: missing_topology 발화).
     f.diagramType === "number_ring_diagram" ||
     // 상태도(고리) — jk_state_diagram도 회로 figure가 아니다.
-    f.diagramType === "jk_state_diagram",
+    f.diagramType === "jk_state_diagram" ||
+    // ★ 임용 27번 Early 효과 — (가)는 소자 **단면도**, (나)는 특성곡선이라 둘 다 netlist가 아니다.
+    f.diagramType === "jfet_depletion_panels" ||   // JFET 공핍층 도식 — netlist 아님
+    f.diagramType === "bjt_early_structure" ||
+    f.diagramType === "bjt_early_curve",
   );
   // analog 회로는 analog_netlist, 디지털논리는 logic_network — 둘 중 하나는 있어야
   // 단, 개념·도식 해석형(특성곡선·개념도)은 회로 figure 없이도 정상 — 면제.
@@ -232,8 +329,10 @@ export function validateProblem(args: {
 
   // 6. waveform 문제인데 waveform figure 없음
   //   ※ Thevenin-style은 등가회로 두 figure로 대체 만족 — waveform 요구 면제.
+  //   ★ 전용 archetype이 자체 파형 렌더러를 쓰는 경우도 인정한다(diagramType이 "waveform"이 아님).
+  //     실측: diode_clamper의 (나) 2단 파형 패널이 "waveform"이 아니라는 이유로 missing_waveform이 떴다.
   if (expected.ruleSet.semantic.hasWaveformEvolution &&
-      !figs.some((f) => f.diagramType === "waveform") &&
+      !figs.some((f) => WAVEFORM_FIGURE_TYPES.has(f.diagramType) || f.role === "waveform") &&
       !isTheveninStyle) {
     issues.push({ rule: "missing_waveform", message: "hasWaveformEvolution=true이지만 waveform figure 없음" });
   }
@@ -246,9 +345,15 @@ export function validateProblem(args: {
   // 8. 본문/조건/질문이 그림을 참조하는데 figure가 없거나 unsupported diagramType
   const refText = [problem.content, ...problem.conditions, problem.question].join("\n");
   if (referencesFigure(refText)) {
-    const renderable = figs.some((f) =>
-      SUPPORTED_DIAGRAM_TYPES.includes(f.diagramType as DiagramType)
-    );
+    // ★★ "렌더 가능"의 기준은 generic 목록만이 아니다 — **전용 archetype의 fixed-slot 렌더러도
+    //   당연히 렌더 가능**하다. SUPPORTED_DIAGRAM_TYPES만 보던 탓에, 본문에 "그림 (가)는 …"이
+    //   들어간 전용 archetype이 전부 이 오탐에 걸렸다(실측 신고 2026-08-12: two_source_rl_superposition).
+    //   유형 하나씩 목록에 추가하는 방식(두더지잡기) 대신, 이 파일이 이미 관리하는
+    //   회로·파형 figure 집합을 함께 인정한다.
+    const renderable = figs.some((f) => {
+      const t = f.diagramType as DiagramType;
+      return SUPPORTED_DIAGRAM_TYPES.includes(t) || CIRCUIT_FIGURE_TYPES.has(t) || WAVEFORM_FIGURE_TYPES.has(t);
+    });
     if (!renderable) {
       issues.push({
         rule: "figure_reference_without_renderable",

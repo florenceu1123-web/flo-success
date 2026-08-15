@@ -154,10 +154,15 @@ function variantConfigs(): Array<{ c: JkConfigG; a: Analysis }> {
 const BITS = 3;
 const CLK_MARGIN = 1; // 사이클(6) 뒤 여유 클럭
 
+/** 클럭 트리거 에지. 원본(임용 6번)의 CP 입력에는 버블이 있어 **하강 에지**다. */
+export type ClockEdge = "rising" | "falling";
+
 export type JkStateMachineGeneration = {
   config: JkConfig;
   /** 변형유형이면 게이트 포함 config (렌더러가 게이트 그림). */
   variantConfig?: JkConfigG;
+  /** 클럭 트리거 에지 — 회로 그림(버블)과 타이밍 도표 전이 위치가 이 값을 따른다. */
+  clockEdge: ClockEdge;
   /** 000에서 시작하는 사이클 순서 (000 먼저, 길이 6). */
   cycle: number[];
   /** 순환하지 않는 상태값 (정확히 2개) + 각 다음 상태. */
@@ -180,29 +185,50 @@ function clockSamples(nClk: number) {
   out.push({ t: 2 * nClk, v: 0 });
   return out;
 }
-function bitSamples(seq: number[], bit: number, nClk: number) {
+/**
+ * Q 트랙 샘플. `seq[k]` = **k번째 클럭 에지를 겪은 뒤**의 상태(seq[0]=초기값 000).
+ * shape="step"은 zero-order hold라 값이 바뀌는 샘플 시각이 그대로 전이 에지가 된다.
+ *  - falling(원본): 펄스 k의 하강 에지 t=2k+1에서 전이 → seq[k]를 [2k−1, 2k+1) 구간에 유지.
+ *  - rising:        펄스 k의 상승 에지 t=2k   에서 전이 → seq[k]를 [2k, 2k+2) 구간에 유지.
+ * ※ 같은 t에 샘플 2개를 찍으면 waveform_time_not_monotonic이 나므로 시각은 항상 증가시킨다.
+ */
+function bitSamples(seq: number[], bit: number, nClk: number, falling: boolean) {
+  const b = (s: number) => (s >> bit) & 1;
   const out: Array<{ t: number; v: number }> = [];
+  if (falling) {
+    out.push({ t: 0, v: b(seq[0]) });                             // 첫 하강 에지 전 = 초기값
+    for (let k = 1; k <= nClk; k++) out.push({ t: 2 * k - 1, v: b(seq[k]) });
+    out.push({ t: 2 * nClk, v: b(seq[nClk]) });
+    return out;
+  }
   for (let k = 0; k < nClk; k++) {
-    const v = (seq[k] >> bit) & 1;
+    const v = b(seq[k]);
     out.push({ t: 2 * k, v }); out.push({ t: 2 * k + 1, v });
   }
-  out.push({ t: 2 * nClk, v: (seq[nClk - 1] >> bit) & 1 });
+  out.push({ t: 2 * nClk, v: b(seq[nClk - 1]) });
   return out;
 }
 
 /** 분석(사이클·비순환·다음상태표)에서 타이밍·상태도·마커를 공통 생성. */
-function buildResult(a: Analysis, config: JkConfig, variantConfig?: JkConfigG): JkStateMachineGeneration {
+function buildResult(
+  a: Analysis,
+  config: JkConfig,
+  clockEdge: ClockEdge,
+  variantConfig?: JkConfigG,
+): JkStateMachineGeneration {
+  const falling = clockEdge === "falling";
   const i0 = a.cycle.indexOf(0);
   const cycle = [...a.cycle.slice(i0), ...a.cycle.slice(0, i0)];
   const nClk = numClocksShown();
+  // seq[k] = k번째 클럭 에지 뒤의 상태. 마지막 에지 뒤 값까지 필요해 nClk+1개.
   const seq: number[] = [];
-  for (let k = 0; k < nClk; k++) seq.push(cycle[k % cycle.length]);
+  for (let k = 0; k <= nClk; k++) seq.push(cycle[k % cycle.length]);
 
   const mkSignals = (blankQ: boolean) => [
     { name: "CP", samples: clockSamples(nClk), shape: "step" as const },
     ...[2, 1, 0].map((bit) => ({
       name: `Q${bit}`,
-      samples: blankQ ? [] : bitSamples(seq, bit, nClk),
+      samples: blankQ ? [] : bitSamples(seq, bit, nClk, falling),
       shape: "step" as const,
       ...(blankQ ? { blank: true, vRange: { min: 0, max: 1 } } : {}),
     })),
@@ -216,7 +242,7 @@ function buildResult(a: Analysis, config: JkConfig, variantConfig?: JkConfigG): 
     nonCyclic: nonCyclic.map((n) => ({ state: stateBits(n.state), next: stateBits(n.next) })),
   };
   return {
-    config, variantConfig, cycle, nonCyclic, nextTable: a.nxt,
+    config, variantConfig, clockEdge, cycle, nonCyclic, nextTable: a.nxt,
     waveformTemplate: { signals: mkSignals(true), unit: { time: "T" }, markers },
     waveformSolution: { signals: mkSignals(false), unit: { time: "T" }, markers },
     stateDiagram, markerStates,
@@ -224,20 +250,20 @@ function buildResult(a: Analysis, config: JkConfig, variantConfig?: JkConfigG): 
 }
 
 /** exam_similar: 단일신호 비순환 카운터. index 0 = 원본 재현. */
-export function generateJkStateMachine(args: { seed?: number; index?: number }): JkStateMachineGeneration {
+export function generateJkStateMachine(args: { seed?: number; index?: number; clockEdge?: ClockEdge }): JkStateMachineGeneration {
   const pool = validConfigs();
   const idx = args.index != null ? args.index % pool.length : Math.floor(makeRand(args.seed)() * pool.length);
   const { c, a } = pool[idx];
-  return buildResult(a, c);
+  return buildResult(a, c, args.clockEdge ?? "falling");
 }
 
 /** exam_variant: 게이트 1개 추가한 카운터 (J2=K2=gate(Q1,Q2)). */
-export function generateJkStateMachineVariant(args: { index?: number }): JkStateMachineGeneration {
+export function generateJkStateMachineVariant(args: { index?: number; clockEdge?: ClockEdge }): JkStateMachineGeneration {
   const pool = variantConfigs();
   const idx = (args.index ?? 0) % pool.length;
   const { c, a } = pool[idx];
   // config(단일신호 필드)는 게이트를 문자열로 근사 표기(파이프라인 텍스트용). 렌더러는 variantConfig 사용.
   const gstr = (x: JkInput): JkSignal => (isGate(x) ? "Q1" : x);
   const config: JkConfig = { J0: gstr(c.J0), K0: gstr(c.K0), J1: gstr(c.J1), K1: gstr(c.K1), J2: gstr(c.J2), K2: gstr(c.K2) };
-  return buildResult(a, config, c);
+  return buildResult(a, config, args.clockEdge ?? "falling", c);
 }

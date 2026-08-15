@@ -5,6 +5,7 @@ import { generateSimilar } from "@/lib/mutation";
 import { resolveRules } from "@/lib/rules";
 import { classifyCircuitType } from "@/lib/analysis/classifyCircuitType";
 import { isConceptNamingAnalysis } from "@/lib/analysis/deviceIdentity";
+import { detectMultipleChoiceOriginal } from "@/lib/analysis/multipleChoice";
 import { validateProblem, validateFigures, type ValidationResult } from "@/lib/validators";
 import { autoCloseAnalogDangling } from "@/lib/generation/autoCloseAnalogDangling";
 import { validateAnswerSolution } from "@/lib/validators/validateAnswerSolution";
@@ -85,19 +86,61 @@ import { runOpampLoopGainStabilityPipeline, detectOpampLoopGainStability } from 
 import { runOpampThreeStageSumPipeline } from "@/lib/pipeline/runOpampThreeStageSumPipeline";
 import { runAcBridgeMaxPowerPipeline } from "@/lib/pipeline/runAcBridgeMaxPowerPipeline";
 import { runAcTheveninLadderPipeline } from "@/lib/pipeline/runAcTheveninLadderPipeline";
+import { runAcTheveninDependentPipeline, detectAcTheveninDependent } from "@/lib/pipeline/runAcTheveninDependentPipeline";
+import { runAcTheveninDesignAbPipeline, detectAcTheveninDesignAb } from "@/lib/pipeline/runAcTheveninDesignAbPipeline";
+import { runAcDeltaWyeBridgePipeline, detectAcDeltaWyeBridge } from "@/lib/pipeline/runAcDeltaWyeBridgePipeline";
+import { runOscilloscopePhaseLPipeline, detectOscilloscopePhaseL } from "@/lib/pipeline/runOscilloscopePhaseLPipeline";
+import { runAcTwoSourceMeshPowerPipeline, detectAcTwoSourceMeshPower } from "@/lib/pipeline/runAcTwoSourceMeshPowerPipeline";
+import { runAcSuperpositionNullSourcePipeline, detectAcSuperpositionNullSource } from "@/lib/pipeline/runAcSuperpositionNullSourcePipeline";
+import { runTheveninDepGraphMaxPowerPipeline, detectTheveninDepGraph } from "@/lib/pipeline/runTheveninDepGraphMaxPowerPipeline";
+import { runOpampAvgSuperpositionPipeline, detectOpampAvgSuperposition } from "@/lib/pipeline/runOpampAvgSuperpositionPipeline";
+import { runDffNandMuxPairPipeline, detectDffNandMuxPair } from "@/lib/pipeline/runDffNandMuxPairPipeline";
+import { runZenerShuntRegulatorPipeline, detectZenerShuntRegulator } from "@/lib/pipeline/runZenerShuntRegulatorPipeline";
+import { runSwitchedRlcSourceFreePipeline, detectSwitchedRlcSourceFree } from "@/lib/pipeline/runSwitchedRlcSourceFreePipeline";
+import { runRlcStateEquationPipeline, detectRlcStateEquation } from "@/lib/pipeline/runRlcStateEquationPipeline";
+import { runSwitchedRlcDualSwitchPipeline, detectSwitchedRlcDualSwitch } from "@/lib/pipeline/runSwitchedRlcDualSwitchPipeline";
+import { runSwitchedCapShortRlPipeline, detectSwitchedCapShortRl } from "@/lib/pipeline/runSwitchedCapShortRlPipeline";
+import { runOpampTwoStageRxPipeline, detectOpampTwoStageRx } from "@/lib/pipeline/runOpampTwoStageRxPipeline";
+import { runDcTwoSourceLadderPipeline, detectDcTwoSourceLadder } from "@/lib/pipeline/runDcTwoSourceLadderPipeline";
+import { runDiodeClamperPipeline, detectDiodeClamper } from "@/lib/pipeline/runDiodeClamperPipeline";
+import { runJkMealyStateDesignPipeline, detectJkMealyStateDesign } from "@/lib/pipeline/runJkMealyStateDesignPipeline";
+import { runBjtTheveninBiasPipeline, detectBjtTheveninBias } from "@/lib/pipeline/runBjtTheveninBiasPipeline";
+import { runBjtSwitchLogicGatePipeline, detectBjtSwitchLogicGate } from "@/lib/pipeline/runBjtSwitchLogicGatePipeline";
+import { runComparatorDiodeOrPipeline, detectComparatorDiodeOr } from "@/lib/pipeline/runComparatorDiodeOrPipeline";
+import { runOpampSummerTFeedbackPipeline, detectOpampSummerTFeedback } from "@/lib/pipeline/runOpampSummerTFeedbackPipeline";
+import { runAcTheveninTwoBoxPipeline, detectAcTheveninTwoBox } from "@/lib/pipeline/runAcTheveninTwoBoxPipeline";
+import { runTffStateDesignInputPipeline, detectTffStateDesignInput } from "@/lib/pipeline/runTffStateDesignInputPipeline";
 import { runSwitchedRcDcTransientPipeline, detectSwitchedRcDcTransient } from "@/lib/pipeline/runSwitchedRcDcTransientPipeline";
 import { runDcWheatstoneBalancePipeline, detectDcWheatstoneBalance } from "@/lib/pipeline/runDcWheatstoneBalancePipeline";
 import { runAcSuperpositionSourceDesignPipeline, detectAcSuperpositionSourceDesign } from "@/lib/pipeline/runAcSuperpositionSourceDesignPipeline";
 import { runJkExcitationSopPosPipeline, detectJkExcitationSopPos } from "@/lib/pipeline/runJkExcitationSopPosPipeline";
+import { runDffPresetClearRegionsPipeline, detectDffPresetClearRegions } from "@/lib/pipeline/runDffPresetClearRegionsPipeline";
+import { runSwitchedRlDualShortPipeline, detectSwitchedRlDualShort } from "@/lib/pipeline/runSwitchedRlDualShortPipeline";
+import { runTwoSourceRlSuperpositionPipeline, detectTwoSourceRlSuperposition } from "@/lib/pipeline/runTwoSourceRlSuperpositionPipeline";
+import { runAcDcSourceSuperpositionVcPipeline, detectAcDcSourceSuperpositionVc } from "@/lib/pipeline/runAcDcSourceSuperpositionVcPipeline";
+import { runRlcAntiresonanceLadderPipeline, detectRlcAntiresonanceLadder } from "@/lib/pipeline/runRlcAntiresonanceLadderPipeline";
+import { runJkTwoPhaseClockPipeline, detectJkTwoPhaseClock } from "@/lib/pipeline/runJkTwoPhaseClockPipeline";
+import { runMaxPowerTwoSourceRatioPipeline, detectMaxPowerTwoSourceRatio } from "@/lib/pipeline/runMaxPowerTwoSourceRatioPipeline";
+import { runNumberReprFillBlankPipeline, detectNumberReprFillBlank } from "@/lib/pipeline/runNumberReprFillBlankPipeline";
+import { runBjtEarlyEffectFillBlankPipeline, detectBjtEarlyEffectFillBlank } from "@/lib/pipeline/runBjtEarlyEffectFillBlankPipeline";
+import { runMaxwellConceptFillBlankPipeline, detectMaxwellConceptFillBlank } from "@/lib/pipeline/runMaxwellConceptFillBlankPipeline";
 import { runModNCounterResetPipeline, detectModNCounterReset } from "@/lib/pipeline/runModNCounterResetPipeline";
 import { runNumberRepresentationPipeline, detectNumberRepresentation } from "@/lib/pipeline/runNumberRepresentationPipeline";
 import { runDemuxWaveformPipeline, detectDemuxWaveform } from "@/lib/pipeline/runDemuxWaveformPipeline";
 import { fractionizeText } from "@/lib/format/fraction";
+import { stripEulerGiven, stripEulerGivenList } from "@/lib/format/stripEulerGiven";
 import { runTheveninDepVoltagePipeline, detectTheveninDepVoltageProblem } from "@/lib/pipeline/runTheveninDepVoltagePipeline";
 import { runElectromagneticsPipeline } from "@/lib/pipeline/runElectromagneticsPipeline";
 import { runCLanguagePipeline } from "@/lib/pipeline/runCLanguagePipeline";
+import { runCSwitchFallThroughPipeline, detectCSwitchFallThrough } from "@/lib/pipeline/runCSwitchFallThroughPipeline";
+import { runWienBridgeDesignPipeline, detectWienBridgeDesign } from "@/lib/pipeline/runWienBridgeDesignPipeline";
+import { runFfReachableStatesPipeline, detectFfReachableStates } from "@/lib/pipeline/runFfReachableStatesPipeline";
+import { runFfFeedbackZPipeline, detectFfFeedbackZ } from "@/lib/pipeline/runFfFeedbackZPipeline";
+import { runR2rLadderDacPipeline, detectR2rLadderDac } from "@/lib/pipeline/runR2rLadderDacPipeline";
+import { runJfetDepletionFillBlankPipeline, detectJfetDepletionFillBlank } from "@/lib/pipeline/runJfetDepletionFillBlankPipeline";
 import { runCommunicationsPipeline } from "@/lib/pipeline/runCommunicationsPipeline";
 import { runConceptNamingPipeline } from "@/lib/pipeline/runConceptNamingPipeline";
+import { runPeriodicSignalDcRmsPipeline, detectPeriodicSignalDcRms } from "@/lib/pipeline/runPeriodicSignalDcRmsPipeline";
 import { runPedagogyPipeline } from "@/lib/pipeline/runPedagogyPipeline";
 import { runGptFreePipeline } from "@/lib/pipeline/runGptFreePipeline";
 import { runDffStateDesignPipeline, detectDffStateDesign } from "@/lib/pipeline/runDffStateDesignPipeline";
@@ -201,6 +244,7 @@ export async function POST(req: NextRequest) {
       "flipflop_mixed_app", "tff_state_table_blank", "tff3_autonomous_counter", "ff_with_waveform",
       "flipflop_counter", "jk_sync_counter", "combinational_gate", "sequence_detector", "fsm",
       "dff_mux_sequential", "waveform_analysis", "mux_implementation", "counter_dac_comparator", "logic_condition_sop",
+      "tff_state_design_input",
       "jk_excitation_sop_pos", "mod_n_counter_reset", "number_representation", "demux_waveform",
     ]);
     if (
@@ -334,6 +378,184 @@ export async function POST(req: NextRequest) {
       }
       subjectKey = "digital_logic";
     }
+    // ★ maxwell_concept_fill_blank 안전망 (임용 24번) — 개념 명칭형·EM 레지스트리로 새기 쉽다.
+    if (canCoerce && detectMaxwellConceptFillBlank(analysis) && analysis?.circuitType?.type !== "maxwell_concept_fill_blank") {
+      routingTrace.coercions.push("maxwell_concept_fill_blank"), log.warn("maxwell_concept_fill_blank_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "maxwell_concept_fill_blank" };
+      }
+    }
+
+    // ★ number_repr_fill_blank 안전망 (임용 27번) — 그림 없는 텍스트 유형이라 generic·개념 명칭형으로
+    //   새기 쉽다. 분류기와 같은 매처로 교정하고 과목도 digital_logic으로 고정한다.
+    if (canCoerce && detectNumberReprFillBlank(analysis) && analysis?.circuitType?.type !== "number_repr_fill_blank") {
+      routingTrace.coercions.push("number_repr_fill_blank"), log.warn("number_repr_fill_blank_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "number_repr_fill_blank" };
+      }
+      subjectKey = "digital_logic";
+    }
+    if (analysis?.circuitType?.type === "number_repr_fill_blank" && subjectKey !== "digital_logic") {
+      subjectKey = "digital_logic";
+    }
+
+    // ★ bjt_early_effect_fill_blank 안전망 (임용 27번 전자회로) — 개념 문항이라 개념 명칭형·generic으로
+    //   새기 쉽고, 형제 **bjt_characteristic_curve**(특성곡선 영역 식별)가 그래프 낱말만 보고 가져간다.
+    //   그 형제들은 GENERIC이 아니라 canCoerce만으로는 건너뛰므로 coercible을 넓힌다(CLAUDE.md 1-2).
+    const bjtEarlyCoercible = canCoerce
+      || analysis?.circuitType?.type === "bjt_characteristic_curve"
+      || analysis?.circuitType?.type === "bjt_bias"
+      || analysis?.circuitType?.type === "bjt_small_signal";
+    if (bjtEarlyCoercible && detectBjtEarlyEffectFillBlank(analysis) && analysis?.circuitType?.type !== "bjt_early_effect_fill_blank") {
+      routingTrace.coercions.push("bjt_early_effect_fill_blank"), log.warn("bjt_early_effect_fill_blank_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "bjt_early_effect_fill_blank" };
+      }
+    }
+    // 과목 오선택(circuit_theory·mixed_signal 등) 대비 — 전자회로 전용 유형이다.
+    if (analysis?.circuitType?.type === "bjt_early_effect_fill_blank" && subjectKey !== "electronics") {
+      subjectKey = "electronics";
+    }
+
+    // ★ jfet_depletion_fill_blank 안전망 (임용 28번) — 개념 문항이라 generic으로 새기 쉽다.
+    if (detectJfetDepletionFillBlank(analysis) && analysis?.circuitType?.type !== "jfet_depletion_fill_blank") {
+      routingTrace.coercions.push("jfet_depletion_fill_blank"), log.warn("jfet_depletion_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "jfet_depletion_fill_blank" };
+      }
+      subjectKey = "electronics";
+    }
+
+    // ★ r2r_ladder_dac 안전망 (임용 28번) — 과목이 electronics·mixed_signal로 흔들려도 유지.
+    if (detectR2rLadderDac(analysis) && analysis?.circuitType?.type !== "r2r_ladder_dac") {
+      routingTrace.coercions.push("r2r_ladder_dac"), log.warn("r2r_ladder_dac_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "r2r_ladder_dac" };
+      }
+    }
+
+    // ★ ff_feedback_z_waveform 안전망 (임용 26번) — ruleSet 계산 전에 확정해야 figure role 요구가 좁혀진다.
+    if (detectFfFeedbackZ(analysis) && analysis?.circuitType?.type !== "ff_feedback_z_waveform") {
+      routingTrace.coercions.push("ff_feedback_z_waveform"), log.warn("ff_feedback_z_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "ff_feedback_z_waveform" };
+      }
+      subjectKey = "digital_logic";
+    }
+
+    // ★ ff_reachable_states 안전망 (임용 24번) — ruleSet이 이 circuitType을 보고 figure role 요구를
+    //   (가)회로 + (나)파형으로 좁힌다. 안 하면 digital 기본 요구(kmap·implementation_circuit)에 걸려
+    //   missing_figure_variant가 뜬다(실측, jk_mealy_state_design과 같은 패턴).
+    if (detectFfReachableStates(analysis) && analysis?.circuitType?.type !== "ff_reachable_states") {
+      routingTrace.coercions.push("ff_reachable_states"), log.warn("ff_reachable_states_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "ff_reachable_states" };
+      }
+      subjectKey = "digital_logic";
+    }
+
+    // ★ max_power_two_source_ratio 안전망 (임용 17번) — 단일 회로 최대전력 형제에서 교정.
+    const maxP2Coercible = canCoerce
+      || analysis?.circuitType?.type === "max_power_transfer"
+      || analysis?.circuitType?.type === "ac_thevenin_ladder"
+      || analysis?.circuitType?.type === "ac_bridge_max_power";
+    if (maxP2Coercible && detectMaxPowerTwoSourceRatio(analysis) && analysis?.circuitType?.type !== "max_power_two_source_ratio") {
+      routingTrace.coercions.push("max_power_two_source_ratio"), log.warn("max_power_two_source_ratio_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "max_power_two_source_ratio" };
+      }
+      subjectKey = "circuit_theory";
+    }
+
+    // ★ jk_two_phase_clock 안전망 (임용 30번) — stale/generic(universal_digital·jk_sync_counter·
+    //   ff_with_waveform)에서 교정한다. 그 형제들은 GENERIC이 아닌 것도 있어 coercible을 넓힌다.
+    const jkTwoPhaseCoercible = canCoerce
+      || analysis?.circuitType?.type === "jk_sync_counter"
+      || analysis?.circuitType?.type === "ff_with_waveform";
+    if (jkTwoPhaseCoercible && detectJkTwoPhaseClock(analysis) && analysis?.circuitType?.type !== "jk_two_phase_clock") {
+      routingTrace.coercions.push("jk_two_phase_clock"), log.warn("jk_two_phase_clock_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "jk_two_phase_clock" };
+      }
+      subjectKey = "digital_logic";
+    }
+    if (analysis?.circuitType?.type === "jk_two_phase_clock" && subjectKey !== "digital_logic") {
+      log.info("jk_two_phase_clock_subject_coerced", { fromSubject: subjectKey });
+      subjectKey = "digital_logic";
+    }
+
+    // ★ rlc_antiresonance_ladder 안전망 (임용 16번) — generic universal_ac·rlc_resonance·
+    //   ac_parallel_branches(캐시)에서 교정한다.
+    const rlcAntiCoercible = canCoerce || analysis?.circuitType?.type === "ac_parallel_branches"
+      || analysis?.circuitType?.type === "rlc_resonance";
+    if (rlcAntiCoercible && detectRlcAntiresonanceLadder(analysis) && analysis?.circuitType?.type !== "rlc_antiresonance_ladder") {
+      routingTrace.coercions.push("rlc_antiresonance_ladder"), log.warn("rlc_antiresonance_ladder_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "rlc_antiresonance_ladder" };
+      }
+      subjectKey = "circuit_theory";
+    }
+
+    // ★ ac_dc_source_superposition_vc 안전망 (임용 15번) — generic universal_ac/ac_superposition에서 교정.
+    //   ★★ `ac_parallel_branches`는 GENERIC_CIRCUIT_TYPES가 아니라 canCoerce가 false다 —
+    //   그래서 프론트에 그 분석이 남아 있으면 안전망이 통째로 건너뛰고 임용 5번 회로가 계속 나온다
+    //   (사용자 신고 2026-08-12, 임용 27번의 `ff_with_waveform`과 같은 구멍).
+    //   이 형제는 **직류 전류원이 없고** 단자 a·b도 없어 구조가 겹치지 않으므로 덮어써도 안전하다
+    //   (매처가 페이저·전원 크기 역산이면 이미 양보한다).
+    const acDcVcCoercible = canCoerce || analysis?.circuitType?.type === "ac_parallel_branches";
+    if (acDcVcCoercible && detectAcDcSourceSuperpositionVc(analysis) && analysis?.circuitType?.type !== "ac_dc_source_superposition_vc") {
+      routingTrace.coercions.push("ac_dc_source_superposition_vc"), log.warn("ac_dc_source_superposition_vc_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "ac_dc_source_superposition_vc" };
+      }
+      subjectKey = "circuit_theory";
+    }
+
+    // ★ two_source_rl_superposition 안전망 (임용 4번) — stale/generic(ac_superposition·switched_rl 등)에서 교정.
+    if (canCoerce && detectTwoSourceRlSuperposition(analysis) && analysis?.circuitType?.type !== "two_source_rl_superposition") {
+      routingTrace.coercions.push("two_source_rl_superposition"), log.warn("two_source_rl_superposition_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "two_source_rl_superposition" };
+      }
+      subjectKey = "circuit_theory";
+    }
+
+    // ★ switched_rl_dual_short 안전망 (임용 17번) — stale `switched_rl`(generic)로 남으면
+    //   단일 전압원 직렬 RL로 변질된다. 분류기와 **같은 매처**로 교정한다.
+    if (canCoerce && detectSwitchedRlDualShort(analysis) && analysis?.circuitType?.type !== "switched_rl_dual_short") {
+      routingTrace.coercions.push("switched_rl_dual_short"), log.warn("switched_rl_dual_short_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "switched_rl_dual_short" };
+      }
+      subjectKey = "circuit_theory";
+    }
+
+    // ★ dff_preset_clear_regions 안전망 (stale analysis·과목 오선택 방어) — 임용 27번.
+    //   전용 항목이 생기기 전 분석이 프론트 state에 남아 있으면 `unsupported`(→ universal_digital)나
+    //   `ff_with_waveform`으로 흘러 원본과 무관한 문제가 나온다. 분류기와 **같은 매처**로 교정한다.
+    //   회로가 아날로그처럼 보여 과목이 흔들리므로 subjectKey도 digital_logic으로 고정한다.
+    //   ★★ 여기만 `canCoerce`를 넓힌다: 실측 신고(2026-08-12)에서 프론트에 남은 이전 분석이
+    //   `ff_with_waveform`(임용 8번)이었는데 그 값은 GENERIC_CIRCUIT_TYPES가 아니라 안전망이
+    //   통째로 건너뛰었고, 입력이 A·B·C 3개인 다른 회로가 생성됐다. 이 형제는 **입력이 3개**라
+    //   A·B 2입력 시그니처와 구조가 겹치지 않으므로 덮어써도 안전하다(매처가 이미 양보 가드를 갖는다).
+    const dffPcCoercible = canCoerce || analysis?.circuitType?.type === "ff_with_waveform";
+    if (dffPcCoercible && detectDffPresetClearRegions(analysis) && analysis?.circuitType?.type !== "dff_preset_clear_regions") {
+      routingTrace.coercions.push("dff_preset_clear_regions"), log.warn("dff_preset_clear_regions_coerced", {
+        from: analysis?.circuitType?.type,
+        fromSubject: subjectKey,
+      });
+      if (analysis) {
+        analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "dff_preset_clear_regions" };
+      }
+      subjectKey = "digital_logic";
+    }
+    // ★ 과목 오선택 보정 — 분류기가 이미 전용 유형을 골랐어도(안전망 미발화) 사용자가 전자회로·복합형을
+    //   고르면 digital/mixed coercion이 덮어쓴다. ruleSet·semantic 계산 **전에** 과목을 고정한다.
+    if (analysis?.circuitType?.type === "dff_preset_clear_regions" && subjectKey !== "digital_logic") {
+      log.info("dff_preset_clear_subject_coerced", { fromSubject: subjectKey });
+      subjectKey = "digital_logic";
+    }
+
     // ★ ac_superposition_source_design 안전망 (stale analysis 방어) — Vision이 "중첩"·"개방/단락"을
     //   흘린 실행에서는 universal_ac로 떨어져 발문이 placeholder가 된다(실측 신고). 텍스트가
     //   "교류 2전원 + 목표 페이저 전압 + 전원 크기 역산"이면 전용 archetype으로 교정.
@@ -355,9 +577,51 @@ export async function POST(req: NextRequest) {
       }
       subjectKey = "circuit_theory";
     }
+    // ★ jk_mealy_state_design 안전망 (임용 9번 디지털) — JK-FF 2개 Mealy 상태도 + 상태표 빈칸.
+    if (canCoerce && detectJkMealyStateDesign(analysis) && analysis?.circuitType?.type !== "jk_mealy_state_design") {
+      routingTrace.coercions.push("jk_mealy_state_design"), log.warn("jk_mealy_state_design_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "jk_mealy_state_design" };
+    }
+    // ★ bjt_thevenin_bias 안전망 (임용 10번 전자회로) — BJT 바이어스 + 베이스망 테브난 등가.
+    //   실측: generic bjt_bias(임용 7번 저항률 유형)가 잡아 전혀 다른 문제가 생성됐다.
+    if (canCoerce && detectBjtTheveninBias(analysis) && analysis?.circuitType?.type !== "bjt_thevenin_bias") {
+      routingTrace.coercions.push("bjt_thevenin_bias"), log.warn("bjt_thevenin_bias_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "bjt_thevenin_bias" };
+      subjectKey = "electronics";
+    }
+    // ★ bjt_switch_logic_gate 안전망 (임용 2번) — BJT 이상적 스위치 → 진리표 + 등가 논리게이트.
+    //   과목이 digital_logic으로 잡혀도 같은 유형이라 subject 보정 없이 dispatch만 맞춘다.
+    if (canCoerce && detectBjtSwitchLogicGate(analysis) && analysis?.circuitType?.type !== "bjt_switch_logic_gate") {
+      routingTrace.coercions.push("bjt_switch_logic_gate"), log.warn("bjt_switch_logic_gate_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "bjt_switch_logic_gate" };
+    }
+    // ★ comparator_diode_or 안전망 (임용 3번 전자회로) — 비교기 2개 + 다이오드 결합.
+    //   실측: 분류기가 ㉠㉡ 마커 + ON/OFF만 보고 bjt_characteristic_curve로 가로채 변질됐다.
+    if (canCoerce && detectComparatorDiodeOr(analysis) && analysis?.circuitType?.type !== "comparator_diode_or") {
+      routingTrace.coercions.push("comparator_diode_or"), log.warn("comparator_diode_or_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "comparator_diode_or" };
+      subjectKey = "electronics";
+    }
+    // ★ opamp_summer_tfeedback 안전망 (임용 7번 전자회로) — 반전 가산기 + T형 궤환 + 부하 전류 I_L.
+    //   실측: generic opamp_cascade_voltage_divider가 잡아 전역 되먹임 전달함수 문제로 변질됐다.
+    if (canCoerce && detectOpampSummerTFeedback(analysis) && analysis?.circuitType?.type !== "opamp_summer_tfeedback") {
+      routingTrace.coercions.push("opamp_summer_tfeedback"), log.warn("opamp_summer_tfeedback_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "opamp_summer_tfeedback" };
+      subjectKey = "electronics";
+    }
+    // ★ opamp_two_stage_rx 안전망 (임용 2번 전자회로) — 2단 OPAMP + 미지 저항 R_X 설계.
+    //   실측(2026-08-02): Vision이 inventory에 OPAMP를 하나도 안 넣어 분류가 generic `opamp`로 떨어지고,
+    //   바로 아래 opamp_finite_gain_block 안전망이 가로채 "블록도 + 개방루프 이득" 문제로 변질됐다.
+    //   → 형제 안전망들보다 **앞**에 두고, 아래 형제에는 양보 가드를 건다(CLAUDE.md 1-2).
+    if (canCoerce && detectOpampTwoStageRx(analysis) && analysis?.circuitType?.type !== "opamp_two_stage_rx") {
+      routingTrace.coercions.push("opamp_two_stage_rx"), log.warn("opamp_two_stage_rx_coerced", { from: analysis?.circuitType?.type });
+      if (analysis) analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "opamp_two_stage_rx" };
+      subjectKey = "electronics";
+    }
     // ★ opamp_finite_gain_block 안전망 (stale analysis 방어) — 캐시된 이전 분석이 넘어오면
     //   다른 경로로 빠져 빈 concept_diagram("nodes 비어있음") 에러가 화면에 뜬다(실측 신고).
-    if (canCoerce && detectOpampFiniteGainBlock(analysis) && analysis?.circuitType?.type !== "opamp_finite_gain_block") {
+    //   ※ 2단 R_X 설계형(위)이면 양보 — 두 유형 모두 "이상 OPAMP + 저항"을 공유한다.
+    if (canCoerce && !detectOpampTwoStageRx(analysis) && detectOpampFiniteGainBlock(analysis) && analysis?.circuitType?.type !== "opamp_finite_gain_block") {
       routingTrace.coercions.push("opamp_finite_gain_block"), log.warn("opamp_finite_gain_block_coerced", { from: analysis?.circuitType?.type });
       if (analysis) analysis.circuitType = { ...(analysis.circuitType ?? { params: {}, confidence: "high", reasoning: "" }), type: "opamp_finite_gain_block" };
       subjectKey = "electronics";
@@ -540,6 +804,97 @@ export async function POST(req: NextRequest) {
     const isSwitchedRlc =
       analysis?.circuitType?.type === "switched_rlc_5leg" ||
       analysis?.circuitType?.type === "switched_rlc_step";
+    // diode_clamper (임용 2번 전자회로): (가)회로 + (나)파형 2 figure — 파형 유지, 상태·등가 면제.
+    //   ★ 비회로 과목(전자기학·C언어·통신·교육학)은 dispatch가 앞에서 가로채므로 semantic도 켜지 않는다
+    //     — 켜두면 파형 figure 없는 결과에 missing_waveform이 뜬다(사용자 신고).
+    const isDiodeClamper =
+      !(["electromagnetics", "c_language", "communications", "pedagogy"] as string[]).includes(String(subjectKey)) &&
+      (analysis?.circuitType?.type === "diode_clamper" || detectDiodeClamper(analysis));
+    // ac_thevenin_two_box (임용 10번 회로이론): 점선 박스 2개 직렬 + R_L — 단일 회로 figure.
+    //   페이저 정상상태라 파형·상태쌍 면제(등가 유도는 발문 안에서 하고 figure는 추가하지 않는다).
+    //   ★ Vision이 단자 라벨(a-b·c-d)을 요약에서 통째로 흘리는 회차가 잦다(실측 2/2) — 그때는
+    //     기존 0-PRE가 `universal_ac + params.theveninMaxPower`로 분류한다. 그 시그니처는
+    //     **같은 임용 10번 원본 전용**이므로 여기로 흡수한다(옛 archetype은 단자쌍을 하나로
+    //     합쳐 그리고 풀이의 Z_th 계산도 틀렸다).
+    const isAcTheveninTwoBox =
+      analysis?.circuitType?.type === "ac_thevenin_two_box" ||
+      analysis?.circuitType?.params?.theveninMaxPower === true ||
+      detectAcTheveninTwoBox(analysis);
+    // dc_two_source_ladder (임용 3번 회로이론): 단일 회로 figure, DC 정상상태 — 파형·상태·등가·multi 면제.
+    const isDcTwoSourceLadder =
+      analysis?.circuitType?.type === "dc_two_source_ladder" ||
+      (subjectKey === "circuit_theory" && detectDcTwoSourceLadder(analysis));
+    // jk_mealy_state_design (임용 9번 디지털): (가) 상태도 + (나) 상태표 2 figure — 파형 없음.
+    const isJkMealyStateDesign =
+      analysis?.circuitType?.type === "jk_mealy_state_design" || detectJkMealyStateDesign(analysis);
+    // bjt_thevenin_bias (임용 10번 전자회로): (가) 원본 + (나) 테브난 등가 2 figure — 등가·multi 필요.
+    const isBjtTheveninBias =
+      analysis?.circuitType?.type === "bjt_thevenin_bias" || detectBjtTheveninBias(analysis);
+    // bjt_switch_logic_gate (임용 2번): (가) 회로 + (나) 진리표 2 figure — 파형·상태·등가 면제, multi 유지.
+    const isBjtSwitchLogic =
+      analysis?.circuitType?.type === "bjt_switch_logic_gate" || detectBjtSwitchLogicGate(analysis);
+    // comparator_diode_or (임용 3번): (가) 회로 + (나) 입력 파형 2 figure — 파형 유지, 상태·등가 면제.
+    const isComparatorDiodeOr =
+      analysis?.circuitType?.type === "comparator_diode_or" || detectComparatorDiodeOr(analysis);
+    // opamp_summer_tfeedback (임용 7번 전자회로): 단일 회로 figure, DC — 파형·상태·등가·multi 면제.
+    const isOpampSummerTFeedback =
+      analysis?.circuitType?.type === "opamp_summer_tfeedback" || detectOpampSummerTFeedback(analysis);
+    // opamp_two_stage_rx (임용 2번 전자회로): 단일 회로 figure, DC 정상상태 — 파형·상태·등가·multi 면제.
+    const isOpampTwoStageRx =
+      analysis?.circuitType?.type === "opamp_two_stage_rx" || detectOpampTwoStageRx(analysis);
+    // ac_thevenin_design_ab (임용 7번): 단일 회로 figure — 파형·상태·등가·multi 모두 면제.
+    const isAcThevDesignAb =
+      analysis?.circuitType?.type === "ac_thevenin_design_ab" ||
+      (subjectKey === "circuit_theory" && detectAcTheveninDesignAb(analysis));
+    // ac_delta_wye_bridge (임용 2번 회로이론): (가) 브리지 + (나) Δ-Y 등가 2 figure.
+    //   페이저 정상상태 → 파형·상태쌍 면제, **등가 변환이 문제의 핵심이라 등가·multi는 켠다**.
+    //   ★ stale analysis 대비로 감지 안전망 결과도 인정.
+    const isAcDeltaWyeBridge =
+      analysis?.circuitType?.type === "ac_delta_wye_bridge" || detectAcDeltaWyeBridge(analysis);
+    // oscilloscope_phase_l (임용 11번 회로이론): (가) 스코프 화면 + (나) 회로 2 figure.
+    //   ★ 파형 figure는 **주어지는 자료**(학생이 그리는 게 아니다) → hasWaveformEvolution은 켜지 않는다
+    //     (켜면 IO-waveform split 요구가 붙는다 — opamp_analog_summer 선례). multi만 켠다.
+    const isOscPhaseL =
+      analysis?.circuitType?.type === "oscilloscope_phase_l" || detectOscilloscopePhaseL(analysis);
+    // ac_two_source_mesh_power (임용 5번 회로이론): 단일 회로 figure — 페이저 정상상태라 파형·상태·등가·multi 면제.
+    // dff_nand_mux_pair (임용 12번 디지털): (가) 논리회로 + (나) 파형 2 figure — 파형은 주어지는 자료.
+    const isDffNandMux =
+      analysis?.circuitType?.type === "dff_nand_mux_pair" || detectDffNandMuxPair(analysis);
+    const isAcTwoSrcMesh =
+      analysis?.circuitType?.type === "ac_two_source_mesh_power" || detectAcTwoSourceMeshPower(analysis);
+    // ac_superposition_null_source (임용 3번 회로이론): 단일 회로 figure — 페이저 정상상태(중첩)라
+    //   파형·상태·등가·multi 모두 면제. 전류원 I_s는 학생이 도출한다.
+    const isAcNullSource =
+      analysis?.circuitType?.type === "ac_superposition_null_source" || detectAcSuperpositionNullSource(analysis);
+    // thevenin_dep_graph_max_power (임용 9번 회로이론): (가) 회로 + (나) V-I 그래프 2 figure.
+    //   ★ 그래프는 **주어지는 자료**라 hasWaveformEvolution은 켜지 않는다(oscilloscope_phase_l 선례).
+    //   등가변환(테브난)이 절차의 핵심이므로 hasEquivalentTransformation은 켠다.
+    const isTdgMaxPower =
+      analysis?.circuitType?.type === "thevenin_dep_graph_max_power" || detectTheveninDepGraph(analysis);
+    // opamp_avg_superposition_r (임용 8번 전자회로): 단일 회로 figure — 파형·상태·등가·multi 모두 면제.
+    const isOpampAvgSup =
+      analysis?.circuitType?.type === "opamp_avg_superposition_r" || detectOpampAvgSuperposition(analysis);
+    // zener_shunt_regulator (임용 2번 전자): 단일 회로 figure — 파형·상태·등가·multi 모두 면제.
+    const isZenerShunt =
+      analysis?.circuitType?.type === "zener_shunt_regulator" || detectZenerShuntRegulator(analysis);
+    // switched_rlc_source_free (임용 5번): 단일 회로 figure — i(t)·v(t)는 학생 도출.
+    const isSwitchedRlcSourceFree =
+      analysis?.circuitType?.type === "switched_rlc_source_free" ||
+      (subjectKey === "circuit_theory" && detectSwitchedRlcSourceFree(analysis));
+    // rlc_state_equation (임용 6번): 단일 회로 figure — 상태방정식은 학생이 세우는 것이라
+    //   파형·상태쌍·등가·multi 전부 면제. stale analysis 대비로 감지 안전망 결과도 인정.
+    const isRlcStateEquation =
+      analysis?.circuitType?.type === "rlc_state_equation" ||
+      (subjectKey === "circuit_theory" && detectRlcStateEquation(analysis));
+    // switched_rlc_dual_switch (2022 전기 B-5): 단일 회로 figure — v_c(t)·i₁(t)는 학생 도출.
+    //   파형·상태쌍·등가·multi 모두 면제. ★ stale analysis 대비로 감지 안전망 결과도 인정.
+    const isSwitchedRlcDualSwitch =
+      analysis?.circuitType?.type === "switched_rlc_dual_switch" ||
+      (subjectKey === "circuit_theory" && detectSwitchedRlcDualSwitch(analysis));
+    // switched_cap_short_rl (임용 7번 회로이론): 단일 회로 figure — i_L(t)는 학생이 구하는 답이므로
+    //   파형 figure를 요구하면 답이 그림에 노출된다. 상태쌍·등가·multi도 면제.
+    const isSwitchedCapShortRl =
+      analysis?.circuitType?.type === "switched_cap_short_rl" || detectSwitchedCapShortRl(analysis);
     // 스위치 RL + 종속전원(2i_A) 과도응답 (임용 7번) — v_o(t)는 학생 도출 정답 → waveform figure 불필요.
     const isSwitchedRlDep =
       (analysis?.circuitType?.type === "switched_rl" || analysis?.circuitType?.type === "rl_step") &&
@@ -574,6 +929,39 @@ export async function POST(req: NextRequest) {
     // jk_sync_counter는 (가)회로 + (나)타이밍 도표 2-figure. 파형은 제공하므로 유지(multi 유지),
     //  스위치 t<0/t>0 상태쌍은 없음(카운터 계수) → hasStateTransition=false로 state_before/after 면제.
     const isJkSyncCounter = analysis?.circuitType?.type === "jk_sync_counter";
+    // dff_preset_clear_regions는 (가)회로 + (나)파형 2-figure. 파형은 제공하므로 유지(multi 유지),
+    //  PR·CLR은 비동기 입력이지 스위치 t<0/t>0 상태쌍이 아니다 → hasStateTransition=false로
+    //  state_before/after 요구 면제 (CLAUDE.md 1-6 — 생성기가 만들 수 없는 role은 요구하지 않는다).
+    const isDffPresetClear = analysis?.circuitType?.type === "dff_preset_clear_regions";
+    // switched_rl_dual_short: 단일 회로 figure. i(t)·v(t)는 학생이 식으로 도출하므로 파형 figure 불필요,
+    //   스위치가 있지만 t<0/t>0 **상태쌍 figure를 만들지 않는다** → state_before/after 요구 면제(1-6 규칙).
+    const isSwRlDualShort = analysis?.circuitType?.type === "switched_rl_dual_short";
+    // two_source_rl_superposition: (가)(나)(다) 3-figure. i(t)·v_C(t)는 식으로 도출하므로 파형 figure 불필요,
+    //   테브난 등가 변환이 절차의 핵심이라 등가·multi는 켜 둔다.
+    const isTwoSrcSuper = analysis?.circuitType?.type === "two_source_rl_superposition";
+    // ac_dc_source_superposition_vc: 단일 회로 figure, 정상상태 — 파형·상태·등가·multi 모두 면제.
+    const isAcDcVc = analysis?.circuitType?.type === "ac_dc_source_superposition_vc";
+    // rlc_antiresonance_ladder: 단일 회로 figure, 정상상태 — 파형·상태·등가·multi 모두 면제.
+    const isRlcAnti = analysis?.circuitType?.type === "rlc_antiresonance_ladder";
+    // jk_two_phase_clock: (가)회로 + (나)파형 2-figure. 파형은 제공하되 Y는 학생이 도시 → 파형 유지·multi 유지,
+    //   스위치 상태쌍은 없으므로 state_before/after 면제.
+    const isJkTwoPhase = analysis?.circuitType?.type === "jk_two_phase_clock";
+    // max_power_two_source_ratio: (가)(나) 2-figure, 페이저 정상상태 — 파형·상태 면제, 등가·multi 유지.
+    const isMaxP2 = analysis?.circuitType?.type === "max_power_two_source_ratio";
+    // number_repr_fill_blank: ★그림 없음★ — 파형·상태·등가·multi 모두 면제.
+    // ff_reachable_states: (가)회로 + (나)파형 2-figure. 파형은 학생이 도시 → 파형·multi 유지, 상태쌍·등가 면제.
+    const isFfReach = analysis?.circuitType?.type === "ff_reachable_states";
+    // ff_feedback_z_waveform: (가)회로 + (나)파형. 파형 유지·multi 유지, 상태쌍·등가 면제.
+    const isFfFbZ = analysis?.circuitType?.type === "ff_feedback_z_waveform";
+    // r2r_ladder_dac: 단일 회로 figure — 파형·상태·등가·multi 모두 면제.
+    const isR2r = analysis?.circuitType?.type === "r2r_ladder_dac";
+    // jfet_depletion_fill_blank: 단일 개념 도식 figure — 파형·상태·등가·multi 모두 면제.
+    const isJfetFb = analysis?.circuitType?.type === "jfet_depletion_fill_blank";
+    const isNumRepr = analysis?.circuitType?.type === "number_repr_fill_blank";
+    // maxwell_concept_fill_blank: ★그림 없음★ — 파형·상태·등가·multi 모두 면제.
+    const isMaxwellFb = analysis?.circuitType?.type === "maxwell_concept_fill_blank";
+    // bjt_early_effect_fill_blank: (가)단면도 + (나)특성곡선 2-figure. 파형·상태·등가는 없고 multi만 유지.
+    const isBjtEarlyFb = analysis?.circuitType?.type === "bjt_early_effect_fill_blank";
     // logic_condition_sop: 동작 조건→최소 SOP (임용 25번). ★그림 없음★ — 파형·상태·등가·multi 모두 면제.
     const isLogicConditionSop = analysis?.circuitType?.type === "logic_condition_sop";
     // jk_excitation_sop_pos: (가) 여기표 + (나) JK-FF 2개 회로 2-figure. 상태 전이는 있으나 스위치
@@ -600,6 +988,11 @@ export async function POST(req: NextRequest) {
     const isAcBridge = analysis?.circuitType?.type === "ac_bridge_max_power";
     // ac_thevenin_ladder: (가)사다리+(나)테브난등가 2-figure, 페이저 정상상태 — 파형·상태 면제(등가/multi 유지).
     const isAcTheveninLadder = analysis?.circuitType?.type === "ac_thevenin_ladder";
+    // ac_thevenin_dependent: (가)종속전원 회로+(나)테브난등가 2-figure, 페이저 정상상태 (임용 6번 회로이론).
+    //   ★ stale analysis(캐시된 circuitType) 대비 — 감지 안전망 결과도 함께 인정한다.
+    const isAcTheveninDependent =
+      analysis?.circuitType?.type === "ac_thevenin_dependent" ||
+      (subjectKey === "circuit_theory" && detectAcTheveninDependent(analysis));
     // dc_thevenin_2src: (가)2전압원 병렬 + (나)테브난등가 2-figure, 정상상태 DC — 파형·상태 면제(등가/multi 유지).
     const isDcThevenin2src = analysis?.circuitType?.type === "dc_thevenin_2src";
     // dc_wheatstone_balance: 단일 회로 figure, DC 정상상태(평형 조건 R_x·개방 V_o) — 파형·상태·등가·multi 면제.
@@ -618,6 +1011,9 @@ export async function POST(req: NextRequest) {
     // dff_state_design: (가)상태도+(나)상태표+(다)구현회로 3-figure. 자율 순환(상태 천이는
     //  있으나 스위치 t<0/t>0 상태쌍 figure는 아님)·파형 없음 → hasStateTransition·waveform off, multi 유지.
     const isDffStateDesign = analysis?.circuitType?.type === "dff_state_design";
+    // tff_state_design_input(임용 12번): 상태도·상태표·카르노맵·회로 4종 figure — 파형·상태쌍·등가 면제, multi 유지.
+    const isTffStateDesignInput =
+      analysis?.circuitType?.type === "tff_state_design_input" || detectTffStateDesignInput(analysis);
     // dff_mux_sequential: (가)상태도+(나)FF+MUX 구현회로+(다)MUX 진리표 3-figure. 자율 순환 —
     //  상태 천이는 있으나 스위치 상태쌍 아님·파형 없음(Q_A 주파수는 계산) → state·waveform off, multi 유지.
     const isDffMuxSequential = analysis?.circuitType?.type === "dff_mux_sequential";
@@ -659,7 +1055,27 @@ export async function POST(req: NextRequest) {
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
       : isAsyncPresetCounter
       ? { ...rawSemantic, hasStateTransition: false, hasWaveformEvolution: true, requiresMultiFigure: true }
-      : isJkSyncCounter
+      : isR2r || isJfetFb
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isFfReach || isFfFbZ
+      ? { ...rawSemantic, hasStateTransition: false, hasEquivalentTransformation: false, hasWaveformEvolution: true, requiresMultiFigure: true }
+      : isMaxwellFb || isNumRepr
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isBjtEarlyFb
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isMaxP2
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
+      : isJkTwoPhase
+      ? { ...rawSemantic, hasStateTransition: false, hasWaveformEvolution: true, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isRlcAnti
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isAcDcVc
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isTwoSrcSuper
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
+      : isSwRlDualShort
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isJkSyncCounter || isDffPresetClear
       ? { ...rawSemantic, hasStateTransition: false, hasWaveformEvolution: true, requiresMultiFigure: true }
       : isRlcResonanceBandwidth
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
@@ -673,10 +1089,34 @@ export async function POST(req: NextRequest) {
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
       : isOpampFiniteGainOffset || isOpampPositiveFb || isJfetBias
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isDffNandMux
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isAcTwoSrcMesh || isAcNullSource
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isTdgMaxPower
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
+      : isOpampAvgSup
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
+      : isOscPhaseL
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isAcDeltaWyeBridge
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
       : isAcBridge
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
-      : isAcTheveninLadder
+      : isAcTheveninLadder || isAcTheveninDependent
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
+      : isDiodeClamper
+      ? { ...rawSemantic, hasWaveformEvolution: true, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isJkMealyStateDesign
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: true, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isBjtTheveninBias
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
+      : isBjtSwitchLogic
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isComparatorDiodeOr
+      ? { ...rawSemantic, hasWaveformEvolution: true, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isAcThevDesignAb || isZenerShunt || isSwitchedRlcSourceFree || isRlcStateEquation || isSwitchedRlcDualSwitch || isSwitchedCapShortRl || isOpampTwoStageRx || isDcTwoSourceLadder || isAcTheveninTwoBox || isOpampSummerTFeedback
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
       : isDcThevenin2src
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: true, requiresMultiFigure: true }
       : isJkExcitation
@@ -690,6 +1130,8 @@ export async function POST(req: NextRequest) {
       : isAcRlAvgPower
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: false }
       : isOpampRcTOsc
+      ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
+      : isTffStateDesignInput
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
       : isDffStateDesign || isDffMuxSequential || isTff3AutonomousCounter
       ? { ...rawSemantic, hasWaveformEvolution: false, hasStateTransition: false, hasEquivalentTransformation: false, requiresMultiFigure: true }
@@ -748,7 +1190,11 @@ export async function POST(req: NextRequest) {
     });
     // 소자 종류 식별 개념형(설명→명칭)은 회로 문제가 아니다 — 회로 figure role 요구 해제.
     //   (생성기도 figureVariants:[]로 만들므로, 안 풀면 검증만 회로 figure를 요구해 어긋난다.)
-    const ruleSet = isConceptNamingAnalysis(analysis)
+    // ★ 그림이 없는 유형은 회로 figure role 요구를 해제한다(생성기도 figureVariants:[]로 만든다).
+    //   · 소자 종류 식별 개념형(설명→명칭)
+    //   · 주기 신호 직류값·실효값(임용 36번) — 원본이 수식 하나뿐이라 회로가 없다.
+    const figurelessText = isConceptNamingAnalysis(analysis) || detectPeriodicSignalDcRms(analysis);
+    const ruleSet = figurelessText
       ? { ...baseRuleSet, requiredFigureRoles: [] }
       : baseRuleSet;
 
@@ -794,7 +1240,21 @@ export async function POST(req: NextRequest) {
       "flipflop_mixed_app", "tff_state_table_blank", "tff3_autonomous_counter", "ff_with_waveform",
       "flipflop_counter", "jk_sync_counter", "combinational_gate", "sequence_detector", "fsm",
       "sr_ff_mux_sequential", "dff_mux_sequential", "waveform_analysis", "mux_implementation",
+      "tff_state_design_input", "dff_nand_mux_pair",
       "async_preset_ripple_counter", "dff_state_design", "logic_condition_sop", "jk_excitation_sop_pos", "mod_n_counter_reset", "number_representation", "demux_waveform",
+      // ★ BJT 스위치 → 논리게이트(임용 2번)는 회로가 아날로그지만 요구가 디지털이라 과목이 흔들린다.
+      //   digital_logic으로 선택돼도 universal_digital로 덮이지 않도록 살려 둔다.
+      "bjt_switch_logic_gate", "jk_mealy_state_design",
+      // 임용 27번 — D-FF + 비동기 PR·CLR + A·B 조합논리 → 구간별 Q 파형.
+      "dff_preset_clear_regions",
+      // 임용 30번 — JK + 2상 클럭발생기 + EX-OR 출력.
+      "jk_two_phase_clock",
+      // 임용 27번 — 데이터 표현·산술 연산 빈칸(그림 없음).
+      "number_repr_fill_blank",
+      // 임용 24번 — D+T FF 동기식 순서논리 파형 도시.
+      "ff_reachable_states",
+      // 임용 26번 — 되먹임 + 2단 FF → Z 파형.
+      "ff_feedback_z_waveform",
     ]);
     if (subjectKey === "digital_logic" && (!circuitType || !DIGITAL_CIRCUIT_TYPES.has(circuitType))) {
       routingTrace.coercions.push("digital_subject_circuittype"), log.warn("digital_subject_circuittype_coerced", { from: circuitType, to: "universal_digital" });
@@ -832,6 +1292,11 @@ export async function POST(req: NextRequest) {
     if (circuitType === "counter_dac_comparator") subjectKey = "mixed_signal";
     // ★ mosfet_cascode_mirror(임용 10번)는 electronics 전용 — 과목 오선택·회로이론 오분류 대비 보정.
     if (circuitType === "mosfet_cascode_mirror") subjectKey = "electronics";
+    // ★ bjt_switch_logic_gate(임용 2번)는 과목 무관 0-PRE로 잡힌다 — ruleSet·dispatch가 흔들리지 않도록
+    //   electronics로 고정한다(디지털 과목 coercion 목록에도 넣어 두었다).
+    if (circuitType === "bjt_switch_logic_gate" && subjectKey !== "digital_logic") subjectKey = "electronics";
+    // ★ comparator_diode_or(임용 3번)도 과목 무관 0-PRE로 잡힌다 — 전자회로로 고정한다.
+    if (circuitType === "comparator_diode_or") subjectKey = "electronics";
     const MIXED_SIGNAL_CIRCUIT_TYPES = new Set([
       "counter_dac_comparator", "adc_sample_hold", "logic_opamp_hybrid", "flash_adc_2bit",
     ]);
@@ -933,6 +1398,51 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (detectPeriodicSignalDcRms(analysis)) {
+      // ★ 주기 신호 수식 → 직류값·실효값 (임용 36번 회로이론) — **회로도 그림도 없는 수식 문항**.
+      //   개념 명칭형·generic 회로 경로 **둘 다** 이 원본을 가로챘다(사용자 신고 2026-08-12):
+      //   전자는 "원리의 이름을 쓰시오", 후자는 없는 R₁·R₂ 회로를 지어냈다. 그래서 회로 dispatch 체인
+      //   전체는 물론 **개념 명칭형보다도 앞에서** 우회한다.
+      log.info("dispatch", { route: "periodic_signal_dc_rms_pipeline", count: n, mode, circuitType });
+      problems = await runPeriodicSignalDcRmsPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "maxwell_concept_fill_blank" || detectMaxwellConceptFillBlank(analysis)) {
+      // ★ 임용 24번 — Maxwell 방정식 개념 빈칸(그림 없음).
+      //   ★★ **개념 명칭형·전자기학 subject 분기보다 앞**에 두어야 한다 — 둘 다 회로 dispatch 체인을
+      //   통째로 우회하므로 뒤에 두면 도달조차 못 한다(periodic_signal_dc_rms와 같은 이유).
+      log.info("dispatch", { route: "maxwell_concept_fill_blank_pipeline", count: n, mode, circuitType });
+      problems = await runMaxwellConceptFillBlankPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "bjt_early_effect_fill_blank" || detectBjtEarlyEffectFillBlank(analysis)) {
+      // ★ 임용 27번 전자회로 — npn BJT Early 효과 개념 빈칸((가)단면도 + (나)특성곡선).
+      //   ★★ **개념 명칭형보다 앞**에 두어야 한다 — 이 원본은 수치 given이 하나도 없는 개념 문항이라
+      //   `isConceptNamingAnalysis`가 그대로 물어간다(실측: "㉠, ㉡에 해당하는 용어를 순서대로 쓰시오"가
+      //   그림 없이 생성됐다). 개념 명칭형은 회로 dispatch 체인 전체를 우회하므로 뒤에 두면 도달조차 못 한다
+      //   (maxwell_concept_fill_blank·periodic_signal_dc_rms와 같은 이유).
+      log.info("dispatch", { route: "bjt_early_effect_fill_blank_pipeline", count: n, mode, circuitType });
+      problems = await runBjtEarlyEffectFillBlankPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "jfet_depletion_fill_blank" || detectJfetDepletionFillBlank(analysis)) {
+      // ★ 임용 28번 전자회로 — n채널 JFET 공핍층·핀치오프 개념 빈칸((가)~(라) 4패널 도식).
+      //   ★★ **개념 명칭형보다 앞**에 둔다 — 수치 given이 없는 개념 문항이라 isConceptNamingAnalysis가
+      //   그대로 물어가고, 그러면 회로 dispatch 체인 전체를 우회해 그림 없는 "용어를 쓰시오"가 나온다
+      //   (bjt_early_effect_fill_blank에서 실측된 실패와 같은 이유).
+      log.info("dispatch", { route: "jfet_depletion_fill_blank_pipeline", count: n, mode, circuitType });
+      problems = await runJfetDepletionFillBlankPipeline({
+        analysis: analysis ?? null, mode: mode as GenerationMode, count: n, topicKey: expectedTopicKey,
+      });
     } else if (isConceptNamingAnalysis(analysis)) {
       // ★ 개념 명칭형(원리·법칙·소자의 이름을 쓰는 문항) — 회로 해석 문제가 아니다.
       //   ★★ classifier에서 unsupported로 보내는 것만으로는 부족하다(실측): 원본에 예시 회로
@@ -964,6 +1474,51 @@ export async function POST(req: NextRequest) {
       //   다를 수 있는데(electrostatics↔gauss_law 키워드 중첩), 분류기가 authority이므로
       //   생성된 문제의 topicKey를 family 검증 기준으로 채택해 거짓 family_mismatch를 막는다.
       if (problems[0]?.topicKey) expectedTopicKey = problems[0].topicKey;
+    } else if (detectR2rLadderDac(analysis)) {
+      // ★ 임용 28번 — 4비트 R-2R 사다리형 D/A + 비반전 OPAMP → 출력전압.
+      log.info("dispatch", { route: "r2r_ladder_dac_pipeline", count: n, mode });
+      problems = await runR2rLadderDacPipeline({
+        analysis: analysis ?? null, mode: mode as GenerationMode, count: n, topicKey: expectedTopicKey,
+      });
+    } else if (detectFfFeedbackZ(analysis)) {
+      // ★ 임용 26번 — 되먹임 + 2단 D/T 플립플롭 + 비동기 CLR → 출력 Z 파형 도시.
+      log.info("dispatch", { route: "ff_feedback_z_pipeline", count: n, mode });
+      problems = await runFfFeedbackZPipeline({
+        analysis: analysis ?? null, mode: mode as GenerationMode, count: n, topicKey: expectedTopicKey,
+      });
+    } else if (detectFfReachableStates(analysis)) {
+      // ★ 임용 24번 — 동기식 순서논리회로의 Q_A·Q_B 파형 도시 (D+T 플립플롭).
+      //   넓은 digital 분기(sequential_dff_generic·fsm)보다 앞에 둔다.
+      log.info("dispatch", { route: "ff_reachable_states_pipeline", count: n, mode });
+      problems = await runFfReachableStatesPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (detectWienBridgeDesign(analysis)) {
+      // ★ 임용 30번 — Wien bridge **수치 설계형**(R₁·R₂·f₀). 기호형 WIEN_BRIDGE_OSCILLATOR archetype
+      //   (β(s)·특성방정식으로 비 R₃/R₁=2만 구한다)은 이 원본의 요구를 재현하지 못한다.
+      //   analog archetype dispatch **앞**에 둔다.
+      log.info("dispatch", { route: "wien_bridge_design_pipeline", count: n, mode });
+      problems = await runWienBridgeDesignPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (detectCSwitchFallThrough(analysis)) {
+      // ★ 임용 33번 — switch fall-through + 배열 부분 초기화 출력 예측 (결정론 archetype).
+      //   ★★ **generic c_language GPT 경로보다 앞**에 둔다 — 그 경로는 이 원본의 두 핵심을
+      //   반복해서 잃었다(모든 case에 break / 장식용 fall-through / 0 구간 미순회 /
+      //   심지어 switch 없는 배열 문제). 프롬프트·게이트로 안정화되지 않아 코드로 구조를 확정한다.
+      log.info("dispatch", { route: "c_switch_fall_through_pipeline", count: n, mode });
+      problems = await runCSwitchFallThroughPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else if (subjectKey === "c_language") {
       // ★ C언어 — 회로 아님(GPT 기반 코드 분석·출력 예측). 회로 dispatch 체인 전체 우회.
       log.info("dispatch", { route: "c_language_pipeline", count: n, mode });
@@ -986,6 +1541,31 @@ export async function POST(req: NextRequest) {
       // ★ 교육학(교직) — 회로 아님(GPT 기반 교육 이론·논술형, figure 없음). 회로 dispatch 우회.
       log.info("dispatch", { route: "pedagogy_pipeline", count: n, mode });
       problems = await runPedagogyPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (isAcTheveninTwoBox) {
+      // ★ 점선 박스 2개(전압원망 a-b + 전류원망 c-d) 직렬 + R_L 최대평균전력 (임용 10번 회로이론).
+      //   형제 `theveninMaxPower`(universal_ac params)는 두 전원이 **한 마디에서 병렬**인 구조라
+      //   단자쌍이 둘인 이 원본을 재현하지 못한다 — 실측에서 그 경로가 가로채 회로가 변질됐고
+      //   Z_th 계산까지 틀렸다. universal_ac dispatch보다 **앞**에 둔다(CLAUDE.md 1-5).
+      log.info("dispatch", { route: "ac_thevenin_two_box_pipeline", count: n, mode });
+      problems = await runAcTheveninTwoBoxPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "diode_clamper" || detectDiodeClamper(analysis)) {
+      // ★ 다이오드 클램퍼 (임용 2번 전자회로) — **회로 dispatch 체인의 맨 앞**.
+      //   generic 경로는 다이오드를 통째로 잃고(C·V·R만) 파형도 무의미해진다(실측 신고).
+      //   ★ 앞자리에 두는 이유: semantic normalize는 같은 감지기로 hasWaveformEvolution=true를 켜는데,
+      //     dispatch가 뒤에 있으면 **다른 분기가 먼저 잡아** 파형 figure 없이 생성 → missing_waveform이 뜬다
+      //     (사용자 신고). 감지되면 무조건 이 경로가 이기도록 순서를 고정한다.
+      log.info("dispatch", { route: "diode_clamper_pipeline", count: n, mode });
+      problems = await runDiodeClamperPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
@@ -1027,7 +1607,105 @@ export async function POST(req: NextRequest) {
       invSrl.some((c) => ["CCVS", "CCCS", "VCVS", "VCCS"].includes(String(c.type))) &&
       invSrl.some((c) => c.type === "L") &&
       invSrl.some((c) => c.type === "SW");
-    if (subjectKey === "circuit_theory" && detectTheveninDepVoltageProblem(analysis)) {
+    // ★ 교류 테브난 **소자 값 a·b 설계**(임용 7번)는 종속전원 테브난보다 **앞** — 실측에서
+    //   detectAcTheveninDependent가 (테브난+최대전력+리액티브만 보고) 가로채 변형 모드가
+    //   V_AB/I_AB/Z_AB 문제로 변질됐다. 이 유형은 종속전원이 없고 미지 소자가 a·b다.
+    if (circuitType === "dff_nand_mux_pair" || detectDffNandMuxPair(analysis)) {
+      // ★ D-FF 2개 + 3-NAND 입력망 + 점선부 AND/OR 도시 (임용 12번 디지털).
+      //   generic `sequential_dff_generic`이 원본과 다른 회로를 만들고 점선부 답을 노출하던 실측 사고
+      //   → 체인 최상단 + stale analysis 대비 감지 안전망.
+      log.info("dispatch", { route: "dff_nand_mux_pair_pipeline", count: n, mode });
+      problems = await runDffNandMuxPairPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "opamp_avg_superposition_r" || detectOpampAvgSuperposition(analysis)) {
+      // ★ (+)단자 3입력 평균 + 2단 중첩 (임용 8번 전자회로) — generic OPAMP 경로가 (+)입력을
+      //   반전 가산기로 뒤집던 실측 사고 → 체인 앞 + 감지 안전망.
+      log.info("dispatch", { route: "opamp_avg_superposition_pipeline", count: n, mode });
+      problems = await runOpampAvgSuperpositionPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "thevenin_dep_graph_max_power" || detectTheveninDepGraph(analysis)) {
+      // ★ 종속전원 + V-I 그래프 + 최대전력 (임용 9번 회로이론) — generic 테브난 경로(GPT 구조 추출)가
+      //   점선 박스·계기·i_x를 잃고 (나) 그래프까지 통째로 빠뜨리던 실측 사고 → 체인 앞 + 감지 안전망.
+      log.info("dispatch", { route: "thevenin_dep_graph_max_power_pipeline", count: n, mode });
+      problems = await runTheveninDepGraphMaxPowerPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "ac_superposition_null_source" || detectAcSuperpositionNullSource(analysis)) {
+      // ★ 2전원(V+I) 중첩 + V_L=0 조건으로 전류원 역산 (임용 3번 회로이론) — 전용 항목이 없어
+      //   **universal_ac로 떨어져 정답이 "(query 없음)"** 이던 실측 사고(2026-08-05) → 체인 상단 + 감지 안전망.
+      log.info("dispatch", { route: "ac_superposition_null_source_pipeline", count: n, mode });
+      problems = await runAcSuperpositionNullSourcePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "ac_two_source_mesh_power" || detectAcTwoSourceMeshPower(analysis)) {
+      // ★ 2전원 RLC 메시 + 평균전력 (임용 5번 회로이론) — 형제 ac_rl_average_power(단일 전원)가
+      //   가로채 **정답이 빈 문자열**인 문제가 나오던 실측 사고 → 체인 최상단 + 감지 안전망.
+      log.info("dispatch", { route: "ac_two_source_mesh_power_pipeline", count: n, mode });
+      problems = await runAcTwoSourceMeshPowerPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "oscilloscope_phase_l" || detectOscilloscopePhaseL(analysis)) {
+      // ★ 오실로스코프 파형 판독 → 위상차 α → 미지 소자값 (임용 11번 회로이론).
+      //   실측 사고: 전용 항목이 없어 universal_ac로 떨어져 **정답 "(query 없음)"** 인 빈 문제가 나왔다
+      //   → 체인 최상단 + stale analysis 대비 감지 안전망.
+      log.info("dispatch", { route: "oscilloscope_phase_l_pipeline", count: n, mode });
+      problems = await runOscilloscopePhaseLPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "ac_delta_wye_bridge" || detectAcDeltaWyeBridge(analysis)) {
+      // ★ 교류 브리지 + Δ-Y 변환 → 등가 임피던스 Z_AB → 전류 크기 a (임용 2번 회로이론).
+      //   실측 사고: 전용 항목이 없어 `ac_parallel_branches`(임용 5번)가 가로채 전혀 다른 문제가 나왔다
+      //   → 체인 **최상단**에 두고, 프론트가 캐시한 stale circuitType 대비로 감지 안전망도 함께 건다.
+      log.info("dispatch", { route: "ac_delta_wye_bridge_pipeline", count: n, mode });
+      problems = await runAcDeltaWyeBridgePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (
+      circuitType === "ac_thevenin_design_ab" ||
+      (subjectKey === "circuit_theory" && detectAcTheveninDesignAb(analysis))
+    ) {
+      log.info("dispatch", { route: "ac_thevenin_design_ab_pipeline", count: n, mode });
+      problems = await runAcTheveninDesignAbPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "ac_thevenin_dependent" || (subjectKey === "circuit_theory" && detectAcTheveninDependent(analysis))) {
+      // ★ 독립 전류원 + 종속전원 페이저 회로 → 테브난 등가(단락전류법) + 복소 켤레 최대전력 (임용 6번 회로이론).
+      //   detectSwitchedRlDepI(직류 스위치 RL 종속전원)가 "종속전원 + L"만 보고 가로채던 실측 사고 →
+      //   그 분기 **앞**에 두고, stale analysis 대비로 감지 안전망도 함께 건다.
+      log.info("dispatch", { route: "ac_thevenin_dependent_pipeline", count: n, mode });
+      problems = await runAcTheveninDependentPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (subjectKey === "circuit_theory" && detectTheveninDepVoltageProblem(analysis)) {
       // ★ 종속 **전압원**(k·v_x) + 테브난 등가(시험 전원 1A법) — 전용 결정론 archetype (임용 6번).
       //   전용 generator·renderer·smoke가 있는데 **dispatch 배선이 빠져 있어**(2026-07-29 실측)
       //   generic thevenin_dependent_generic이 종속원을 저항 기호로 그린 netlist를 냈다.
@@ -1107,6 +1785,21 @@ export async function POST(req: NextRequest) {
       });
       problems = await runTopologyDrivenPipeline({
         analysis,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (
+      circuitType === "dc_two_source_ladder" ||
+      (subjectKey === "circuit_theory" && detectDcTwoSourceLadder(analysis))
+    ) {
+      // ★ 전압원+전류원 DC 사다리 (임용 3번 회로이론) — universal_dc **앞**.
+      //   universal_dc도 회로 자체는 정확히 재현하지만(연결 관계 동일 확인), generic 렌더러가
+      //   "hub + 직렬 pendant leg"를 세로 체인으로 접어 그려 원본 사다리와 딴판이 된다(신고 2회).
+      //   그림을 원본 배치로 고정하기 위해 전용 archetype으로 받는다.
+      log.info("dispatch", { route: "dc_two_source_ladder_pipeline", count: n, mode });
+      problems = await runDcTwoSourceLadderPipeline({
+        analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
         topicKey: expectedTopicKey,
@@ -1426,6 +2119,71 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    // ※ ac_thevenin_design_ab dispatch는 체인 **최상단**(ac_thevenin_dependent 앞)에 있다 —
+    //   여기 중복으로 두면 위에서 이미 소비돼 도달하지 못한다(tsc가 unreachable로 잡아냄).
+    } else if (
+      circuitType === "zener_shunt_regulator" || detectZenerShuntRegulator(analysis)
+    ) {
+      // ★ 제너 직렬 션트 정전압 + 부하 저항 범위 (임용 2번 전자) — generic dc_mesh fallback보다 앞.
+      log.info("dispatch", { route: "zener_shunt_regulator_pipeline", count: n, mode });
+      problems = await runZenerShuntRegulatorPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (
+      circuitType === "switched_rlc_source_free" ||
+      (subjectKey === "circuit_theory" && detectSwitchedRlcSourceFree(analysis))
+    ) {
+      // ★ t=0 스위치 개방 무전원 직렬 RLC (임용 5번) — switched_rlc_step(전류원 포함)보다 **앞**.
+      log.info("dispatch", { route: "switched_rlc_source_free_pipeline", count: n, mode });
+      problems = await runSwitchedRlcSourceFreePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (
+      circuitType === "rlc_state_equation" ||
+      (subjectKey === "circuit_theory" && detectRlcStateEquation(analysis))
+    ) {
+      // ★ 직류 V·I원 RLC 상태 방정식 (임용 6번) — ac_superposition보다 **앞**.
+      //   실측에서 이 원본이 교류 중첩으로 새어 전혀 다른 문제가 생성됐다.
+      log.info("dispatch", { route: "rlc_state_equation_pipeline", count: n, mode });
+      problems = await runRlcStateEquationPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (
+      circuitType === "switched_rlc_dual_switch" ||
+      (subjectKey === "circuit_theory" && detectSwitchedRlcDualSwitch(analysis))
+    ) {
+      // ★ SW₁ 닫힘 + SW₂(b→c) 2전압원 RLC (2022 전기 B-5) — switched_rlc_step(v1, 전류원 포함)
+      //   **앞**에 둔다. 실측에서 이 원본이 v1으로 가서 전류원 회로로 변질됐다.
+      log.info("dispatch", { route: "switched_rlc_dual_switch_pipeline", count: n, mode });
+      problems = await runSwitchedRlcDualSwitchPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (
+      circuitType === "switched_cap_short_rl" ||
+      detectSwitchedCapShortRl(analysis)
+    ) {
+      // ★ 스위치가 **커패시터를 단락**시키는 RLC → 1차 RL 계단응답 (임용 7번 회로이론).
+      //   switched_rlc_step(v1, SPDT+전류원) **앞**에 둔다 — 실측에서 그 형제가 이 원본을 가로채
+      //   원본에 없는 전류원·SPDT가 들어간 회로로 변질됐다(묻는 양도 v_C(t)로 바뀜).
+      log.info("dispatch", { route: "switched_cap_short_rl_pipeline", count: n, mode });
+      problems = await runSwitchedCapShortRlPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else if (circuitType === "switched_rlc_step" && subjectKey === "circuit_theory") {
       log.info("dispatch", { route: "switched_rlc_step_pipeline", count: n, mode });
       problems = await runSwitchedRlcStepPipeline({
@@ -1567,6 +2325,63 @@ export async function POST(req: NextRequest) {
       //   generic opamp 분기가 "반전 입력 단자" 텍스트로 INVERTING_AMP 변질시키는 문제 회피. opamp 분기보다 먼저.
       log.info("dispatch", { route: "opamp_finite_gain_block_pipeline", count: n, mode });
       problems = await runOpampFiniteGainBlockPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "jk_mealy_state_design" || detectJkMealyStateDesign(analysis)) {
+      // ★ JK-FF 2개 Mealy 상태도 + 상태표 빈칸 (임용 9번 디지털) — generic fsm·jk 형제보다 앞.
+      log.info("dispatch", { route: "jk_mealy_state_design_pipeline", count: n, mode });
+      problems = await runJkMealyStateDesignPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "bjt_thevenin_bias" || detectBjtTheveninBias(analysis)) {
+      // ★ BJT 바이어스 + 베이스망 테브난 등가 (임용 10번 전자회로) — generic bjt_bias보다 앞.
+      log.info("dispatch", { route: "bjt_thevenin_bias_pipeline", count: n, mode });
+      problems = await runBjtTheveninBiasPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "comparator_diode_or" || detectComparatorDiodeOr(analysis)) {
+      // ★ 비교기 2개 + 다이오드 결합 → 구간별 V_out·다이오드 ON/OFF (임용 3번 전자회로).
+      log.info("dispatch", { route: "comparator_diode_or_pipeline", count: n, mode });
+      problems = await runComparatorDiodeOrPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "bjt_switch_logic_gate" || detectBjtSwitchLogicGate(analysis)) {
+      // ★ BJT 이상적 스위치 → 진리표 + 동일 동작 논리게이트 (임용 2번).
+      //   형제 BJT archetype(바이어스·특성곡선·레귤레이터)은 전부 아날로그라 재현 불가.
+      log.info("dispatch", { route: "bjt_switch_logic_gate_pipeline", count: n, mode });
+      problems = await runBjtSwitchLogicGatePipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "opamp_summer_tfeedback" || detectOpampSummerTFeedback(analysis)) {
+      // ★ 반전 가산기(미지 R₁) + T형 궤환 반전증폭기 + 부하 전류 I_L (임용 7번 전자회로).
+      //   generic opamp_cascade_voltage_divider가 가로채 전달함수 문제로 변질되던 실측 사고 → cascade 앞.
+      log.info("dispatch", { route: "opamp_summer_tfeedback_pipeline", count: n, mode });
+      problems = await runOpampSummerTFeedbackPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "opamp_two_stage_rx" || detectOpampTwoStageRx(analysis)) {
+      // ★ 2단 OPAMP + 저항 R_X 설계 (임용 2번 전자회로) — generic opamp 경로 앞.
+      //   stale analysis(캐시된 circuitType) 대비로 감지 안전망도 함께 건다.
+      log.info("dispatch", { route: "opamp_two_stage_rx_pipeline", count: n, mode });
+      problems = await runOpampTwoStageRxPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
@@ -1854,9 +2669,93 @@ export async function POST(req: NextRequest) {
         count: n,
         topicKey: expectedTopicKey,
       });
+    } else if (circuitType === "number_repr_fill_blank") {
+      // ★ 임용 27번 — 데이터 표현·산술 연산 빈칸 채우기 (그림 없음).
+      log.info("dispatch", { route: "number_repr_fill_blank_pipeline", count: n, mode });
+      problems = await runNumberReprFillBlankPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "max_power_two_source_ratio") {
+      // ★ 임용 17번 — 전원 크기만 다른 두 회로의 최대전력 부하와 비.
+      log.info("dispatch", { route: "max_power_two_source_ratio_pipeline", count: n, mode });
+      problems = await runMaxPowerTwoSourceRatioPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "jk_two_phase_clock") {
+      // ★ 임용 30번 — JK + 2상 클럭발생기 + EX-OR 출력 파형 도시.
+      log.info("dispatch", { route: "jk_two_phase_clock_pipeline", count: n, mode });
+      problems = await runJkTwoPhaseClockPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "rlc_antiresonance_ladder") {
+      // ★ 임용 16번 — 병렬 LC 반공진.
+      log.info("dispatch", { route: "rlc_antiresonance_ladder_pipeline", count: n, mode });
+      problems = await runRlcAntiresonanceLadderPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "ac_dc_source_superposition_vc") {
+      // ★ 임용 15번 — 교류 전압원 + 직류 전류원 정상상태 중첩.
+      log.info("dispatch", { route: "ac_dc_source_superposition_vc_pipeline", count: n, mode });
+      problems = await runAcDcSourceSuperpositionVcPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "two_source_rl_superposition") {
+      // ★ 임용 4번 — 전압원 2개(계단+정현파) 테브난+중첩 5단계.
+      log.info("dispatch", { route: "two_source_rl_superposition_pipeline", count: n, mode });
+      problems = await runTwoSourceRlSuperpositionPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "switched_rl_dual_short") {
+      // ★ 임용 17번 — 전류원 RL + 스위치 2개가 소자를 단락. generic switched_rl 앞에 둔다.
+      log.info("dispatch", { route: "switched_rl_dual_short_pipeline", count: n, mode });
+      problems = await runSwitchedRlDualShortPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "dff_preset_clear_regions") {
+      // ★ 임용 27번 — D-FF + 비동기 PR·CLR + A·B 조합논리 → 구간 ㉠~㉢의 출력 Q 파형.
+      //   과목 게이트를 걸지 않는다(위에서 subjectKey를 digital_logic으로 고정했고,
+      //   회로가 아날로그처럼 보여 과목이 흔들리는 유형이다).
+      log.info("dispatch", { route: "dff_preset_clear_regions_pipeline", count: n, mode });
+      problems = await runDffPresetClearRegionsPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
     } else if (circuitType === "async_preset_ripple_counter" && subjectKey === "digital_logic") {
       log.info("dispatch", { route: "async_preset_ripple_counter_pipeline", count: n, mode });
       problems = await runAsyncPresetCounterPipeline({
+        analysis: analysis ?? null,
+        mode: mode as GenerationMode,
+        count: n,
+        topicKey: expectedTopicKey,
+      });
+    } else if (circuitType === "tff_state_design_input" || detectTffStateDesignInput(analysis)) {
+      // ★ 입력 X를 갖는 2-bit 상태기계 + T-FF 설계 (임용 12번 디지털논리) — dff_state_design 앞.
+      //   형제는 입력 없는 자율 상태도라 스스로 양보하지만, 받아 줄 전용 분기가 없으면 generic fsm으로 샌다.
+      log.info("dispatch", { route: "tff_state_design_input_pipeline", count: n, mode });
+      problems = await runTffStateDesignInputPipeline({
         analysis: analysis ?? null,
         mode: mode as GenerationMode,
         count: n,
@@ -1924,6 +2823,27 @@ export async function POST(req: NextRequest) {
     //   ※ label_only(외부 단자)·ground는 autoClose 내부에서 면제되므로 단자가 GND로 단락되지 않는다.
     autoCloseAnalogDangling(problems);
 
+    // ★★ GPT 출력 **형식 정규화** — 텍스트 필드를 문자열로 강제한다 (2026-08-12 실측 500 2건).
+    //   GPT 경로가 answer·solution·question을 **배열이나 객체로** 돌려주는 회차가 있어, 뒤따르는
+    //   포맷터·검증기가 `text.replace is not a function` / `text.match is not a function`으로 터졌다
+    //   (실측: switched_dc·bjt_small_signal이 HTTP 500). 소비자마다 방어를 흩뿌리면 반드시 빠지는 곳이
+    //   생기므로 **모든 후처리 앞 한 곳에서** 흡수한다([[feedback_gpt_format_normalization]]).
+    const asText = (v: unknown): string =>
+      typeof v === "string" ? v
+        : Array.isArray(v) ? v.map((x) => asText(x)).join("\n")
+        : v == null ? ""
+        : typeof v === "object" ? Object.values(v as Record<string, unknown>).map((x) => asText(x)).join("\n")
+        : String(v);
+    for (const p of problems) {
+      p.content = asText(p.content);
+      p.question = asText(p.question);
+      p.answer = asText(p.answer);
+      p.solution = asText(p.solution);
+      p.conditions = Array.isArray(p.conditions)
+        ? p.conditions.map((c) => asText(c))
+        : p.conditions ? [asText(p.conditions)] : [];
+    }
+
     // ★ 소수 → 분수 표기 (사용자 요청 2026-07-29: "답이 소수점으로 나오면 차라리 분수로").
     //   **모든 파이프라인 공통, 검증 직전 한 곳에서** 처리한다(유형마다 고치면 반드시 빠지는 곳이 생긴다 —
     //   CLAUDE.md 규칙 1-3). 답·풀이에만 적용하고 본문·조건(주어진 소자 값 0.7V·0.2µF 등)은 건드리지 않는다.
@@ -1931,6 +2851,16 @@ export async function POST(req: NextRequest) {
     for (const p of problems) {
       if (p.answer) p.answer = fractionizeText(p.answer);
       if (p.solution) p.solution = fractionizeText(p.solution);
+    }
+
+    // ★ 문제 **조건**에서 자연상수 e의 수치 제시를 제거 (사용자 지정 2026-08-04, 전 과목).
+    //   "답에 있는 건 상관없고 문제 조건으로 주어지는 것만" → content·conditions에만 적용한다.
+    //   GPT가 `(단, e = 2.718로 계산한다)`를 얹으면 학생이 기호식 대신 소수로 답하게 된다.
+    //   위 분수 변환기와 같은 이유로 **한 곳에서** 처리한다(유형마다 고치면 반드시 빠지는 곳이 생긴다).
+    for (const p of problems) {
+      if (p.content) p.content = stripEulerGiven(p.content);
+      const cleaned = stripEulerGivenList(p.conditions);
+      if (cleaned) p.conditions = cleaned;
     }
 
     // 검증 (Pipeline 6단계)
@@ -1948,12 +2878,16 @@ export async function POST(req: NextRequest) {
     //   회로 subject의 topology/figure 검증(missing_topology·figure_reference 등)은 적용 대상이 아니다.
     //   구조·그림 검증은 건너뛰고 답·풀이 일관성만 확인한다.
     const skipStructuralValidation = mode === "gpt_generated";
+    // ★★ 객관식 원본 → 3단계 단계별 주관식 계약 (사용자 지정 2026-08-12).
+    //   원본이 보기 ①~⑤ 중 고르는 문항이면 생성물은 예외 없이 〈해석 절차〉 3단계 서술형이어야 한다.
+    //   판정은 **한 곳에서** 하고(분석 텍스트), 검증기가 위반을 보고한다([[lib/format/threeStep]]).
+    const multipleChoiceOriginal = detectMultipleChoiceOriginal(analysis);
     for (const p of problems) {
       const pv = skipStructuralValidation
         ? { ok: true, issues: [] as ValidationResult["issues"] }
         : validateProblem({
             problem: p,
-            expected: { subject: subjectKey, topicKey: expectedTopicKey, ruleSet },
+            expected: { subject: subjectKey, topicKey: expectedTopicKey, ruleSet, multipleChoiceOriginal },
           });
       const fv = skipStructuralValidation
         ? { ok: true, issues: [] as ValidationResult["issues"] }
@@ -2136,6 +3070,43 @@ function shouldUseTopologyDriven(
   if (circuitType === "rlc_resonance_max_power") return false;
   // switched_rlc_step·switched_rlc_5leg 모두 전용 generator 보존.
   if (circuitType === "switched_rlc_step") return false;
+  // switched_rlc_dual_switch도 전용 결정론 generator+렌더러 (2022 전기 B-5) — 두 스위치 구조 보존.
+  if (circuitType === "ac_thevenin_design_ab") return false;
+  // ac_delta_wye_bridge도 전용 결정론 generator+렌더러 (임용 2번 회로이론) — 5-arm 브리지 구조 보존.
+  if (circuitType === "ac_delta_wye_bridge") return false;
+  // oscilloscope_phase_l도 전용 결정론 generator+렌더러 (임용 11번) — 스코프 화면 figure 보존.
+  if (circuitType === "oscilloscope_phase_l") return false;
+  // ac_two_source_mesh_power도 전용 결정론 generator+렌더러 (임용 5번) — 2-메시 구조 보존.
+  if (circuitType === "ac_two_source_mesh_power") return false;
+  // ac_superposition_null_source (임용 3번) — 고정 2-메시(V_s·I_s)를 topology-driven이 잃는다.
+  if (circuitType === "ac_superposition_null_source") return false;
+  // thevenin_dep_graph_max_power도 전용 결정론 generator+렌더러 (임용 9번) — 점선 박스·계기 보존.
+  if (circuitType === "thevenin_dep_graph_max_power") return false;
+  // opamp_avg_superposition_r도 전용 (임용 8번) — (+)단자 3입력 구조 보존.
+  if (circuitType === "opamp_avg_superposition_r") return false;
+  // max_power_two_source_ratio도 전용 결정론 generator+렌더러 (임용 17번) — 2-figure 구조 보존.
+  if (circuitType === "max_power_two_source_ratio") return false;
+  // bjt_early_effect_fill_blank — 회로 netlist가 아니라 소자 단면도·특성곡선이다(임용 27번).
+  if (circuitType === "bjt_early_effect_fill_blank") return false;
+  // rlc_antiresonance_ladder도 전용 결정론 generator+렌더러 (임용 16번).
+  if (circuitType === "rlc_antiresonance_ladder") return false;
+  // ac_dc_source_superposition_vc도 전용 결정론 generator+렌더러 (임용 15번).
+  if (circuitType === "ac_dc_source_superposition_vc") return false;
+  // two_source_rl_superposition도 전용 결정론 generator+렌더러 (임용 4번) — 3-figure 구조 보존.
+  if (circuitType === "two_source_rl_superposition") return false;
+  // switched_rl_dual_short도 전용 결정론 generator+렌더러 (임용 17번) — 전류원·스위치 2개 구조 보존.
+  if (circuitType === "switched_rl_dual_short") return false;
+  // dff_preset_clear_regions도 전용 결정론 generator+렌더러 (임용 27번) — PR·CLR 비동기 구조 보존.
+  if (circuitType === "dff_preset_clear_regions") return false;
+  // dff_nand_mux_pair도 전용 결정론 generator (임용 12번) — 3-NAND 입력망 구조 보존.
+  if (circuitType === "dff_nand_mux_pair") return false;
+  if (circuitType === "zener_shunt_regulator") return false;
+  if (circuitType === "switched_rlc_source_free") return false;
+  // rlc_state_equation도 전용 결정론 generator+렌더러 (임용 6번) — 고정 토폴로지 보존.
+  if (circuitType === "rlc_state_equation") return false;
+  if (circuitType === "switched_rlc_dual_switch") return false;
+  // 전용 결정론 generator+렌더러 — 고정 토폴로지(스위치가 커패시터와 병렬)를 topology-driven이 못 그린다.
+  if (circuitType === "switched_cap_short_rl") return false;
   if (circuitType === "switched_rlc_5leg") return false;
   if (circuitType === "ac_parallel_branches") return false;
   // thevenin_switched_rc는 전용 fixed-slot generator (imyong 9 정보과). 점선박스+Thevenin 등가
@@ -2149,6 +3120,21 @@ function shouldUseTopologyDriven(
   if (circuitType === "opamp_generic") return false;
   // opamp_two_stage는 전용 결정론 generator+renderer (임용 2번). topology-driven 우회.
   if (circuitType === "opamp_two_stage") return false;
+  // opamp_two_stage_rx도 전용 결정론 generator+렌더러 (임용 2번 전자회로) — 2단·3입력 구조 보존.
+  if (circuitType === "opamp_two_stage_rx") return false;
+  // dc_two_source_ladder도 전용 결정론 generator+렌더러 (임용 3번 회로이론).
+  if (circuitType === "dc_two_source_ladder") return false;
+  if (circuitType === "diode_clamper") return false;
+  // ac_thevenin_two_box도 전용 결정론 generator+렌더러 (임용 10번 회로이론) — 점선 박스 2개 구조 보존.
+  if (circuitType === "ac_thevenin_two_box") return false;
+  // opamp_summer_tfeedback도 전용 결정론 generator+렌더러 (임용 7번 전자회로) — T형 궤환 구조 보존.
+  if (circuitType === "opamp_summer_tfeedback") return false;
+  // bjt_switch_logic_gate도 전용 결정론 generator+렌더러 (임용 2번).
+  if (circuitType === "bjt_switch_logic_gate") return false;
+  // comparator_diode_or도 전용 결정론 generator+렌더러 (임용 3번 전자회로).
+  if (circuitType === "comparator_diode_or") return false;
+  // bjt_thevenin_bias도 전용 결정론 generator+렌더러 (임용 10번 전자회로).
+  if (circuitType === "bjt_thevenin_bias") return false;
   // function_generator는 전용 결정론 generator+renderer (임용 29번). topology-driven 우회.
   if (circuitType === "function_generator") return false;
   // opamp_finite_gain_block은 전용 결정론 generator+renderer (임용 11번). topology-driven 우회.
@@ -2171,6 +3157,8 @@ function shouldUseTopologyDriven(
   if (circuitType === "ac_vccs_phasor") return false;
   // ac_thevenin_ladder는 전용 결정론 generator+사다리 렌더러 (임용 7번 회로이론). topology-driven 우회.
   if (circuitType === "ac_thevenin_ladder") return false;
+  // ac_thevenin_dependent도 전용 결정론 generator+렌더러 (임용 6번 회로이론) — 종속전원을 잃지 않도록 우회.
+  if (circuitType === "ac_thevenin_dependent") return false;
   // switched_rc_dc_transient는 전용 결정론 generator+렌더러 (임용 2번). topology-driven 우회.
   if (circuitType === "switched_rc_dc_transient") return false;
   // ★ dc_wheatstone_balance는 전용 결정론 generator+브리지 렌더러 (임용 3번 회로이론). topology-driven 우회.

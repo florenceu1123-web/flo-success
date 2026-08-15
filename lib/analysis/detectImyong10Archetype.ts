@@ -66,6 +66,19 @@ export function detectImyong10Archetype(input: Imyong10DetectInput): AnalogArche
   const jsonText = JSON.stringify(input.analysis ?? {});
   const text = [jsonText, ...(input.extraText ?? [])].join(" ").toLowerCase();
 
+  // ★ 정의적 특징 하드 게이트 (2026-08-02 실측 신고) — 이 archetype은
+  //   "**가변 저항 R**(학생 도출) + 목표 전압 조건(V_2가 N V가 되도록)"이 본질이다.
+  //   둘 다 없으면 그냥 **V·I 혼합 DC 저항회로**일 뿐이고 universal_dc 소관이다.
+  //   기존엔 "R 5개(+3) + V_1·V_2 라벨(+2) = 5"만으로 임계를 넘어, 가변저항이 전혀 없는
+  //   "전압원·전류원 회로에서 I₁·I₂를 구하라"(임용 3번류)를 가로채 가변저항 문제로 변질시켰다.
+  const hasVariableR =
+    text.includes("가변") || /variable\s*r/.test(text) || /\br_var\b/.test(text) ||
+    /r\s*(의)?\s*값을\s*(조정|조절|구|결정)/.test(text) ||
+    ((input.analysis as { loadPlaceholders?: unknown[] } | undefined)?.loadPlaceholders?.length ?? 0) > 0;
+  const hasTargetVoltage =
+    /v[_]?[1234]\s*[=:]\s*[\d.]+\s*\[?\s*v/.test(text) || /목표\s*전압|target\s*voltage/.test(text);
+  if (!hasVariableR && !hasTargetVoltage) return null;
+
   let score = 0;
 
   // R count sweet spot

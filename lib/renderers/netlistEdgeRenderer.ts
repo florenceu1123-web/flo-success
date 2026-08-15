@@ -53,11 +53,53 @@ export function componentHalfWidth(c: CircuitComponent): number {
 // =====================================================================
 // Entry — netlist → graph → edges → SVG (renderEdges 호출)
 // =====================================================================
+/**
+ * ★ 표시용 이름·값 (2026-08-02 사용자 신고 "R_leg3_1·V_leg1_1이 그대로 보인다").
+ *   내부 component id는 위치 기반 식별자라 시험지 그림에 나오면 안 된다 →
+ *   같은 종류끼리 **등장 순서대로** R₁·R₂…, V₁, I₁ 로 매긴다(렌더 1회 안에서 결정론).
+ *   값도 사람이 읽는 단위로: 5000Ω → 5kΩ, 0.008A → 8mA.
+ */
+const SUB_DIGITS = "₀₁₂₃₄₅₆₇₈₉";
+const subscript = (n: number) => String(n).split("").map((d) => SUB_DIGITS[Number(d)]).join("");
+let DISPLAY_NAMES = new Map<string, string>();
+function buildDisplayNames(components: ReadonlyArray<CircuitComponent>): Map<string, string> {
+  const count: Record<string, number> = {};
+  const map = new Map<string, string>();
+  for (const c of components) {
+    const t = String(c.type ?? "").toUpperCase();
+    const base = t === "OPAMP" ? "U" : t;
+    count[base] = (count[base] ?? 0) + 1;
+    map.set(c.id, `${base}${subscript(count[base])}`);
+  }
+  return map;
+}
+const displayNameOf = (c: CircuitComponent): string => DISPLAY_NAMES.get(c.id) ?? c.id;
+/** 값 표기 정리 — 큰 저항은 kΩ/MΩ, 작은 전류는 mA/µA로. 숫자 없는 기호 값("R")은 그대로. */
+export function displayValueOf(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/^(-?\d+(?:\.\d+)?)\s*(Ω|A|V|H|F)$/);
+  if (!m) return s;
+  const v = Number(m[1]), unit = m[2];
+  const fmt = (x: number) => (Number.isInteger(x) ? String(x) : String(Number(x.toFixed(3))));
+  if (unit === "Ω") {
+    if (Math.abs(v) >= 1e6) return `${fmt(v / 1e6)}MΩ`;
+    if (Math.abs(v) >= 1000) return `${fmt(v / 1000)}kΩ`;
+    return `${fmt(v)}Ω`;
+  }
+  if (unit === "A" && v !== 0) {
+    if (Math.abs(v) < 1e-3) return `${fmt(v * 1e6)}µA`;
+    if (Math.abs(v) < 0.1) return `${fmt(v * 1000)}mA`;
+  }
+  return `${fmt(v)}${unit}`;
+}
+
 export function renderNetlistEdgeSVG(netlist: CircuitNetlist): string {
   const validation = validateBasic(netlist);
   if (!validation.ok) {
     return `<pre>${escapeSvg(validation.errors.join("\n"))}</pre>`;
   }
+  DISPLAY_NAMES = buildDisplayNames(netlist.components);
 
   const { positions, indexOf } = computeNodePositions(netlist);
   const { edges, localGndPoints } = buildRenderEdges(netlist, positions, indexOf);
@@ -71,8 +113,11 @@ export function renderNetlistEdgeSVG(netlist: CircuitNetlist): string {
     .map((c) => renderMultiPinComponent(c, positions, netlist.positions, multiPinGndPoints, netlist.ground))
     .join("");
   const junctions = renderJunctions(netlist, positions);
-  // 분산된 GND symbol — 각 GND-attached pin 옆에 별도 표시 (단일 위치 long wire 회피).
-  const grounds = renderDistributedGroundSymbols([...localGndPoints, ...multiPinGndPoints]);
+  // GND는 **하나로 묶어 기호 한 개**만 (renderDistributedGroundSymbols 주석 참고).
+  const gndPoints = [...localGndPoints, ...multiPinGndPoints];
+  const grounds = renderDistributedGroundSymbols(gndPoints);
+  // 접지 rail이 캔버스 밖으로 잘리지 않도록 아래 여백을 확보한다.
+  const gndBottom = gndPoints.length > 0 ? Math.max(...gndPoints.map((p) => p.y)) + GROUND_RAIL_EXTENT : -Infinity;
 
   // bounding box
   const xs = Array.from(positions.values()).map((p) => p.x);
@@ -82,7 +127,7 @@ export function renderNetlistEdgeSVG(netlist: CircuitNetlist): string {
   const minX = Math.min(0, ...xs) - 80;
   const maxX = Math.max(...xs) + 80;
   const minY = Math.min(0, ...ys) - 60;
-  const maxY = Math.max(...ys, ctxYMax + 40) + 40;
+  const maxY = Math.max(...ys, ctxYMax + 40, gndBottom) + 40;
   const w = Math.max(maxX - minX, 320);
   const h = Math.max(maxY - minY, 220);
 
@@ -150,7 +195,16 @@ function computeNodePositions(netlist: CircuitNetlist): {
     }
     // hint가 누락된 node가 있으면 falls through to BFS — 모두 있으면 즉시 반환
     const allCovered = seen.every((n) => positions.has(n));
-    if (allCovered) return { positions, indexOf };
+    if (allCovered) {
+      // ★ 생성기 힌트가 **모든 마디를 한 레일(같은 y)** 에 놓았으면, 사다리 구조가 평평한
+      //   병렬 뱅크처럼 보인다(실측 신고) → 아래 규칙으로 "매달린 노드"만 한 단 내린다.
+      //   힌트가 이미 y를 층으로 나눠 놨으면(= 의도적 배치) 그대로 존중한다.
+      const topYs = [...positions.entries()]
+        .filter(([n]) => !groundCandidates.has(n))
+        .map(([, p]) => p.y);
+      if (new Set(topYs).size <= 1) dropHangingNodes(netlist, positions, groundCandidates);
+      return { positions, indexOf };
+    }
   }
 
   // 1. 모든 노드 수집 + 등장 순 기록 (tie-breaker로 사용)
@@ -178,16 +232,28 @@ function computeNodePositions(netlist: CircuitNetlist): {
     adj.get(b)!.add(a);
   }
 
-  // 3. BFS — ground 우선, 없으면 첫 노드
+  // 3. BFS — ★ 접지를 **거치지 않고** 전원 마디에서 출발한다 (2026-08-02 사용자 신고).
+  //    기존엔 GND를 root로 BFS해서 **접지에 붙은 마디가 전부 같은 열**(전원 leg·전류원 leg·부하 leg)에
+  //    몰렸고, 그 결과 원본의 좌→우 사다리가 세로로 겹쳐 쌓여 "전혀 다른 회로"처럼 보였다.
+  //    전원(+) 마디에서 비접지 간선만 따라가면 n1 — n2 — n3 순으로 레일이 자연스럽게 펼쳐진다.
+  const adjNoGnd = new Map<string, Set<string>>();
+  for (const [a, ns] of adj) {
+    if (groundCandidates.has(a)) continue;
+    adjNoGnd.set(a, new Set([...ns].filter((b) => !groundCandidates.has(b))));
+  }
   const level = new Map<string, number>();
-  const root = [...allNodes].find((n) => groundCandidates.has(n)) ?? [...allNodes][0];
+  // root 우선순위: (1) 첫 전압원의 비접지 단자, (2) 비접지 간선 차수가 가장 큰 마디, (3) 첫 마디
+  const vSource = netlist.components.find((c) => c.type === "V" && c.pins?.length === 2);
+  const vTop = vSource?.pins.map((p) => p.node).find((n) => !groundCandidates.has(n));
+  const byDegree = [...adjNoGnd.entries()].sort((a, b) => (b[1].size - a[1].size))[0]?.[0];
+  const root = vTop ?? byDegree ?? [...allNodes].find((n) => !groundCandidates.has(n)) ?? [...allNodes][0];
   if (root !== undefined) {
     level.set(root, 0);
     const queue: string[] = [root];
     while (queue.length > 0) {
       const curr = queue.shift()!;
       const lvl = level.get(curr)!;
-      for (const n of adj.get(curr) ?? []) {
+      for (const n of adjNoGnd.get(curr) ?? []) {
         if (!level.has(n)) {
           level.set(n, lvl + 1);
           queue.push(n);
@@ -195,6 +261,7 @@ function computeNodePositions(netlist: CircuitNetlist): {
       }
     }
   }
+  // ground는 항상 별도 rail — level 맵에서 제외된 채로 두면 아래 그룹화에서 자동 제외된다.
   // 분리된 sub-graph (예: OPAMP만으로 연결된 노드)는 max+1 부터
   let extraLevel = (level.size === 0 ? 0 : Math.max(...level.values())) + 1;
   for (const n of allNodes) {
@@ -229,6 +296,8 @@ function computeNodePositions(netlist: CircuitNetlist): {
     });
   });
 
+  dropHangingNodes(netlist, positions, groundCandidates);
+
   // ground node들은 bottom rail의 top 노드 X 범위 중앙
   const topXs = Array.from(positions.values()).map((p) => p.x);
   const midX = topXs.length > 0 ? (Math.min(...topXs) + Math.max(...topXs)) / 2 : X_PAD;
@@ -242,6 +311,46 @@ function computeNodePositions(netlist: CircuitNetlist): {
   }
 
   return { positions, indexOf };
+}
+
+/**
+ * ★ "매달린 노드" 하강 배치 (2026-08-02 사용자 신고 "원본과 회로 모양이 너무 다르다").
+ *   원본 사다리(마디 n2 —2kΩ— n4, n4 아래 6kΩ∥3kΩ)가, 모든 마디를 상단 레일에 한 줄로 놓는
+ *   기존 배치 때문에 **평평한 병렬 뱅크**처럼 보였다(연결 관계는 원본과 동일했지만 그림이 딴판).
+ *   규칙(일반): 비접지 이웃이 **정확히 1개**이고 접지로 내려가는 소자가 **2개 이상**인 마디는
+ *   부모 아래(같은 x, 한 단 아래)로 내린다 → 부모와의 소자는 세로, 병렬 뱅크는 그 아래로 그려진다.
+ *   ※ 접지 소자가 1개뿐인 마디(전원·단일 부하 leg)는 그대로 레일에 둔다 — 원본 배치와 일치.
+ */
+function dropHangingNodes(
+  netlist: CircuitNetlist,
+  positions: Map<string, Point>,
+  groundCandidates: Set<string>,
+): void {
+  const adj = new Map<string, Set<string>>();
+  const gndCompCount = new Map<string, number>();
+  for (const c of netlist.components) {
+    if (c.type === "GND" || !c.pins || c.pins.length !== 2) continue;
+    const [a, b] = [c.pins[0].node, c.pins[1].node];
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a)!.add(b);
+    adj.get(b)!.add(a);
+    const aG = groundCandidates.has(a), bG = groundCandidates.has(b);
+    if (aG === bG) continue;
+    const top = aG ? b : a;
+    gndCompCount.set(top, (gndCompCount.get(top) ?? 0) + 1);
+  }
+  const moved = new Set<string>();
+  for (const n of [...positions.keys()]) {
+    if (groundCandidates.has(n)) continue;
+    const nonGnd = [...(adj.get(n) ?? [])].filter((m) => !groundCandidates.has(m));
+    if (nonGnd.length !== 1 || (gndCompCount.get(n) ?? 0) < 2) continue;
+    const parent = nonGnd[0];
+    const pp = positions.get(parent);
+    if (!pp || moved.has(parent)) continue;     // 체인은 한 단만 (부모가 이미 내려갔으면 건너뜀)
+    positions.set(n, { x: pp.x, y: pp.y + 130 });
+    moved.add(n);
+  }
 }
 
 // =====================================================================
@@ -545,17 +654,49 @@ function renderJunctions(netlist: CircuitNetlist, nodePos: Map<string, Point>): 
 /** GND 표시 위치 + 방향. up=true면 wire가 위로 가고 symbol이 거꾸로 (위로 향함). */
 type GroundMark = { x: number; y: number; up?: boolean };
 
-function renderDistributedGroundSymbols(points: GroundMark[]): string {
-  let svg = "";
-  for (const p of points) {
-    const f = p.up ? -1 : 1;
-    svg += `<g transform="translate(${p.x},${p.y})">
+/** 접지 기호 글리프 하나 (up=true면 위를 향해 뒤집힌다). */
+function groundGlyph(p: GroundMark): string {
+  const f = p.up ? -1 : 1;
+  return `<g transform="translate(${p.x},${p.y})">
   <line x1="0" y1="0" x2="0" y2="${10 * f}" stroke="black" stroke-width="2"/>
   <line x1="-10" y1="${10 * f}" x2="10" y2="${10 * f}" stroke="black" stroke-width="2.4"/>
   <line x1="-7" y1="${14 * f}" x2="7" y2="${14 * f}" stroke="black" stroke-width="2"/>
   <line x1="-3" y1="${18 * f}" x2="3" y2="${18 * f}" stroke="black" stroke-width="2"/>
 </g>`;
+}
+
+/** 접지 rail이 차지하는 세로 여유 (rail 오프셋 + 글리프 높이). 캔버스 높이 계산에 쓴다. */
+export const GROUND_RAIL_EXTENT = 14 + 20;
+
+/**
+ * 접지 표시 — **하나로 묶어 기호를 한 번만** 그린다 (사용자 지정 2026-08-10, 회로이론 관례).
+ *
+ * 예전에는 GND에 붙은 핀마다 기호를 따로 찍었다("분산 GND" — 단일 위치까지 긴 wire를 끄는 것을
+ * 피하려던 것). 그런데 접지는 **같은 전위의 한 노드**라 기호가 여러 개면 서로 다른 접지처럼 읽힌다.
+ *
+ * 이제 각 GND 핀에서 짧은 세로 도선을 **공통 rail**로 내리고, 기호는 rail 중앙에 **하나만** 그린다.
+ * 긴 wire를 끌지 않으므로(각 핀은 rail까지 14px) 원래 피하려던 문제도 생기지 않는다.
+ * ※ 핀이 하나뿐이면 rail 없이 그 자리에 기호 하나 — 기존 그림과 완전히 동일하다.
+ */
+function renderDistributedGroundSymbols(points: GroundMark[]): string {
+  if (points.length === 0) return "";
+  if (points.length === 1) return groundGlyph(points[0]);
+
+  // rail은 가장 아래 접지점보다 조금 아래 — 위를 향하던 핀도 같은 rail로 모은다.
+  const railY = Math.max(...points.map((p) => p.y)) + 14;
+  const xs = points.map((p) => p.x);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+
+  let svg = `<path d="M ${minX} ${railY} L ${maxX} ${railY}" stroke="black" fill="none" stroke-width="2"/>`;
+  for (const p of points) {
+    if (Math.abs(p.y - railY) > 0.5) {
+      svg += `<path d="M ${p.x} ${p.y} L ${p.x} ${railY}" stroke="black" fill="none" stroke-width="2"/>`;
+    }
+    // rail 위의 접속점 — 도선 3개가 만나는 자리이므로 junction dot(규칙 #4).
+    svg += `<circle cx="${p.x}" cy="${railY}" r="3.2" fill="black"/>`;
   }
+  svg += groundGlyph({ x: (minX + maxX) / 2, y: railY });
   return svg;
 }
 
@@ -626,7 +767,7 @@ function renderOpamp(c: CircuitComponent, cx: number, cy: number): string {
     `<path d="${path}" stroke="black" fill="white" stroke-width="2"/>` +
     `<text x="${cx - 22}" y="${cy - 10}" text-anchor="middle" font-size="14">+</text>` +
     `<text x="${cx - 22}" y="${cy + 18}" text-anchor="middle" font-size="14">−</text>` +
-    `<text x="${cx}" y="${cy - 36}" text-anchor="middle" font-size="11" fill="#1e3a8a" font-weight="600">${escapeSvg(c.id)}</text>`
+    `<text x="${cx}" y="${cy - 36}" text-anchor="middle" font-size="11" fill="#1e3a8a" font-weight="600">${escapeSvg(displayNameOf(c))}</text>`
   );
 }
 
@@ -640,8 +781,8 @@ function renderOpamp(c: CircuitComponent, cx: number, cy: number): string {
  *  - vertical: id·value 모두 오른쪽(가로 spacing 절약)
  */
 function labelsOnEdge(c: CircuitComponent, cx: number, cy: number, orientation: Orientation): string {
-  const idText = escapeSvg(c.id);
-  const valText = c.value !== undefined ? escapeSvg(c.value) : "";
+  const idText = escapeSvg(displayNameOf(c));
+  const valText = c.value !== undefined ? escapeSvg(displayValueOf(c.value)) : "";
   if (orientation === "horizontal") {
     return (
       `<text x="${cx}" y="${cy - 32}" text-anchor="middle" font-size="11" fill="#1e3a8a" font-weight="600">${idText}</text>` +
@@ -798,4 +939,10 @@ function escapeSvg(v: unknown): string {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+/** 감사·스모크 전용 — 계산된 노드 좌표를 그대로 반환한다(레이아웃 회귀 검사용). */
+export function __nodePositionsForAudit(netlist: CircuitNetlist): Record<string, { x: number; y: number }> {
+  const { positions } = computeNodePositions(netlist);
+  return Object.fromEntries([...positions.entries()].map(([k, v]) => [k, { x: Math.round(v.x), y: Math.round(v.y) }]));
 }

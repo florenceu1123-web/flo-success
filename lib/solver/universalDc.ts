@@ -20,6 +20,8 @@ export type DcQuery =
   | { kind: "nodeVoltage"; node: string; label: string }
   | { kind: "branchCurrent"; vsourceId: string; label: string }
   | { kind: "resistorPower"; resistorId: string; label: string }
+  /** 저항에 흐르는 전류 i = (V_a − V_b)/R (부호는 a→b 방향). "4[kΩ]에 흐르는 전류 I₁" 형식. */
+  | { kind: "resistorCurrent"; resistorId: string; label: string }
   | { kind: "totalPower"; label: string }
   | {
       kind: "inverseR";
@@ -66,6 +68,13 @@ function evaluateQuery(
       if (!r) return { query: q, value: 0, unit: "W" };
       const p = resistorPower(sol, r);
       return { query: q, value: round(p, 4), unit: "W" };
+    }
+    case "resistorCurrent": {
+      const r = net.resistors.find((x) => x.id === q.resistorId);
+      if (!r) return { query: q, value: 0, unit: "A" };
+      const va = sol.nodeVoltages[r.a] ?? 0;
+      const vb = sol.nodeVoltages[r.b] ?? 0;
+      return { query: q, value: round((va - vb) / r.R, 4), unit: "A" };
     }
     case "totalPower": {
       let p = 0;

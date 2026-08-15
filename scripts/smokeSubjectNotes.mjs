@@ -10,6 +10,7 @@
  *  5. 순서 변경 — 저장·복원 + 집합 불일치 요청 거부
  *  6. 과목 분리 (A 과목 업로드가 B 과목에 안 섞임)
  *  7. 입력 검증 — 잘못된 subject·id, 경로 탈출(../), 비이미지 파일 거부
+ *  8. 제목 검색(?q=) — 모든 앨범 훑기, AND·띄어쓰기 무시, 파일명 제목, 설명은 대상 아님
  *
  * 실행: dev 서버 기동 상태에서  node scripts/smokeSubjectNotes.mjs
  *       (포트가 3000이 아니면  BASE_URL=http://localhost:3001 node scripts/...)
@@ -50,8 +51,12 @@ await cleanup(OTHER);
 console.log("[1] 목록 조회 + 장수 집계");
 const before = await list(SUBJ);
 check("GET 200 · notes 배열", Array.isArray(before.notes), `${before.notes?.length}장`);
-check("counts에 8과목 모두 포함", Object.keys(before.counts ?? {}).length === 8,
-  `${Object.keys(before.counts ?? {}).length}개`);
+// 앨범은 과목 8종 + 별도 앨범(전공스샷 등)이라 개수를 못 박지 않는다 — 별도 앨범이 늘 때마다
+// 이 단언이 거짓으로 깨졌다(실측). 두 종류가 모두 집계에 들어오는지만 본다.
+const countKeys = Object.keys(before.counts ?? {});
+check("counts에 과목·별도 앨범이 모두 포함",
+  countKeys.length >= 8 && countKeys.includes(SUBJ) && countKeys.includes("major_shot"),
+  `${countKeys.length}개`);
 const baseCount = before.notes.length;
 
 // ─── 2. 여러 장 업로드 ──────────────────────────────────────────────────
@@ -214,6 +219,81 @@ const noFile = new FormData();
 noFile.append("subject", SUBJ);
 const noFileRes = await fetch(`${BASE}/api/notes`, { method: "POST", body: noFile });
 check("파일 없음 → 400", noFileRes.status === 400, `HTTP ${noFileRes.status}`);
+
+// ─── 8. 제목 검색 (모든 앨범) ───────────────────────────────────────────
+console.log("\n[8] 제목 검색");
+// 사용자 사진과 겹치지 않을 낱말로 두 앨범에 한 장씩 올린다.
+const TOKEN = "지그재그검색토큰";
+const titled = new FormData();
+titled.append("subject", SUBJ);
+titled.append("title", `${TOKEN} 테브난 등가`);
+titled.append("files", new Blob([png], { type: "image/png" }), `${MARK}search1.png`);
+await fetch(`${BASE}/api/notes`, { method: "POST", body: titled });
+
+const titledOther = new FormData();
+titledOther.append("subject", OTHER);
+titledOther.append("title", `${TOKEN} 공진 회로`);
+titledOther.append("files", new Blob([png2], { type: "image/png" }), `${MARK}search2.png`);
+await fetch(`${BASE}/api/notes`, { method: "POST", body: titledOther });
+
+// 제목 없이 올린 사진은 파일명이 제목 — 파일명으로도 찾을 수 있어야 한다.
+const byFile = new FormData();
+byFile.append("subject", SUBJ);
+byFile.append("files", new Blob([png], { type: "image/png" }), `${MARK}${TOKEN}파일명.png`);
+await fetch(`${BASE}/api/notes`, { method: "POST", body: byFile });
+
+const search = async (q) =>
+  (await fetch(`${BASE}/api/notes?subject=${SUBJ}&q=${encodeURIComponent(q)}`)).json();
+
+const all = await search(TOKEN);
+check("검색어를 주면 hits가 온다", Array.isArray(all.hits), `${all.hits?.length}건`);
+check("두 앨범 것이 모두 잡힘", all.hits?.length === 3, `${all.hits?.length}건`);
+check(
+  "hits에 앨범 키가 담긴다",
+  new Set((all.hits ?? []).map((h) => h.album)).size === 2,
+  [...new Set((all.hits ?? []).map((h) => h.album))].join(","),
+);
+check(
+  "hits에 앨범 내 위치가 담긴다",
+  (all.hits ?? []).every((h) => Number.isInteger(h.position) && h.position >= 0),
+);
+check(
+  "사진 메타(id·mime)가 그대로 온다",
+  (all.hits ?? []).every((h) => h.photo?.id && h.photo?.mime?.startsWith("image/")),
+);
+check("파일명이 제목인 사진도 잡힌다",
+  (all.hits ?? []).some((h) => h.photo.fileName.includes("파일명")));
+
+const both = await search(`${TOKEN} 공진`);
+check("두 낱말은 AND로 좁혀진다", both.hits?.length === 1, `${both.hits?.length}건`);
+check("좁혀진 결과가 다른 앨범 것", both.hits?.[0]?.album === OTHER, both.hits?.[0]?.album);
+
+const tight = await search(`${TOKEN}공진`);
+check("띄어쓰기를 무시하고도 잡힌다", tight.hits?.length === 1, `${tight.hits?.length}건`);
+
+const none = await search(`${TOKEN} 없는낱말`);
+check("맞는 제목이 없으면 빈 배열", Array.isArray(none.hits) && none.hits.length === 0);
+
+// 설명(memo)은 검색 대상이 아니다 — 제목에는 없는 낱말을 설명에만 넣고 확인한다.
+const memoOnlyWord = `${TOKEN}메모에만있는낱말`;
+const memoTarget = (all.hits ?? [])[0]?.photo?.id;
+await fetch(`${BASE}/api/notes`, {
+  method: "PATCH",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ subject: (all.hits ?? [])[0]?.album, id: memoTarget, memo: memoOnlyWord }),
+});
+const memoSearch = await search(memoOnlyWord);
+check("설명(memo)으로는 안 잡힌다", (memoSearch.hits ?? []).length === 0,
+  `${memoSearch.hits?.length}건`);
+
+const blank = await search("   ");
+check("공백만 보내면 평소 목록 응답(hits 없음)",
+  blank.hits === undefined && Array.isArray(blank.notes));
+check("검색 응답에도 목록·집계가 함께 온다",
+  Array.isArray(all.notes) && typeof all.counts === "object");
+
+const badSearchSubj = await fetch(`${BASE}/api/notes?subject=nope&q=${encodeURIComponent(TOKEN)}`);
+check("검색이어도 잘못된 앨범은 400", badSearchSubj.status === 400, `HTTP ${badSearchSubj.status}`);
 
 // ─── 정리 ───────────────────────────────────────────────────────────────
 await cleanup(SUBJ);

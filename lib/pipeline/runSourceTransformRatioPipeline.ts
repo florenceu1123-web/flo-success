@@ -110,12 +110,16 @@ export function detectSourceTransformRatio(analysis: AnalysisResult | null | und
     inv.some((c) => /가변|variable/i.test(String(c?.value ?? "")));
   if (hasVariableResistor) return null;
 
-  // 전원변환 신호 (모든 Vision run에서 신뢰성 높음 — 문제의 정의적 특징)
-  const hasSourceTransform =
-    /전원\s*변환|소스\s*변환|source\s*transform/i.test(text) ||
-    (/전류원/i.test(text) && /전압원/i.test(text)) ||
+  // ★ 전원변환 신호 — **명시 근거**와 **약한 근거**를 구분한다 (2026-08-02 실측 신고).
+  //   기존엔 "전류원 언급 + 전압원 언급"만으로도 전원변환으로 인정했는데, 그건
+  //   **V·I 혼합 DC 회로면 전부 해당**하는 일반 서술이다. 실제로 "전압원과 전류원이 포함된
+  //   저항 회로에서 I₁·I₂를 구하라"(임용 3번류)가 이 감지기에 걸려, 원본에 없는
+  //   "(가)→(나) 전원변환 + 전압비 3:2:1" 문제로 통째 변질됐다(로그 dispatch=source_transform_ratio).
+  const strongTransform =
+    /전원\s*변환|소스\s*변환|source\s*transform|등가\s*변환/i.test(text) ||
     Boolean(analysis.semantic?.hasEquivalentTransformation);
-  if (!hasSourceTransform) return null;
+  const weakTransform = /전류원/i.test(text) && /전압원/i.test(text);
+  if (!strongTransform && !weakTransform) return null;
 
   // ★ 전압비 "맥락"으로 트리거 (숫자 아님) — Vision 비결정성으로 숫자 비율(3:2:1)·텍스트 비율
   //   표현은 run마다 통째로 누락되지만, ★ nodeAnnotations의 V_1·V_2·V_3 라벨은 모든 run에 안정적
@@ -128,11 +132,39 @@ export function detectSourceTransformRatio(analysis: AnalysisResult | null | und
       .filter((l) => /^V_?[123]$/.test(l))
       .map((l) => l.replace("_", "")),
   );
-  const hasVoltageRatioContext =
+  //   ★ 전압비 근거도 강·약을 구분한다: nodeAnnotations의 V_1·V_2 라벨은 **일반 DC 회로에도 흔하다**
+  //     (Vision이 마디에 자동으로 붙인다) → 그것만으로는 이 유형이라 볼 수 없다.
+  const strongRatio =
     /V[_\s]*1\s*:\s*V[_\s]*2\s*:\s*V[_\s]*3/i.test(text) ||
     /전압\s*비/.test(text) ||
-    vNodeLabels.size >= 2;
-  if (!hasVoltageRatioContext) return null;
+    extractRatio(text) !== null;
+  const weakRatio = vNodeLabels.size >= 2;
+
+  // ★★ 최후의 구조 신호 (사용자 신고 2026-08-05 "생성 실패: 문제 생성 중 오류가 발생했습니다"):
+  //   Vision이 **비율 숫자(3:2:1)도, nodeAnnotations의 V_1·V_2·V_3도 둘 다 흘린** 회차가 있었다.
+  //   그 회차는 strongRatio·weakRatio가 모두 false라 이 감지기가 null을 냈고 → **universal_dc**로 떨어져
+  //   generic 경로가 floating source 회로를 만들어 `figure 검증 실패`로 **500 에러**가 사용자 화면에 떴다
+  //   (로그: `dispatch universal_dc_pipeline` → `figure_critical_validation_failed: V_leg1_1 … closed loop 없음`).
+  //   → 이 원본에 **항상 남는 구조**로 구제한다: 명시적 "전원 변환" + **독립 전류원** + **값이 기호인 미지 저항**.
+  //     (원본은 (가)의 전류원을 (나)의 전압원으로 바꾸고, [단계 2]에서 미지 R₃를 구하는 형식이다.
+  //      Vision은 그 저항을 `R=R3` 또는 값이 빈 `R=`로 3/3 회차 모두 남겼다.)
+  //   ※ semantic 플래그(hasEquivalentTransformation)는 테브난 유형도 켜므로 **낱말 근거만** 쓴다 —
+  //     그래야 형제(테브난·노턴 등가)를 뺏지 않는다.
+  const explicitTransform = /전원\s*변환|소스\s*변환|source\s*transform/i.test(text);
+  const hasCurrentSource =
+    inv.some((c) => String(c?.type ?? "").toUpperCase() === "I") || /전류원/.test(text);
+  const symbolicUnknownR = inv.some((c) => {
+    if (String(c?.type ?? "").toUpperCase() !== "R") return false;
+    const val = String(c?.value ?? "").trim();
+    return val === "" || /^R_?\d?$/i.test(val);
+  });
+  const structuralRatio = explicitTransform && hasCurrentSource && symbolicUnknownR;
+
+  // 전원변환·전압비 근거가 **모두 약하면** 이 유형이 아니다 → universal_dc로 보낸다.
+  //   (전원변환이 명시돼 있으면 Vision이 비율 숫자를 흘려도 라벨 맥락·구조 신호로 인정.)
+  if (!((strongTransform && (strongRatio || weakRatio || structuralRatio)) || (weakTransform && strongRatio))) {
+    return null;
+  }
 
   // 숫자 비율은 있으면 추출, 없으면 3:2:1 기본값(임용 7번 원본). 기본값 사용 시 경고.
   const ratio = extractRatio(text);

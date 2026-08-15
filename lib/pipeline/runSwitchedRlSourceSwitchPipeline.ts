@@ -19,6 +19,13 @@ const DEP_TYPES = ["CCVS", "CCCS", "VCVS", "VCCS"];
  *    텍스트("스위치 S가 단자 A에서 단자 B로", "단자 A"·"단자 B")로 잡는다.
  *  ※ circuitType 게이팅은 호출부(route)에서 한다.
  */
+/**
+ * 두 전원이 **동시에 인가되고 중첩·테브난으로 푸는** 형식이면 이 archetype이 아니다(임용 4번).
+ * 스위치 절체가 아니라 선형 중첩이 주제라 회로도·해법이 완전히 다르다.
+ */
+const SUPERPOSITION_YIELD_RE =
+  /중첩의?\s*원리|superposition|테브난\s*등가|단위\s*계단|단위계단|u\s*\(\s*t\s*\)|합성\s*저항\s*R_?eq|정현파.*전압원|전압원.*정현파/i;
+
 export function detectSwitchedRlDualSource(analysis: AnalysisResult | null | undefined): boolean {
   if (!analysis) return false;
   const inv = analysis.componentInventory ?? [];
@@ -41,8 +48,13 @@ export function detectSwitchedRlDualSource(analysis: AnalysisResult | null | und
   // ★ bare SW는 근거가 될 수 없다 — 스위치가 있는 **모든** RL 문제를 이 archetype이 가져가
   //   전혀 다른 회로(2전원 SPDT)로 변질됐다(실측 신고: 임용 2번 i(t) 램프 문제가 여기로 샘).
   //   이 유형의 고유 신호는 **전원이 2개**이거나 **단자 A↔B로 스위치가 이동**하는 것이다.
-  void hasSW;
-  return vCount >= 2 || abSwitchText;
+  // ★★ 그런데 `vCount >= 2`만으로도 여전히 너무 넓었다 (사용자 신고 2026-08-12):
+  //   **전압원 2개 + 인덕터**이기만 하면 잡혀서, 스위치가 **아예 없는** 임용 4번
+  //   (단위계단 v₁ + 정현파 v₂를 **중첩**으로 푸는 5단계 서술형)이 통째로 이 유형으로 변질됐다
+  //   (생성물: 단자 A·B SPDT + V_A 12V·V_B 4V).
+  //   ⇒ 이 archetype의 고유 신호는 "두 전원을 **스위치로 절체**"하는 것이다. 전원 개수만으로는 안 된다.
+  if (SUPERPOSITION_YIELD_RE.test(txt)) return false;
+  return (vCount >= 2 && (hasSW || abSwitchText)) || abSwitchText;
 }
 
 /**

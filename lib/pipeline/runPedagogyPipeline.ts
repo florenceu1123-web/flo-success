@@ -1,3 +1,4 @@
+import { MULTIPLE_CHOICE_TO_THREE_STEP_RULE } from "@/lib/format/threeStep";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { buildContextHint } from "./_common";
@@ -38,6 +39,7 @@ export async function runPedagogyPipeline(args: {
 - 교육학 이론·학자·개념을 정확히 반영하세요. 예: 교육심리(피아제·비고츠키 ZPD·브루너 발견학습·콜버그 도덕성 발달·매슬로/데시-라이언 동기), 교육과정(타일러 목표모형·브루너 나선형·백워드 설계·잠재적/영 교육과정), 교육평가(진단·형성·총괄평가·규준/준거참조·타당도·신뢰도·문항분석), 교육방법·공학(ADDIE·가네 9사태·구성주의·협동학습·에듀테크), 교육행정(과학적 관리·인간관계론·지도성 이론·장학·교육법규), 교육사회학(기능론·갈등론·재생산이론·문화자본), 교육철학·교육사(항존주의·본질주의·진보주의·실존주의), 생활지도·상담(정신분석·행동주의·인간중심·인지행동 상담).
 - 개념 정의·특징·사례 적용·이론 간 비교를 정확하고 구체적으로 서술하세요.
 - 회로도·수식 도식·코드·그림은 사용하지 않습니다(순수 텍스트).
+${MULTIPLE_CHOICE_TO_THREE_STEP_RULE}
 - 출력은 반드시 JSON 하나. 마크다운 코드펜스 없이 순수 JSON만.`;
 
   const user = `[원본 분석 컨텍스트]

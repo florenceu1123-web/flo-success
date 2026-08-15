@@ -117,8 +117,12 @@ function vSource(cx: number, cy: number, label: string): string {
 }
 function zener(cx: number, cy: number, _label: string): string {
   // 제너 다이오드 — 삼각형(cathode 위) + 꺾인 bar (Z 모양). 도선은 위(cathode)→아래(anode).
+  // ★ 꼭짓점은 **위(cy-h)**, 밑변이 아래(cy+h)다 — bar(캐소드)는 꼭짓점 쪽에 붙는다.
+  //   (사용자 신고 2026-08-04 "제너 다이오드 방향이 반대 아니야?": 꼭짓점을 cy+h에 찍어
+  //    삼각형이 아래를 향하고 bar가 **밑변 쪽**에 붙어 원본과 방향이 뒤집혔다. 션트 레귤레이터는
+  //    A 노드(+)에서 아래로 항복 전류가 흐르므로 캐소드가 위여야 한다.)
   const h = 14;
-  const tri = `<polygon points="${cx},${cy + h} ${cx - 10},${cy - h} ${cx + 10},${cy - h}" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
+  const tri = `<polygon points="${cx},${cy - h} ${cx - 10},${cy + h} ${cx + 10},${cy + h}" fill="white" stroke="${STROKE}" stroke-width="${WIRE_W}"/>`;
   // cathode bar (위) with zener serifs
   const bar = `<line x1="${cx - 11}" y1="${cy - h}" x2="${cx + 11}" y2="${cy - h}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>` +
     `<line x1="${cx - 11}" y1="${cy - h}" x2="${cx - 15}" y2="${cy - h - 5}" stroke="${STROKE}" stroke-width="${WIRE_W}"/>` +

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { generateJkStateMachine, generateJkStateMachineVariant, stateBits as smBits } from "@/lib/generation/topologies/jkStateMachine";
+import type { ClockEdge } from "@/lib/generation/topologies/jkStateMachine";
+import { detectClockEdge } from "@/lib/analysis/clockEdge";
 import { buildContextHint, generateInParallel } from "./_common";
 import type {
   AnalysisResult,
@@ -57,17 +59,27 @@ export async function runJkSyncCounterPipeline(args: {
   const { analysis, mode, count, topicKey } = args;
   void buildContextHint(analysis); // 결정론 — 컨텍스트는 참고만.
 
+  // ★ 클럭 에지는 원본의 구조적 속성이다(원본 임용 6번은 CP 입력에 버블 = 하강 에지).
+  //   분석 텍스트에 근거가 있으면 그대로 따르고, 없으면 원본을 보존한다(절대규칙 0).
+  const clockEdge: ClockEdge = detectClockEdge(analysis) ?? "falling";
+  log.info("jk_clock_edge", { clockEdge, detected: detectClockEdge(analysis) ?? "none" });
+
   if (mode === "exam_similar") {
-    return runStateMachineMode(count, topicKey);
+    return runStateMachineMode(count, topicKey, clockEdge);
   }
   // exam_variant: 게이트 1개 추가한 카운터 (비순환 상태형 + 게이트).
-  return runVariantMode(count, topicKey);
+  return runVariantMode(count, topicKey, clockEdge);
+}
+
+/** 발문·풀이에 쓰는 에지 표기. */
+function edgeKo(e: ClockEdge): string {
+  return e === "falling" ? "하강 에지" : "상승 에지";
 }
 
 /** exam_similar: 비순환 상태가 있는 JK 카운터 (원본 임용 6번 재현). index 0 = 원본 답. */
-async function runStateMachineMode(count: number, topicKey?: TopicKey): Promise<GeneratedProblem[]> {
+async function runStateMachineMode(count: number, topicKey: TopicKey | undefined, clockEdge: ClockEdge): Promise<GeneratedProblem[]> {
   return generateInParallel(count, async (i) => {
-    const gen = generateJkStateMachine({ index: i });
+    const gen = generateJkStateMachine({ index: i, clockEdge });
     const cycleText = gen.cycle.map(smBits).join(" → ") + " → " + smBits(gen.cycle[0]);
     const ncVals = gen.nonCyclic.map((n) => smBits(n.state));
     log.info("jk_state_machine_generated", { cycle: cycleText, nonCyclic: ncVals.join(",") });
@@ -81,7 +93,7 @@ async function runStateMachineMode(count: number, topicKey?: TopicKey): Promise<
         label: "(가) JK 플립플롭 동기식 카운터 회로",
         role: "implementation_circuit",
         diagramType: "jk_state_machine_circuit",
-        diagram: { j0: c.J0, k0: c.K0, j1: c.J1, k1: c.K1, j2: c.J2, k2: c.K2 },
+        diagram: { j0: c.J0, k0: c.K0, j1: c.J1, k1: c.K1, j2: c.J2, k2: c.K2, clockEdge },
       },
       {
         id: `fig_waveform_${i + 1}`,
@@ -110,14 +122,14 @@ async function runStateMachineMode(count: number, topicKey?: TopicKey): Promise<
 
     const markerAns = gen.markerStates.map((m) => `${m.label}: Q₂Q₁Q₀ = ${smBits(m.state)}`).join(", ");
 
-    const content = `그림 (가)는 이상적으로 동작하는 JK 플립플롭 3개(Q₂·Q₁·Q₀)를 이용한 동기식 카운터 회로이다. 세 플립플롭은 공통 클럭 펄스(CP)로 동시에 트리거되며, 각 J·K 입력은 J₀=${jkLabel(c.J0)}·K₀=${jkLabel(c.K0)}, J₁=${jkLabel(c.J1)}·K₁=${jkLabel(c.K1)}, J₂=${jkLabel(c.J2)}·K₂=${jkLabel(c.K2)} 로 배선되어 있다. 초기 상태는 Q₂Q₁Q₀ = 000이다.`;
+    const content = `그림 (가)는 이상적으로 동작하는 JK 플립플롭 3개(Q₂·Q₁·Q₀)를 이용한 동기식 카운터 회로이다. 세 플립플롭은 공통 클럭 펄스(CP)의 ${edgeKo(clockEdge)}에서 동시에 트리거되며, 각 J·K 입력은 J₀=${jkLabel(c.J0)}·K₀=${jkLabel(c.K0)}, J₁=${jkLabel(c.J1)}·K₁=${jkLabel(c.K1)}, J₂=${jkLabel(c.J2)}·K₂=${jkLabel(c.K2)} 로 배선되어 있다. 초기 상태는 Q₂Q₁Q₀ = 000이다.`;
     const conditions = [
-      "모든 플립플롭은 공통 클럭 CP의 동일 에지에서 동작한다(동기식).",
+      `모든 플립플롭은 공통 클럭 CP의 **${edgeKo(clockEdge)}**에서 동시에 상태가 바뀐다(동기식).`,
       "상태값은 Q₂Q₁Q₀ 순서로 표기하며, 초기값은 000이다.",
     ];
     const question = `(1) 클럭 펄스 CP에 따른 Q₂·Q₁·Q₀의 변화를 그림 (나)의 타이밍 도표에 도시하시오.\n(2) 회로의 상태 전이를 그림 (다)의 상태도로 작성하고, 000에서 시작하는 순환(사이클)에 **포함되지 않는(순환하지 않는) 상태값 2개**를 구하시오.`;
     const answer = `상태 순환: ${cycleText}. 순환하지 않는 상태값 2개: ${ncVals.join(", ")}.`;
-    const solution = `[단계 1] 각 플립플롭의 여기 조건(Qₙ₊₁ = J·Q̄ + K̄·Q)을 적용해 초기 000부터 클럭마다 다음 상태를 구하면 ${cycleText} 로 6개 상태를 순환한다. 이를 (나)에 도시한다.\n[단계 2] 8개 상태 전체의 전이를 (다) 상태도로 그리면, 위 6-상태 사이클에 들어오지 못하고 사이클로 흘러 들어가기만 하는 상태가 ${gen.nonCyclic.map((n) => `${smBits(n.state)}(→${smBits(n.next)})`).join(", ")} 이다. 따라서 **순환하지 않는 상태값은 ${ncVals.join(", ")}** 이다.`;
+    const solution = `[단계 1] 각 플립플롭의 여기 조건(Qₙ₊₁ = J·Q̄ + K̄·Q)을 적용해 초기 000부터 CP의 ${edgeKo(clockEdge)}마다 다음 상태를 구하면 ${cycleText} 로 6개 상태를 순환한다. 이를 (나)에 도시한다(전이는 모두 CP의 ${edgeKo(clockEdge)} 시점에 일어난다).\n[단계 2] 8개 상태 전체의 전이를 (다) 상태도로 그리면, 위 6-상태 사이클에 들어오지 못하고 사이클로 흘러 들어가기만 하는 상태가 ${gen.nonCyclic.map((n) => `${smBits(n.state)}(→${smBits(n.next)})`).join(", ")} 이다. 따라서 **순환하지 않는 상태값은 ${ncVals.join(", ")}** 이다.`;
 
     return {
       id: randomUUID(),
@@ -133,9 +145,9 @@ async function runStateMachineMode(count: number, topicKey?: TopicKey): Promise<
 }
 
 /** exam_variant: 유사 회로(J0=Q̄1·J1=Q0) 그대로 + J2=K2=gate(Q0,Q1) 게이트 1개 추가. */
-async function runVariantMode(count: number, topicKey?: TopicKey): Promise<GeneratedProblem[]> {
+async function runVariantMode(count: number, topicKey: TopicKey | undefined, clockEdge: ClockEdge): Promise<GeneratedProblem[]> {
   return generateInParallel(count, async (i) => {
-    const gen = generateJkStateMachineVariant({ index: i });
+    const gen = generateJkStateMachineVariant({ index: i, clockEdge });
     const vc = gen.variantConfig!;
     const jkLabel = (s: string) => (s === "1" ? "1" : s.startsWith("n") ? `Q̄${sub(s)}` : `Q${sub(s)}`);
     const gateOp = typeof vc.J2 === "object" ? vc.J2.op : "OR";
@@ -151,7 +163,7 @@ async function runVariantMode(count: number, topicKey?: TopicKey): Promise<Gener
         diagramType: "jk_state_machine_circuit",
         diagram: {
           j0: vc.J0 as string, k0: vc.K0 as string, j1: vc.J1 as string, k1: vc.K1 as string,
-          j2: "", k2: "", gate: { op: gateOp, a: "Q0", b: "Q1" },
+          j2: "", k2: "", gate: { op: gateOp, a: "Q0", b: "Q1" }, clockEdge,
         },
       },
       {
@@ -182,15 +194,15 @@ async function runVariantMode(count: number, topicKey?: TopicKey): Promise<Gener
     const markerAns = gen.markerStates.map((m) => `${m.label}: Q₂Q₁Q₀ = ${smBits(m.state)}`).join(", ");
     const opKo = gateOp === "OR" ? "OR(논리합)" : gateOp === "AND" ? "AND(논리곱)" : gateOp;
 
-    const content = `그림 (가)는 JK 플립플롭 3개(Q₂·Q₁·Q₀)를 이용한 동기식 카운터 회로이다. 공통 클럭 펄스(CP)로 동시에 트리거되며, J₀=${jkLabel(vc.J0 as string)}·K₀=${jkLabel(vc.K0 as string)}, J₁=${jkLabel(vc.J1 as string)}·K₁=${jkLabel(vc.K1 as string)}이고, **최상위 플립플롭의 J₂=K₂는 2입력 ${opKo} 게이트의 출력(입력: Q₀, Q₁)**에 연결되어 있다. 초기 상태는 Q₂Q₁Q₀ = 000이다.`;
+    const content = `그림 (가)는 JK 플립플롭 3개(Q₂·Q₁·Q₀)를 이용한 동기식 카운터 회로이다. 공통 클럭 펄스(CP)의 ${edgeKo(clockEdge)}에서 동시에 트리거되며, J₀=${jkLabel(vc.J0 as string)}·K₀=${jkLabel(vc.K0 as string)}, J₁=${jkLabel(vc.J1 as string)}·K₁=${jkLabel(vc.K1 as string)}이고, **최상위 플립플롭의 J₂=K₂는 2입력 ${opKo} 게이트의 출력(입력: Q₀, Q₁)**에 연결되어 있다. 초기 상태는 Q₂Q₁Q₀ = 000이다.`;
     const conditions = [
-      "모든 플립플롭은 공통 클럭 CP의 동일 에지에서 동작한다(동기식).",
+      `모든 플립플롭은 공통 클럭 CP의 **${edgeKo(clockEdge)}**에서 동시에 상태가 바뀐다(동기식).`,
       `J₂ = K₂ = ${gateOp}(Q₀, Q₁) 게이트 출력이다.`,
       "상태값은 Q₂Q₁Q₀ 순서로 표기하며, 초기값은 000이다.",
     ];
     const question = `(1) 클럭 펄스 CP에 따른 Q₂·Q₁·Q₀의 변화를 그림 (나)의 타이밍 도표에 도시하시오.\n(2) 회로의 상태 전이를 그림 (다)의 상태도로 작성하고, 000에서 시작하는 순환에 **포함되지 않는(순환하지 않는) 상태값 2개**를 구하시오.`;
     const answer = `상태 순환: ${cycleText}. 순환하지 않는 상태값 2개: ${ncVals.join(", ")}.`;
-    const solution = `[단계 1] 여기 조건(Qₙ₊₁ = J·Q̄ + K̄·Q)과 J₂=K₂=${gateOp}(Q₀,Q₁)를 적용해 초기 000부터 다음 상태를 구하면 ${cycleText} 로 6개 상태를 순환한다. 이를 (나)에 도시한다.\n[단계 2] 8개 상태 전이를 (다) 상태도로 그리면, 사이클에 들어오지 못하고 흘러 들어가기만 하는 상태가 ${gen.nonCyclic.map((n) => `${smBits(n.state)}(→${smBits(n.next)})`).join(", ")} 이다. 따라서 **순환하지 않는 상태값은 ${ncVals.join(", ")}** 이다.`;
+    const solution = `[단계 1] 여기 조건(Qₙ₊₁ = J·Q̄ + K̄·Q)과 J₂=K₂=${gateOp}(Q₀,Q₁)를 적용해 초기 000부터 CP의 ${edgeKo(clockEdge)}마다 다음 상태를 구하면 ${cycleText} 로 6개 상태를 순환한다. 이를 (나)에 도시한다(전이는 모두 CP의 ${edgeKo(clockEdge)} 시점에 일어난다).\n[단계 2] 8개 상태 전이를 (다) 상태도로 그리면, 사이클에 들어오지 못하고 흘러 들어가기만 하는 상태가 ${gen.nonCyclic.map((n) => `${smBits(n.state)}(→${smBits(n.next)})`).join(", ")} 이다. 따라서 **순환하지 않는 상태값은 ${ncVals.join(", ")}** 이다.`;
 
     return {
       id: randomUUID(),

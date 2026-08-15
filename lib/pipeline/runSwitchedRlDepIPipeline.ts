@@ -43,8 +43,16 @@ export function detectSwitchedRlDepI(analysis: AnalysisResult | null | undefined
     // 제어량 표기(10i_n·10i_a·2i_x…)가 본문에 그대로 남는 경우 — inventory 누락 방어.
     /\d+\s*i_?[a-zA-Z]\b/.test(txt);
   if (!hasDepCurrent) return false;
-  // 스위치: inventory SW 또는 텍스트(스위치·개방·t=0)
-  const hasSwitch = inv.some((c) => String(c.type).toUpperCase() === "SW") || /스위치|개방|스위칭|t\s*=\s*0/.test(txt);
+  // ★ 양보 가드 (2026-08-02 실측): 이 감지기가 "종속전원 + L"만 보고 **교류 문맥을 확인하지 않아**
+  //   종속전원 포함 AC 테브난 최대전력 원본(임용 6번 회로이론)을 통째로 가로챘다
+  //   (서버 로그 dispatch=switched_rl_dep_i_pipeline → 직류 스위치 RL 과도 문제로 변질).
+  //   · 페이저(∠·페이저) 표기는 직류 과도 문제에 없다.
+  //   · "테브난 + 최대 전력"은 이 유형의 요구가 아니다(이쪽은 i_R(t)·시정수).
+  if (/페이저|phasor|∠/.test(txt)) return false;
+  if (/테브난|thevenin|등가\s*임피던스/.test(txt) && /최대\s*전력|최대전력|최대\s*평균\s*전력|maximum\s*power/.test(txt)) return false;
+  // 스위치: inventory SW 또는 텍스트(스위치·스위칭·t=0).
+  //   ※ bare "개방"은 신호로 쓰지 않는다 — 테브난 설명("전류원은 개방")에 흔히 나와 오발화한다(실측).
+  const hasSwitch = inv.some((c) => String(c.type).toUpperCase() === "SW") || /스위치|switch|스위칭|t\s*=\s*0/.test(txt);
   return hasSwitch;
 }
 

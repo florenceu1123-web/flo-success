@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import { generateInParallel } from "./_common";
-import { classifyElectromagnetics, detectDielectricArrangement, detectDielectricPotentialMode, detectCoaxTwoDielectric, detectDielectricBoundary, detectCurlLineIntegral, detectSheetRingEfield, detectFluxLoopInducedCurrent, detectSheetLineEfieldSuperposition, detectPointLineChargeForce, detectSheetCurrentsVectorPotential, detectTwoPointCharges, detectCylinderConductorField, detectCoaxLineMagneticField } from "@/lib/analysis/classifyElectromagnetics";
+import { classifyElectromagnetics, detectDielectricArrangement, detectDielectricPotentialMode, detectCoaxTwoDielectric, detectDielectricBoundary, detectCurlLineIntegral, detectSheetRingEfield, detectFluxLoopInducedCurrent, detectSheetLineEfieldSuperposition, detectPointLineChargeForce, detectPointLineNullField, detectSheetCurrentsVectorPotential, detectTwoPointCharges, detectCylinderConductorField, detectCoaxLineMagneticField, detectTwoWiresFieldForce, detectBentSemiInfiniteWires, detectCylinderInternalInductance, detectSheetLineEfieldVector } from "@/lib/analysis/classifyElectromagnetics";
 import {
   generateElectromagnetics,
   emTopicOf,
@@ -49,7 +49,27 @@ export async function runElectromagneticsPipeline(args: {
   //   (0) ★ 동축선로 영역별 자계(임용 11번) — 실측에서 curl_field_current_density가 가져가
   //       ∇×H→J 문제로 변질됐다(사용자 신고). 동축 구조 + 자계는 이 항목 고유이고 형제
   //       동축 항목(정전용량·저항)은 감지기 안에서 양보하므로 **체인 맨 앞**에 둔다.
-  const entryId = detectCoaxLineMagneticField(analysis)
+  //   (0-2) ★ 두 무한 직선 도선(전류 반대) → 합성 자계·위치 a·단위 길이당 힘 (임용 11번).
+  //        실측 dispatch 로그에서 `straight_wire_B`(단일 도선)가 가져가 도선 1개짜리 단순
+  //        계산 문제로 변질됐다. "도선이 2개"는 텍스트 점수로는 안 갈리므로 구조로 강제한다.
+  //   (0-1) ★ 원점에서 꺾인 반무한 직선 도선 → 합성 자계로 전류 I (임용 11번).
+  //        실측 dispatch 로그에서 `circular_loop_axis_field`(두 원형 루프)가 가져가 전혀 다른
+  //        문제가 생성됐다. Vision이 topic을 "두 원형 루프의 합성 자계"로 **오요약**한 회차라
+  //        낱말 점수로는 못 이긴다 → 구조(축을 따라 흐름 + 무한히 먼 곳)로 강제한다.
+  //   (0-0) ★ 원통 도체의 **내부** 인덕턴스(임용 10번). 레지스트리에 항목이 없던 시절 bare "인덕턴스"로
+  //        **솔레노이드 L=μ₀N²A/l** 문제가 생성됐다(사용자 신고). 형제(솔레노이드·동축·상호)는
+  //        감지기 안에서 양보하므로 체인 앞에 둔다.
+  //   (0-0-B) ★ 무한 면전하 + 무한 **직선** 선전하 → 합성 전계 벡터로 C₁·C₂ 동시 역산 (임용 12번).
+  //        실측에서 sheet_ring_efield_ratio(원형 링)가 가져갔다 — Vision이 "원형 루프"로 오요약한 회차.
+  const entryId = detectSheetLineEfieldVector(analysis)
+    ? "sheet_line_efield_vector"
+    : detectCylinderInternalInductance(analysis)
+    ? "cylinder_internal_inductance"
+    : detectBentSemiInfiniteWires(analysis)
+    ? "bent_semi_infinite_wires"
+    : detectTwoWiresFieldForce(analysis)
+    ? "two_wires_field_force"
+    : detectCoaxLineMagneticField(analysis)
     ? "coax_line_magnetic_field"
     : detectDielectricBoundary(analysis)
     ? "dielectric_boundary_field"
@@ -70,6 +90,10 @@ export async function runElectromagneticsPipeline(args: {
               //        면전류+선전류 합성 자계(sheet_line_superposition)와 낱말이 겹쳐 점수로 안 갈린다.
               : detectSheetCurrentsVectorPotential(analysis)
                 ? "sheet_currents_vector_potential"
+              //   (6.45) ★ 점전하 + x축 무한 선전하 → **크기가 같아지는 Q_A** + **전계가 0이 되는 위치 k**
+              //         (임용 9번). 아래 (6.5)는 "점전하+선전하+전계"면 무조건 참이라 반드시 그보다 앞.
+              : detectPointLineNullField(analysis)
+                ? "point_line_null_field"
               : detectPointLineChargeForce(analysis)
                 ? "point_line_charge_force"
               //   (7) ★ 면전하 + 직선 선전하 합성 전계 — strong 키워드가 "합성 전계" 하나뿐이라
