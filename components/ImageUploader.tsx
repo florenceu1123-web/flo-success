@@ -201,7 +201,9 @@ function AlbumPicker({
           <div className="min-w-0">
             <p className="text-sm font-semibold text-blue-900">{ALBUM_LABEL}에서 고르기</p>
             <p className="text-xs text-slate-400">
-              {busy ? "사진을 불러오는 중..." : "사진을 누르면 그대로 업로드됩니다 · 여기서 새로 올릴 수도 있습니다"}
+              {busy
+                ? "사진을 불러오는 중..."
+                : "사진을 누르면 그대로 업로드됩니다 · 새로 올리거나 「사진 선택 삭제」로 지울 수도 있습니다"}
             </p>
           </div>
           <button

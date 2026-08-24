@@ -83,6 +83,18 @@ export default function SubjectNotes({
   const [hits, setHits] = useState<NoteSearchHit[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchTruncated, setSearchTruncated] = useState(false);
+  /**
+   * 선택 삭제 모드 — 켜면 썸네일을 눌러도 크게 보기·고르기가 아니라 **체크**가 된다.
+   * ★ 고르기 모드(업로드 창)에서는 확대 보기로 들어갈 수 없어(누르면 곧바로 업로드된다)
+   *   확대 보기 안의 삭제 버튼에 손이 닿지 않는다 — 그리드에서 지울 길이 여기뿐이다.
+   * ★ 선택 키는 **앨범+id**로 잡는다 — 제목 검색 결과는 여러 앨범이 섞여 있어
+   *   id만으로는 어느 앨범 사진인지 가려낼 수 없다(삭제 요청도 앨범별로 나간다).
+   */
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  /** 선택 삭제 확인 단계 — 여러 장을 한 번에 지우므로 확대 보기와 같이 두 번 눌러야 지워진다. */
+  const [confirmBulk, setConfirmBulk] = useState(false);
 
   /** 검색어가 유효한가 (공백만 친 경우는 검색으로 치지 않는다). */
   const searchMode = noteSearchTokens(query).length > 0;
@@ -117,6 +129,9 @@ export default function SubjectNotes({
     const value = next.slice(0, NOTE_SEARCH_MAX);
     setQuery(value);
     setViewerIndex(null);
+    // 목록이 통째로 바뀌므로 선택도 비운다 — 안 비우면 보이지도 않는 사진이 선택된 채 남는다.
+    setSelected(new Set());
+    setConfirmBulk(false);
     const searching = noteSearchTokens(value).length > 0;
     setIsSearching(searching);
     if (!searching) {
@@ -270,20 +285,106 @@ export default function SubjectNotes({
     [subject],
   );
 
+  /**
+   * 사진 삭제 — **한 장이든 여러 장이든 이 경로 하나만 탄다**(확대 보기의 삭제 버튼 포함).
+   * API가 한 번에 한 장이라 순차로 보낸다. 병렬로 던지면 같은 앨범의 인덱스 파일을 동시에
+   * 고쳐 마지막 응답이 앞선 삭제를 되살린다(응답이 앨범 전체 목록이라 서로 덮어쓴다).
+   * 한 장이 실패해도 나머지는 계속 지우고, 실패한 것만 모아 돌려준다.
+   */
+  const removeNotes = async (
+    targets: { album: NoteAlbumKey; id: string; title: string }[],
+  ): Promise<{ ok: number; failed: string[] }> => {
+    const failed: string[] = [];
+    let ok = 0;
+    for (const t of targets) {
+      try {
+        const res = await fetch(`/api/notes?subject=${t.album}&id=${t.id}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+        const next: NotePhoto[] = data.notes ?? [];
+        if (t.album === subject) setNotes(next);
+        setCounts((c) => ({ ...c, [t.album]: next.length }));
+        // 검색 결과에서 지운 경우 — 다시 검색하지 않고 그 자리만 빼낸다.
+        setHits((list) =>
+          list ? list.filter((h) => !(h.album === t.album && h.photo.id === t.id)) : list,
+        );
+        ok += 1;
+      } catch (e) {
+        failed.push(`${t.title}: ${(e as Error).message}`);
+      }
+    }
+    return { ok, failed };
+  };
+
+  /** 확대 보기에서 한 장 삭제. */
   const removeNote = async (album: NoteAlbumKey, id: string) => {
     setError(null);
-    try {
-      const res = await fetch(`/api/notes?subject=${album}&id=${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-      const next: NotePhoto[] = data.notes ?? [];
-      if (album === subject) setNotes(next);
-      setCounts((c) => ({ ...c, [album]: next.length }));
-      // 검색 결과에서 지운 경우 — 다시 검색하지 않고 그 자리만 빼낸다.
-      setHits((list) => (list ? list.filter((h) => !(h.album === album && h.photo.id === id)) : list));
-    } catch (e) {
-      setError(`삭제 실패: ${(e as Error).message}`);
-    }
+    const found = entries.find((e) => e.album === album && e.photo.id === id)?.photo;
+    const { failed } = await removeNotes([
+      { album, id, title: found ? notePhotoTitle(found) : id },
+    ]);
+    if (failed.length) setError(`삭제 실패: ${failed.join(" / ")}`);
+  };
+
+  // ─── 선택 삭제 ────────────────────────────────────────────────────────
+  // 그리드에서 여러 장을 골라 한 번에 지운다. 확대 보기로 못 들어가는 고르기 모드
+  // (업로드 창)에서도 사진을 정리할 수 있게 하려고 만든 통로다.
+
+  /** 선택 키 — **앨범과 id를 함께** 묶는다(검색 결과엔 여러 앨범이 섞인다). */
+  const selectionKey = (album: NoteAlbumKey, id: string) => `${album}:${id}`;
+
+  /** 지금 화면 목록 중 실제로 선택된 것들 — 개수 표시·삭제는 전부 이것만 본다. */
+  const selectedEntries = useMemo(
+    () => entries.filter((e) => selected.has(selectionKey(e.album, e.photo.id))),
+    [entries, selected],
+  );
+
+  /** 선택을 비우고 확인 단계도 되돌린다 (앨범 전환·검색어 변경·모드 전환·삭제 후). */
+  const clearSelection = () => {
+    setSelected(new Set());
+    setConfirmBulk(false);
+  };
+
+  const toggleSelected = (album: NoteAlbumKey, id: string) => {
+    const key = selectionKey(album, id);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    // 고른 것이 바뀌면 확인 단계를 처음부터 — 확인을 눌러 둔 채 한 장 더 고르고
+    // 삭제되는 일이 없게 한다.
+    setConfirmBulk(false);
+  };
+
+  /** 지금 보이는 사진 전부 선택 / 전부 해제. */
+  const toggleSelectAll = () => {
+    setConfirmBulk(false);
+    setSelected(
+      selectedEntries.length >= entries.length
+        ? new Set()
+        : new Set(entries.map((e) => selectionKey(e.album, e.photo.id))),
+    );
+  };
+
+  /** 선택한 사진들 삭제 — 확인을 한 번 더 받은 뒤 순차로 지운다. */
+  const deleteSelected = async () => {
+    const targets = selectedEntries.map((e) => ({
+      album: e.album,
+      id: e.photo.id,
+      title: notePhotoTitle(e.photo),
+    }));
+    if (targets.length === 0) return;
+    setIsDeleting(true);
+    setError(null);
+    setNotice(null);
+    const { ok, failed } = await removeNotes(targets);
+    setIsDeleting(false);
+    clearSelection();
+    setViewerIndex(null);
+    setNotice(`${ok}장 삭제됨${failed.length ? ` · 실패 ${failed.length}장` : ""}`);
+    if (failed.length) setError(`삭제 실패: ${failed.join(" / ")}`);
   };
 
   /**
@@ -388,6 +489,7 @@ export default function SubjectNotes({
                 onClick={() => {
                   setSubject(key);
                   setQuery("");
+                  clearSelection();
                 }}
                 // 과목이 아닌 별도 앨범(전공스샷)은 호박색으로 구분한다 — 과목 버튼과 섞이지 않게
                 // (교육학 버튼만 연두색으로 구분한 SubjectSelector와 같은 방식).
@@ -530,18 +632,88 @@ export default function SubjectNotes({
 
       {/* 썸네일 그리드 */}
       <section className="bg-white rounded-2xl border border-blue-100 p-5 shadow-sm">
-        <div className="flex items-baseline justify-between mb-3">
+        <div className="flex items-baseline justify-between gap-3 mb-3">
           <h2 className="text-sm font-semibold text-blue-900">
             {searchMode ? `제목 검색 결과 · ${entries.length}장` : `${noteAlbumLabel(subject)} · ${notes.length}장`}
           </h2>
-          {entries.length > 0 && (
-            <span className="text-xs text-slate-400">
-              {searchMode
-                ? "누르면 크게 보기 · 순서 변경은 검색을 지운 뒤에"
-                : "누르면 크게 보기 · 끌어서 순서 변경 (Ctrl+←/→ 도 가능)"}
-            </span>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {entries.length > 0 && !selectMode && (
+              <span className="hidden md:inline text-xs text-slate-400">
+                {pickMode
+                  ? "누르면 그대로 업로드됩니다"
+                  : searchMode
+                    ? "누르면 크게 보기 · 순서 변경은 검색을 지운 뒤에"
+                    : "누르면 크게 보기 · 끌어서 순서 변경 (Ctrl+←/→ 도 가능)"}
+              </span>
+            )}
+            {/*
+              ★ 선택 삭제 — 고르기 모드(업로드 창)에서 사진을 지울 수 있는 유일한 통로다.
+                그 창은 썸네일을 누르면 곧바로 업로드돼 확대 보기(=기존 삭제 버튼)로 못 들어간다.
+            */}
+            {entries.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectMode((v) => !v);
+                  clearSelection();
+                }}
+                className={`shrink-0 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                  selectMode
+                    ? "border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    : "border-rose-200 bg-white text-rose-600 hover:bg-rose-50"
+                }`}
+              >
+                {selectMode ? "선택 끝내기" : "사진 선택 삭제"}
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* 선택 삭제 막대 — 몇 장 골랐는지·전체 선택·삭제(확인 2단계)를 한 줄에 모았다. */}
+        {selectMode && entries.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-3 px-3 py-2 rounded-xl border border-rose-100 bg-rose-50/60">
+            <span className="text-xs font-semibold text-rose-700">{selectedEntries.length}장 선택됨</span>
+            <span className="text-xs text-rose-400">· 지울 사진을 누르세요</span>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs text-slate-600 hover:bg-slate-50"
+              >
+                {selectedEntries.length >= entries.length ? "전체 해제" : `전체 선택 (${entries.length})`}
+              </button>
+              {confirmBulk ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void deleteSelected()}
+                    disabled={isDeleting}
+                    className="px-2.5 py-1 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 disabled:opacity-50"
+                  >
+                    {isDeleting ? "지우는 중..." : `정말 ${selectedEntries.length}장 삭제`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulk(false)}
+                    disabled={isDeleting}
+                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    취소
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmBulk(true)}
+                  disabled={selectedEntries.length === 0}
+                  className="px-2.5 py-1 rounded-lg border border-rose-300 bg-white text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  선택한 {selectedEntries.length}장 삭제
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {(searchMode ? isSearching && hits === null : isLoading) ? (
           <p className="py-12 text-center text-sm text-slate-400">
@@ -566,7 +738,15 @@ export default function SubjectNotes({
             {entries.map((entry, i) => {
               const { photo, album } = entry;
               // 순서 변경은 **한 앨범 안에서만** 뜻이 있다 — 검색 결과는 여러 앨범이 섞여 있어 끈다.
-              const canReorder = !searchMode;
+              // 선택 모드에서도 끈다 — 고르려고 누른 것이 순서 이동으로 새면 안 된다.
+              const canReorder = !searchMode && !selectMode;
+              const isSelected = selectMode && selected.has(selectionKey(album, photo.id));
+              /** 타일을 눌렀을 때 — 선택 모드가 켜져 있으면 고르기·크게 보기보다 **선택이 먼저**다. */
+              const activate = () => {
+                if (selectMode) toggleSelected(album, photo.id);
+                else if (pickMode && onSelectPhoto) onSelectPhoto(photo, album);
+                else setViewerIndex(i);
+              };
               const isDragging = dragIndex === i;
               const isDropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
               // ★ 전공스샷처럼 파일명이 곧 내용인 앨범은 **제목을 타일 아래에** 함께 보여준다.
@@ -576,12 +756,12 @@ export default function SubjectNotes({
                   role="button"
                   tabIndex={0}
                   draggable={canReorder}
-                  onClick={() => (pickMode && onSelectPhoto ? onSelectPhoto(photo, album) : setViewerIndex(i))}
+                  aria-pressed={selectMode ? isSelected : undefined}
+                  onClick={activate}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      if (pickMode && onSelectPhoto) onSelectPhoto(photo, album);
-                      else setViewerIndex(i);
+                      activate();
                     }
                     // 키보드로도 순서 변경 — Ctrl+←/→ 로 한 칸씩 이동.
                     if (canReorder && e.ctrlKey && e.key === "ArrowLeft") {
@@ -623,7 +803,11 @@ export default function SubjectNotes({
                       ? "opacity-40 border-blue-300"
                       : isDropTarget
                         ? "border-blue-500 ring-2 ring-blue-400 scale-[1.02]"
-                        : "border-blue-100 hover:border-blue-400"
+                        : isSelected
+                          ? "border-rose-500 ring-2 ring-rose-400"
+                          : selectMode
+                            ? "border-slate-200 hover:border-rose-300"
+                            : "border-blue-100 hover:border-blue-400"
                   }`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -640,6 +824,22 @@ export default function SubjectNotes({
                   <span className="absolute top-1.5 left-1.5 max-w-[85%] truncate px-1.5 py-0.5 rounded-md bg-black/55 text-white text-[11px] font-medium">
                     {searchMode ? `${noteAlbumLabel(album)} · ${entry.position + 1}` : i + 1}
                   </span>
+
+                  {/* 선택 체크 — 선택 모드에서는 순서 이동 버튼이 꺼지므로 오른쪽 위 자리가 비어 있다. */}
+                  {selectMode && (
+                    <span
+                      aria-hidden
+                      className={`absolute top-1.5 right-1.5 w-6 h-6 rounded-md border-2 flex items-center justify-center text-xs font-bold ${
+                        isSelected
+                          ? "bg-rose-500 border-rose-500 text-white"
+                          : "bg-white/85 border-slate-300 text-transparent"
+                      }`}
+                    >
+                      ✓
+                    </span>
+                  )}
+                  {/* 고른 사진은 붉게 덮어 한눈에 보이게 한다(작은 체크만으로는 잘 안 보인다). */}
+                  {isSelected && <span aria-hidden className="absolute inset-0 bg-rose-500/25" />}
 
                   {/* 한 칸씩 이동 — 드래그가 어려운 환경(터치·좁은 화면)용 */}
                   <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
