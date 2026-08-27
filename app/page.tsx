@@ -15,6 +15,7 @@ import type {
   AnalysisResult,
   GeneratedProblem,
 } from "@/types";
+import { imageKeyOf, normalizeImageBase64 } from "@/lib/imageKey";
 import type { RuleSet } from "@/lib/rules";
 import type { ValidationResult } from "@/lib/validators";
 
@@ -78,11 +79,14 @@ export default function Home() {
   };
 
   const handleUpload = async (base64: string, name: string) => {
-    setUploadedImage(base64);
+    // ★ 경로마다 data URL 전체를 넘기기도 해서(랜덤문제 패널) 여기서 한 번 정규화한다.
+    //   안 하면 같은 사진인데 imageKey가 갈려 오답 메모지가 공유되지 않는다.
+    const clean = normalizeImageBase64(base64);
+    setUploadedImage(clean);
     setFileName(name);
     setAnalysis(null);
     resetGenerationState();
-    if (subject) await runAnalyze(base64, subject);
+    if (subject) await runAnalyze(clean, subject);
   };
 
   const handleSubjectChange = async (s: SubjectKey) => {
@@ -131,13 +135,9 @@ export default function Home() {
 
   const canGenerate = !!uploadedImage && !!subject && !isAnalyzing && !isGenerating;
 
-  // 업로드 이미지 기반 안정 키 — 사용자가 직접 입력한 풀이·정답을 localStorage에 저장/복원할 때 사용.
-  const imageKey = useMemo(() => {
-    if (!uploadedImage) return null;
-    let h = 5381;
-    for (let i = 0; i < uploadedImage.length; i++) h = ((h << 5) + h + uploadedImage.charCodeAt(i)) | 0;
-    return `img${(h >>> 0).toString(36)}`;
-  }, [uploadedImage]);
+  // 업로드 이미지 내용 기반 안정 키 — 오답 메모지를 붙여 두는 단위.
+  // ★ 랜덤문제 풀기도 **같은 함수**로 키를 만든다(lib/imageKey.ts) — 그래야 두 화면이 메모를 공유한다.
+  const imageKey = useMemo(() => imageKeyOf(uploadedImage), [uploadedImage]);
 
   return (
     <div className="min-h-screen bg-white">

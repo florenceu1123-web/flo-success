@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ShotItem, ShotPage } from "@/app/api/shots/route";
+import { OriginalSolutionEditor } from "@/components/OriginalSolutionEditor";
+import { imageKeyFromUrl } from "@/lib/imageKey";
 
 /**
  * 「랜덤문제 풀기」 패널 — **기출 스샷과 생성문제 보관함**에서 무작위로 출제한다.
@@ -72,6 +74,12 @@ export default function RandomExamPanel({
   const [showAns, setShowAns] = useState(false);
   const [zoom, setZoom] = useState(false);
   const [sending, setSending] = useState(false);
+  /**
+   * 지금 문항의 **오답 메모지 키**. 문제 생성 화면과 같은 규칙(이미지 내용 해시)이라
+   * 어느 쪽에서 적어 둔 메모든 그대로 뜬다(사용자 지정 — 두 화면이 메모지를 공유).
+   * 이미지를 한 번 읽어야 나오는 값이라 비동기로 채운다.
+   */
+  const [memoKey, setMemoKey] = useState<string | null>(null);
 
   const [done, setDone] = useState<Set<string>>(new Set());
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -121,6 +129,31 @@ export default function RandomExamPanel({
     });
   }, [idx, sel, trk, onlyAns, src]);
 
+  /** 진행 중인 메모지 키 조회 — 문항을 넘기면 취소한다(늦은 응답이 다음 문항을 덮어쓰지 않게). */
+  const memoCtl = useRef<AbortController | null>(null);
+
+  /**
+   * 문항의 이미지 내용으로 오답 메모지 키를 만든다.
+   * ★ effect가 아니라 **문항을 바꾸는 자리에서** 부른다 — effect에서 setState 하면
+   *   한 박자 늦게 반영돼 이전 문항의 메모가 잠깐 남는다(프로젝트 lint 규칙과도 어긋난다).
+   * ★ 화면에 이미 그려진 이미지라 대개 브라우저 캐시에서 즉시 나온다.
+   */
+  const loadMemoKey = useCallback((item: ShotItem | null) => {
+    memoCtl.current?.abort();
+    memoCtl.current = null;
+    setMemoKey(null);
+    const page = item?.qPages[0];
+    if (!page) return;
+    const ctl = new AbortController();
+    memoCtl.current = ctl;
+    imageKeyFromUrl(page.url, ctl.signal)
+      .then((k) => { if (!ctl.signal.aborted) setMemoKey(k); })
+      .catch(() => { /* 이미지를 못 읽으면 메모지를 감춘다 */ });
+  }, []);
+
+  // 화면을 떠날 때 진행 중인 조회 정리 (setState 없음 → effect로 두어도 안전).
+  useEffect(() => () => memoCtl.current?.abort(), []);
+
   /** 지금 보고 있는 문항을 이력에 쌓고 다른 문항으로 넘어간다. */
   const goTo = useCallback((next: ShotItem) => {
     const prev = curRef.current;
@@ -130,7 +163,8 @@ export default function RandomExamPanel({
     setCur(next);
     setShowAns(false);
     setZoom(false);
-  }, []);
+    loadMemoKey(next);
+  }, [loadMemoKey]);
 
   const draw = useCallback(() => {
     let pool = inScope;
@@ -138,21 +172,23 @@ export default function RandomExamPanel({
       const fresh = pool.filter((i) => !done.has(i.file));
       if (fresh.length) pool = fresh;
     }
-    if (!pool.length) { setCur(null); return; }
+    if (!pool.length) { setCur(null); loadMemoKey(null); return; }
     let k = Math.floor(Math.random() * pool.length);
     const prev = curRef.current;
     if (pool.length > 1 && prev && pool[k].file === prev.file) k = (k + 1) % pool.length; // 연속 방지
     goTo(pool[k]);
-  }, [inScope, onlyNew, done, goTo]);
+  }, [inScope, onlyNew, done, goTo, loadMemoKey]);
 
   /** 직전에 보던 문항으로 되돌아간다(이력 스택에서 하나 꺼낸다). */
   const goPrev = useCallback(() => {
     if (!history.length) return;
-    setCur(history[history.length - 1]);
+    const back = history[history.length - 1];
+    setCur(back);
     setHistory((h) => h.slice(0, -1));
     setShowAns(false);
     setZoom(false);
-  }, [history]);
+    loadMemoKey(back);
+  }, [history, loadMemoKey]);
 
   /**
    * 들어오자마자 풀 수 있게 **처음 한 번만** 뽑아 둔다.
@@ -388,6 +424,16 @@ export default function RandomExamPanel({
               />
             ))}
           </div>
+
+          {/*
+            오답 메모지 — 문제 생성 화면(AnalysisPanel)과 **같은 컴포넌트·같은 키**를 쓴다.
+            그래서 어느 화면에서 적어 두든 같은 문제면 그대로 뜬다(사용자 지정).
+          */}
+          {memoKey && (
+            <div className="mt-4 pt-4 border-t border-dashed border-slate-200">
+              <OriginalSolutionEditor imageKey={memoKey} />
+            </div>
+          )}
 
           {showAns && cur.aPages.length > 0 && (
             <div className="mt-4 pt-4 border-t border-dashed border-slate-200">
